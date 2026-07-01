@@ -1,29 +1,40 @@
-/* Main App Component - Handles routing (using react-router-dom), query client and other providers - use this file to add all routes */
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { AppProvider } from '@/context/app-context'
+
+import Layout from './components/Layout'
 import Index from './pages/Index'
 import NotFound from './pages/NotFound'
-import Layout from './components/Layout'
-
-// ONLY IMPORT AND RENDER WORKING PAGES, NEVER ADD PLACEHOLDER COMPONENTS OR PAGES IN THIS FILE
-// AVOID REMOVING ANY CONTEXT PROVIDERS FROM THIS FILE (e.g. TooltipProvider, Toaster, Sonner)
+import Products from './pages/Products'
+import Schools from './pages/Schools'
+import Contracts from './pages/Contracts'
+import Orders from './pages/Orders'
+import DeliveryRoutes from './pages/DeliveryRoutes'
+import Atestos from './pages/Atestos'
 
 const App = () => (
-  <BrowserRouter>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES MUST BE ADDED HERE */}
-        </Route>
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </TooltipProvider>
-  </BrowserRouter>
+  <AppProvider>
+    <BrowserRouter>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Index />} />
+            <Route path="/produtos" element={<Products />} />
+            <Route path="/escolas" element={<Schools />} />
+            <Route path="/contratos" element={<Contracts />} />
+            <Route path="/pedidos" element={<Orders />} />
+            <Route path="/rotas" element={<DeliveryRoutes />} />
+            <Route path="/atestos" element={<Atestos />} />
+          </Route>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </TooltipProvider>
+    </BrowserRouter>
+  </AppProvider>
 )
 
 export default App

@@ -244,30 +244,83 @@ function buildPrintHtml(): string {
   ${pendingList}
 
   <div class="footer">Documento de Requisitos do Sistema — CoopGestão • Gerado em ${new Date().toLocaleDateString('pt-BR')}</div>
-
-  <script>
-    window.onload = function () { window.print(); }
-  </script>
 </body>
 </html>`
 }
 
-function handleDownloadPdf() {
-  const html = buildPrintHtml()
+/* Download the standalone HTML document as a last-resort fallback. */
+function downloadHtmlFallback(html: string) {
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
   const url = URL.createObjectURL(blob)
-  const win = window.open(url, '_blank')
-  // Fallback: if popup blocked, offer direct download of the HTML doc.
-  if (!win) {
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'DRS-CoopGestao.html'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'DRS-CoopGestao.html'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/**
+ * Robust print-to-PDF that does NOT depend on popups.
+ *
+ * The previous implementation opened a new window with a blob URL, which is
+ * fragile: popup blockers silently kill `window.open`, and `window.onload`
+ * inside the popup does not always fire for blob URLs. Instead we render the
+ * document into a hidden iframe (via `srcdoc`, which is not subject to popup
+ * blocking and needs no URL to revoke) and call `.print()` on its
+ * `contentWindow` once it has loaded. If anything throws, we fall back to a
+ * plain HTML download.
+ */
+function handleDownloadPdf() {
+  const html = buildPrintHtml()
+
+  try {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    iframe.setAttribute('aria-hidden', 'true')
+    iframe.title = 'Impressão do DRS'
+
+    let printed = false
+
+    const cleanup = () => {
+      // Give the print dialog a moment to hold the document before removal.
+      setTimeout(() => iframe.remove(), 1000)
+    }
+
+    iframe.onload = () => {
+      try {
+        const win = iframe.contentWindow
+        if (win) {
+          win.focus()
+          win.print()
+          printed = true
+        }
+      } catch {
+        // contentWindow.print() can throw in sandboxed contexts.
+      }
+      cleanup()
+    }
+
+    // If the iframe never reports load (rare), fall back to HTML download so
+    // the user is never left with a dead button.
+    const fallbackTimer = window.setTimeout(() => {
+      if (!printed) downloadHtmlFallback(html)
+    }, 3000)
+
+    iframe.addEventListener('load', () => window.clearTimeout(fallbackTimer), { once: true })
+
+    iframe.srcdoc = html
+    document.body.appendChild(iframe)
+  } catch {
+    // iframe unsupported or blocked entirely — offer the HTML download.
+    downloadHtmlFallback(html)
   }
-  // Revoke after a delay to allow the print dialog to load.
-  setTimeout(() => URL.revokeObjectURL(url), 30000)
 }
 
 /* ----------------------------------------------------------------------------

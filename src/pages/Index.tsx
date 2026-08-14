@@ -10,6 +10,8 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
+  School,
+  Sprout,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 

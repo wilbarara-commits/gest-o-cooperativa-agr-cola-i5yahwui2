@@ -13,6 +13,7 @@ import Contracts from './pages/Contracts'
 import Orders from './pages/Orders'
 import DeliveryRoutes from './pages/DeliveryRoutes'
 import Atestos from './pages/Atestos'
+import Requirements from './pages/Requirements'
 
 const App = () => (
   <AppProvider>
@@ -29,6 +30,7 @@ const App = () => (
             <Route path="/pedidos" element={<Orders />} />
             <Route path="/rotas" element={<DeliveryRoutes />} />
             <Route path="/atestos" element={<Atestos />} />
+            <Route path="/requisitos" element={<Requirements />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

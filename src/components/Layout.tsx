@@ -12,6 +12,7 @@ import {
   Menu,
   LogOut,
   User,
+  BookOpen,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { name: 'Pedidos', path: '/pedidos', icon: ShoppingCart },
   { name: 'Rotas', path: '/rotas', icon: Map },
   { name: 'Atestos', path: '/atestos', icon: FileCheck },
+  { name: 'Documento de Requisitos', path: '/requisitos', icon: BookOpen },
 ]
 
 export default function Layout() {

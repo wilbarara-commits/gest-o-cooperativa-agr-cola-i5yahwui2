@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   UserCheck,
   BookOpen,
+  BarChart3,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -48,6 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Pedidos', path: '/pedidos', icon: ShoppingCart },
   { name: 'Rotas', path: '/rotas', icon: Map },
   { name: 'Atestos', path: '/atestos', icon: FileCheck },
+  { name: 'Relatórios', path: '/relatorios', icon: BarChart3 },
   { name: 'Documento de Requisitos', path: '/requisitos', icon: BookOpen, adminOnly: true },
 ]
 

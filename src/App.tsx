@@ -16,6 +16,7 @@ import Contracts from './pages/Contracts'
 import Orders from './pages/Orders'
 import DeliveryRoutes from './pages/DeliveryRoutes'
 import Atestos from './pages/Atestos'
+import Reports from './pages/Reports'
 import Requirements from './pages/Requirements'
 
 const App = () => (
@@ -42,6 +43,7 @@ const App = () => (
               <Route path="/pedidos" element={<Orders />} />
               <Route path="/rotas" element={<DeliveryRoutes />} />
               <Route path="/atestos" element={<Atestos />} />
+              <Route path="/relatorios" element={<Reports />} />
 
               {/* Rotas restritas exclusivamente para Administrador */}
               <Route

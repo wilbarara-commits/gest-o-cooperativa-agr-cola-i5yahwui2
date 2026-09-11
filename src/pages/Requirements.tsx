@@ -93,16 +93,29 @@ const MODULES: ModuleSpec[] = [
       'Funcionalidades: alerta de pedidos prontos para atesto (fundo âmbar), tabela de histórico, Dialog modal com visualização formal (papel timbrado, cabeçalho CoopGestão, declaração de recebimento, linha de assinatura), botão "Imprimir PDF", geração condicional (só pedidos Entregue sem atesto)',
     ],
   },
+  {
+    id: '3.8',
+    title: 'Relatórios Contábeis & Prestação de Contas',
+    route: '/relatorios',
+    goal: 'Geração e exportação avançada de demonstrativos para fechamento mensal e prestação de contas PNAE/PAA.',
+    details: [
+      'Três relatórios contábeis integrados: Faturamento por Contrato (entregue vs saldo vs % execução), Entregas por Período (pedidos faturados consolidado por escola e total geral) e Produtos Entregues (volume e valor por item agrícola).',
+      'Filtros avançados: intervalo de datas com atalhos ("Este Mês", "Mês Anterior", "Ano Vigente"), programa institucional (PNAE/PAA/Municipal), escola parceira e categoria.',
+      'Exportação Excel real (.xlsx): implementada com SheetJS (xlsx), contendo metadados do cabeçalho, filtros aplicados, cartões de resumo e totalizadores no rodapé.',
+      'Exportação PDF real: implementada diretamente com jsPDF e jspdf-autotable em layout profissional timbrado CooperGestão, sem window.print/iframe, com download direto via save().',
+      'Acessibilidade de perfis: disponível para Administrador e Secretária.',
+    ],
+  },
 ]
 
 const PROFILES = [
   [
     'Administrador',
-    'Acesso total. Gerencia produtos, preços, contratos, rotas, escolas, documento de requisitos e visualiza todos os dados.',
+    'Acesso total. Gerencia produtos, preços, contratos, rotas, escolas, relatórios, documento de requisitos e visualiza todos os dados.',
   ],
   [
     'Secretária',
-    'Acesso operacional. Focado em lançar pedidos, consultar rotas e emitir atestos (sem acesso a Produtos, Contratos, Escolas e Requisitos).',
+    'Acesso operacional e contábil. Focado em lançar pedidos, consultar rotas, emitir atestos e gerar relatórios contábeis de faturamento/entregas (sem acesso a Produtos, Contratos, Escolas e Requisitos).',
   ],
 ]
 
@@ -126,7 +139,6 @@ const STACK = [
 ]
 
 const PENDING = [
-  'Exportação avançada de relatórios contábeis em formato PDF/Excel para prestação de contas PNAE/PAA',
   'Integração de mapas georreferenciados para otimização automática da ordem de entrega das rotas',
   'Assinatura digitalizada e upload de arquivo de atesto escaneado via câmera mobile',
 ]
@@ -159,12 +171,12 @@ function buildPrintHtml(): string {
         ${rows([
           'Administrador',
           'Acesso total ao sistema, configuração e reajustes.',
-          'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Requisitos',
+          'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Relatórios, Requisitos',
         ])}
         ${rows([
           'Secretária',
-          'Acesso operacional com restrições.',
-          'Dashboard, Pedidos, Rotas, Atestos',
+          'Acesso operacional e contábil.',
+          'Dashboard, Pedidos, Rotas, Atestos, Relatórios',
         ])}
       </tbody>
     </table>`
@@ -446,12 +458,12 @@ export default function Requirements() {
           [
             'Administrador',
             'Acesso total e gestão completa do sistema.',
-            'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Requisitos + Ajuste em Massa',
+            'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Relatórios, Requisitos + Ajuste em Massa',
           ],
           [
             'Secretária',
-            'Acesso restrito à operação diária.',
-            'Dashboard, Pedidos, Rotas, Atestos (sem acesso a Produtos, Contratos, Escolas e Requisitos)',
+            'Acesso restrito à operação diária e relatórios.',
+            'Dashboard, Pedidos, Rotas, Atestos, Relatórios (sem acesso a Produtos, Contratos, Escolas e Requisitos)',
           ],
         ]}
       />

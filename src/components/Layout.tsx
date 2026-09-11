@@ -1,4 +1,5 @@
-import { Outlet, Link, useLocation } from 'react-router-dom'
+import { useState } from 'react'
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Sprout,
@@ -11,7 +12,8 @@ import {
   Search,
   Menu,
   LogOut,
-  User,
+  ShieldCheck,
+  UserCheck,
   BookOpen,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
@@ -26,25 +28,64 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/context/auth-context'
+import { toast } from 'sonner'
 
-const NAV_ITEMS = [
+interface NavItem {
+  name: string
+  path: string
+  icon: any
+  adminOnly?: boolean
+}
+
+const NAV_ITEMS: NavItem[] = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Produtos', path: '/produtos', icon: Sprout },
-  { name: 'Escolas', path: '/escolas', icon: School },
-  { name: 'Contratos', path: '/contratos', icon: FileText },
+  { name: 'Produtos', path: '/produtos', icon: Sprout, adminOnly: true },
+  { name: 'Escolas', path: '/escolas', icon: School, adminOnly: true },
+  { name: 'Contratos', path: '/contratos', icon: FileText, adminOnly: true },
   { name: 'Pedidos', path: '/pedidos', icon: ShoppingCart },
   { name: 'Rotas', path: '/rotas', icon: Map },
   { name: 'Atestos', path: '/atestos', icon: FileCheck },
-  { name: 'Documento de Requisitos', path: '/requisitos', icon: BookOpen },
+  { name: 'Documento de Requisitos', path: '/requisitos', icon: BookOpen, adminOnly: true },
 ]
 
 export default function Layout() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { user, isAdmin, logout } = useAuth()
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  const handleLogout = () => {
+    logout()
+    toast.info('Você saiu da sua conta.')
+    navigate('/login', { replace: true })
+  }
+
+  // Filtrar itens do menu de acordo com o perfil
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (item.adminOnly && !isAdmin) {
+      return false
+    }
+    return true
+  })
+
+  const displayName = user?.nome || user?.name || user?.email || 'Usuário'
+  const isPerfilAdmin = user?.perfil === 'administrador'
+  const perfilLabel = isPerfilAdmin ? 'Administrador' : 'Secretária'
+
+  const initials =
+    displayName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((n) => n[0].toUpperCase())
+      .join('') || 'U'
 
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
     <nav className="space-y-1 p-4">
-      {NAV_ITEMS.map((item) => {
+      {visibleNavItems.map((item) => {
         const isActive = location.pathname === item.path
         return (
           <Link
@@ -61,7 +102,7 @@ export default function Layout() {
             <item.icon
               className={cn('h-5 w-5', isActive ? 'text-primary' : 'text-muted-foreground')}
             />
-            {item.name}
+            <span>{item.name}</span>
           </Link>
         )
       })}
@@ -79,26 +120,92 @@ export default function Layout() {
         <div className="flex-1 overflow-y-auto py-2">
           <NavLinks />
         </div>
+        {/* Rodapé do Sidebar com perfil do usuário */}
+        <div className="p-4 border-t bg-muted/20">
+          <div className="flex items-center gap-3">
+            <Avatar className="h-9 w-9 border border-border">
+              {user?.avatar ? (
+                <AvatarImage src={user.avatar} alt={displayName} />
+              ) : (
+                <AvatarImage
+                  src={
+                    isPerfilAdmin
+                      ? 'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=42'
+                      : 'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=1'
+                  }
+                  alt={displayName}
+                />
+              )}
+              <AvatarFallback className="text-xs bg-primary/10 text-primary font-semibold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate leading-tight text-foreground">
+                {displayName}
+              </p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <Badge
+                  variant={isPerfilAdmin ? 'default' : 'secondary'}
+                  className="text-[10px] px-1.5 py-0 h-4 font-normal"
+                >
+                  {isPerfilAdmin ? (
+                    <ShieldCheck className="h-2.5 w-2.5 mr-0.5 inline" />
+                  ) : (
+                    <UserCheck className="h-2.5 w-2.5 mr-0.5 inline" />
+                  )}
+                  {perfilLabel}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </div>
       </aside>
 
       <div className="flex flex-col flex-1 overflow-hidden w-full">
         {/* Header */}
         <header className="flex h-16 items-center justify-between border-b bg-card px-4 md:px-6 shadow-sm z-10">
           <div className="flex items-center gap-4">
-            <Sheet>
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="md:hidden">
                   <Menu className="h-5 w-5" />
                   <span className="sr-only">Toggle menu</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-72 p-0">
-                <SheetTitle className="sr-only">Menu de Navegação</SheetTitle>
-                <div className="flex h-16 items-center gap-2 px-6 border-b">
-                  <Sprout className="h-6 w-6 text-primary" />
-                  <span className="font-bold text-lg text-primary">CoopGestão</span>
+              <SheetContent side="left" className="w-72 p-0 flex flex-col justify-between">
+                <div>
+                  <SheetTitle className="sr-only">Menu de Navegação</SheetTitle>
+                  <div className="flex h-16 items-center gap-2 px-6 border-b">
+                    <Sprout className="h-6 w-6 text-primary" />
+                    <span className="font-bold text-lg text-primary">CoopGestão</span>
+                  </div>
+                  <NavLinks onClick={() => setMobileOpen(false)} />
                 </div>
-                <NavLinks />
+                {/* Rodapé Mobile Drawer */}
+                <div className="p-4 border-t bg-muted/20">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-8 w-8 border border-border">
+                        <AvatarFallback className="text-xs bg-primary/10 text-primary font-semibold">
+                          {initials}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="text-left">
+                        <p className="text-xs font-medium leading-tight">{displayName}</p>
+                        <span className="text-[10px] text-muted-foreground">{perfilLabel}</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleLogout}
+                      className="text-destructive h-8 px-2 text-xs"
+                    >
+                      <LogOut className="h-3.5 w-3.5 mr-1" /> Sair
+                    </Button>
+                  </div>
+                </div>
               </SheetContent>
             </Sheet>
 
@@ -106,13 +213,27 @@ export default function Layout() {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 type="search"
-                placeholder="Buscar escolas, pedidos..."
+                placeholder="Buscar pedidos, rotas..."
                 className="pl-9 bg-muted/50 border-none focus-visible:ring-1 focus-visible:ring-primary rounded-full"
               />
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Indicador visual de perfil no header */}
+            <div className="hidden sm:flex items-center gap-2 text-right">
+              <div>
+                <p className="text-xs font-medium leading-none text-foreground">{displayName}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{user?.email}</p>
+              </div>
+              <Badge
+                variant={isPerfilAdmin ? 'default' : 'secondary'}
+                className="text-[11px] px-2 py-0.5 font-normal capitalize"
+              >
+                {perfilLabel}
+              </Badge>
+            </div>
+
             <Button
               variant="ghost"
               size="icon"
@@ -121,26 +242,61 @@ export default function Layout() {
               <Bell className="h-5 w-5" />
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-secondary"></span>
             </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+                <Button
+                  variant="ghost"
+                  className="relative h-9 w-9 rounded-full ring-offset-background"
+                >
                   <Avatar className="h-9 w-9 border border-border">
-                    <AvatarImage
-                      src="https://img.usecurling.com/ppl/thumbnail?gender=female&seed=1"
-                      alt="Avatar"
-                    />
-                    <AvatarFallback>MA</AvatarFallback>
+                    {user?.avatar ? (
+                      <AvatarImage src={user.avatar} alt={displayName} />
+                    ) : (
+                      <AvatarImage
+                        src={
+                          isPerfilAdmin
+                            ? 'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=42'
+                            : 'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=1'
+                        }
+                        alt={displayName}
+                      />
+                    )}
+                    <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">
+                      {initials}
+                    </AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Minha Conta</DropdownMenuLabel>
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none text-foreground">
+                      {displayName}
+                    </p>
+                    <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                    <div className="pt-1">
+                      <Badge
+                        variant={isPerfilAdmin ? 'default' : 'secondary'}
+                        className="text-[10px] px-1.5 py-0 h-4 font-normal inline-flex items-center"
+                      >
+                        {isPerfilAdmin ? (
+                          <ShieldCheck className="h-2.5 w-2.5 mr-1" />
+                        ) : (
+                          <UserCheck className="h-2.5 w-2.5 mr-1" />
+                        )}
+                        Perfil: {perfilLabel}
+                      </Badge>
+                    </div>
+                  </div>
+                </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
-                  <User className="mr-2 h-4 w-4" /> Perfil
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" /> Sair
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Sair da conta</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

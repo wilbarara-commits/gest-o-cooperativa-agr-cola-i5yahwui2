@@ -98,9 +98,12 @@ const MODULES: ModuleSpec[] = [
 const PROFILES = [
   [
     'Administrador',
-    'Acesso total. Gerencia produtos, preços, contratos, rotas, escolas e visualiza todos os dados.',
+    'Acesso total. Gerencia produtos, preços, contratos, rotas, escolas, documento de requisitos e visualiza todos os dados.',
   ],
-  ['Secretária', 'Acesso operacional. Focado em lançar pedidos, consultar rotas e emitir atestos.'],
+  [
+    'Secretária',
+    'Acesso operacional. Focado em lançar pedidos, consultar rotas e emitir atestos (sem acesso a Produtos, Contratos, Escolas e Requisitos).',
+  ],
 ]
 
 const VISUAL = [
@@ -123,7 +126,6 @@ const STACK = [
 ]
 
 const PENDING = [
-  'Autenticação e Perfis de Acesso — login individualizado para Administrador e Secretária com permissões baseadas em RLS',
   'CRUD completo com formulários de edição/exclusão para cadastro de escolas, contratos e produtos',
   'Exportação avançada de relatórios contábeis em formato PDF/Excel para prestação de contas PNAE/PAA',
   'Integração de mapas georreferenciados para otimização automática da ordem de entrega das rotas',
@@ -153,9 +155,18 @@ function buildPrintHtml(): string {
 
   const profileTable = `
     <table>
-      <thead>${rows(['Perfil', 'Descrição'], 'th')}</thead>
+      <thead>${rows(['Perfil', 'Descrição', 'Módulos Permitidos'], 'th')}</thead>
       <tbody>
-        ${PROFILES.map((p) => rows(p)).join('')}
+        ${rows([
+          'Administrador',
+          'Acesso total ao sistema, configuração e reajustes.',
+          'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Requisitos',
+        ])}
+        ${rows([
+          'Secretária',
+          'Acesso operacional com restrições.',
+          'Dashboard, Pedidos, Rotas, Atestos',
+        ])}
       </tbody>
     </table>`
 
@@ -228,7 +239,7 @@ function buildPrintHtml(): string {
 
   <h2>2. Perfis de Acesso</h2>
   ${profileTable}
-  <p class="goal"><strong>Nota:</strong> O sistema já opera conectado ao banco de dados Skip Cloud / PocketBase com persistência e atualização em tempo real. A implementação de autenticação de usuários e controle de permissões por perfil está prevista para a próxima etapa.</p>
+  <p class="goal"><strong>Status:</strong> Implementado e ativo. O sistema conta com autenticação real via PocketBase, persistência de sessão e controle de permissões por perfil (Administrador com acesso integral e Secretária com acesso operacional).</p>
 
   <h2>3. Módulos do Sistema</h2>
   ${modulesHtml}
@@ -430,12 +441,25 @@ export default function Requirements() {
 
       {/* 2. Perfis de Acesso */}
       <SectionTitle>2. Perfis de Acesso</SectionTitle>
-      <Table headers={['Perfil', 'Descrição']} rows={PROFILES} />
+      <Table
+        headers={['Perfil', 'Descrição', 'Permissões']}
+        rows={[
+          [
+            'Administrador',
+            'Acesso total e gestão completa do sistema.',
+            'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Requisitos + Ajuste em Massa',
+          ],
+          [
+            'Secretária',
+            'Acesso restrito à operação diária.',
+            'Dashboard, Pedidos, Rotas, Atestos (sem acesso a Produtos, Contratos, Escolas e Requisitos)',
+          ],
+        ]}
+      />
       <p className="text-sm text-muted-foreground italic">
-        <strong className="not-italic">Nota:</strong> O sistema já opera conectado ao banco de dados
-        Skip Cloud (PocketBase) com persistência e atualização em tempo real. A implementação de
-        autenticação de usuários e controle de permissões por perfil está prevista para a próxima
-        etapa.
+        <strong className="not-italic text-primary font-medium">Status:</strong> Autenticação real
+        ativa e integrada ao PocketBase no Skip Cloud. Sessão persistida, route guards aplicados e
+        perfis com permissões separadas.
       </p>
 
       {/* 3. Módulos */}

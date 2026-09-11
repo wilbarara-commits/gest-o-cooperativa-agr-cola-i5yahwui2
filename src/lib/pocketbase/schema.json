@@ -1,14 +1,14 @@
 {
-  "generatedAt": "2026-09-11T18:53:59.705Z",
+  "generatedAt": "2026-09-11T22:20:01.522Z",
   "collections": [
     {
       "name": "users",
       "type": "auth",
       "apiRules": {
-        "list": "id = @request.auth.id",
-        "view": "id = @request.auth.id",
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
         "create": "",
-        "update": "id = @request.auth.id",
+        "update": "@request.auth.id != \"\" && id = @request.auth.id",
         "delete": "id = @request.auth.id"
       },
       "fields": [
@@ -37,6 +37,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "perfil",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["administrador", "secretaria"]
         }
       ],
       "indexes": [

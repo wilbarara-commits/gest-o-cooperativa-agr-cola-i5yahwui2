@@ -1,4 +1,5 @@
 import { useApp } from '@/context/app-context'
+import { useAuth } from '@/context/auth-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +27,7 @@ import { Label } from '@/components/ui/label'
 
 export default function Products() {
   const { products, isLoading, adjustProductPrices } = useApp()
+  const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [percentage, setPercentage] = useState('5')
@@ -61,14 +63,16 @@ export default function Products() {
             Gerencie o inventário e tabela de preços da cooperativa.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
-            <TrendingUp className="mr-2 h-4 w-4" /> Ajuste em Massa
-          </Button>
-          <Button onClick={() => toast.info('Cadastro de novos produtos disponível no banco.')}>
-            <Plus className="mr-2 h-4 w-4" /> Novo Produto
-          </Button>
-        </div>
+        {isAdmin && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
+              <TrendingUp className="mr-2 h-4 w-4" /> Ajuste em Massa
+            </Button>
+            <Button onClick={() => toast.info('Cadastro de novos produtos disponível no banco.')}>
+              <Plus className="mr-2 h-4 w-4" /> Novo Produto
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Dialog de Ajuste em Massa Real */}

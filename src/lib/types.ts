@@ -146,3 +146,16 @@ export interface Atesto {
   status: 'Pendente Assinatura' | 'Confirmado' | 'Arquivado'
   signatureFile?: string
 }
+
+export type UserPerfil = 'administrador' | 'secretaria'
+
+export interface UserRecord {
+  id: string
+  email: string
+  nome?: string
+  name?: string
+  perfil: UserPerfil
+  avatar?: string
+  created?: string
+  updated?: string
+}

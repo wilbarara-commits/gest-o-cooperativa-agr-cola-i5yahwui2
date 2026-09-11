@@ -138,11 +138,6 @@ const STACK = [
   'Backend conectado: Skip Cloud (PocketBase v0.36) com coleções persistidas em tempo real',
 ]
 
-const PENDING = [
-  'Integração de mapas georreferenciados para otimização automática da ordem de entrega das rotas',
-  'Assinatura digitalizada e upload de arquivo de atesto escaneado via câmera mobile',
-]
-
 const DATA_MODEL = [
   'produtos (id, nome, categoria, unidade, estoque, preco_unitario)',
   'escolas (id, nome, endereco, telefone, rota)',
@@ -197,7 +192,6 @@ function buildPrintHtml(): string {
 
   const stackList = `<ul>${STACK.map((s) => `<li>${s}</li>`).join('')}</ul>`
   const dataModelList = `<ul>${DATA_MODEL.map((d) => `<li>${d}</li>`).join('')}</ul>`
-  const pendingList = `<ol>${PENDING.map((p, i) => `<li>${i + 1}. ${p}</li>`).join('')}</ol>`
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -263,9 +257,6 @@ function buildPrintHtml(): string {
 
   <h2>6. Stack Técnica</h2>
   ${stackList}
-
-  <h2>7. Requisitos Pendentes de Implementação</h2>
-  ${pendingList}
 
   <div class="footer">Documento de Requisitos do Sistema — CoopGestão • Gerado em ${new Date().toLocaleDateString('pt-BR')}</div>
 </body>
@@ -528,19 +519,6 @@ export default function Requirements() {
           </li>
         ))}
       </ul>
-
-      {/* 7. Requisitos Pendentes */}
-      <SectionTitle>7. Requisitos Pendentes de Implementação</SectionTitle>
-      <ol className="space-y-3">
-        {PENDING.map((p, i) => (
-          <li key={i} className="flex gap-3 rounded-lg border border-border bg-card p-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-              {i + 1}
-            </span>
-            <span className="text-sm text-foreground/90 pt-0.5">{p}</span>
-          </li>
-        ))}
-      </ol>
 
       <div className="mt-12 pt-6 border-t border-border text-center text-xs text-muted-foreground">
         Documento de Requisitos do Sistema — CoopGestão • Conectado ao Skip Cloud (PocketBase)

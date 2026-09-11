@@ -1,5 +1,5 @@
 import { useApp } from '@/context/app-context'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -11,20 +11,45 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Search, Plus, TrendingUp } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { Search, Plus, TrendingUp, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useState } from 'react'
+import { Label } from '@/components/ui/label'
 
 export default function Products() {
-  const { products } = useApp()
+  const { products, isLoading, adjustProductPrices } = useApp()
   const [search, setSearch] = useState('')
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [percentage, setPercentage] = useState('5')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()),
   )
 
-  const handleBulkUpdate = () => {
-    toast.success('Preços ajustados com sucesso em 5%!')
+  const handleBulkUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const pct = parseFloat(percentage)
+    if (isNaN(pct) || pct === 0) {
+      toast.error('Informe uma porcentagem válida.')
+      return
+    }
+
+    setIsSubmitting(true)
+    const success = await adjustProductPrices(pct)
+    setIsSubmitting(false)
+    if (success) {
+      toast.success(`Preços ajustados com sucesso em ${pct}% no banco de dados!`)
+      setBulkDialogOpen(false)
+    }
   }
 
   return (
@@ -37,14 +62,64 @@ export default function Products() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleBulkUpdate}>
+          <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
             <TrendingUp className="mr-2 h-4 w-4" /> Ajuste em Massa
           </Button>
-          <Button>
+          <Button onClick={() => toast.info('Cadastro de novos produtos disponível no banco.')}>
             <Plus className="mr-2 h-4 w-4" /> Novo Produto
           </Button>
         </div>
       </div>
+
+      {/* Dialog de Ajuste em Massa Real */}
+      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Ajuste de Preços em Massa</DialogTitle>
+            <DialogDescription>
+              Aplique um reajuste percentual a todos os produtos cadastrados no banco de dados.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleBulkUpdate} className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label htmlFor="percentage">Percentual de Reajuste (%)</Label>
+              <div className="relative">
+                <Input
+                  id="percentage"
+                  type="number"
+                  step="0.5"
+                  value={percentage}
+                  onChange={(e) => setPercentage(e.target.value)}
+                  placeholder="Ex: 5 ou -5"
+                  required
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Valores positivos aumentam o preço; valores negativos concedem desconto.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBulkDialogOpen(false)}
+                disabled={isSubmitting}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Atualizando...
+                  </>
+                ) : (
+                  'Aplicar Reajuste'
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader className="pb-3">
@@ -74,7 +149,16 @@ export default function Products() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.length === 0 ? (
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Carregando produtos do banco...
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredProducts.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                       Nenhum produto encontrado.
@@ -95,7 +179,13 @@ export default function Products() {
                         </span>
                       </TableCell>
                       <TableCell>{product.unit}</TableCell>
-                      <TableCell className="text-right">R$ {product.price.toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        R${' '}
+                        {product.price.toLocaleString('pt-BR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

@@ -2,11 +2,13 @@ import { useApp } from '@/context/app-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Map, Navigation2, CheckCircle2 } from 'lucide-react'
+import { Map, Navigation2, CheckCircle2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useState } from 'react'
 
 export default function DeliveryRoutes() {
-  const { orders, schools, updateOrderStatus } = useApp()
+  const { orders, schools, updateOrderStatus, isLoading } = useApp()
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   // Group pending/in-route orders by route
   const activeOrders = orders.filter((o) => o.status === 'Pendente' || o.status === 'Em Rota')
@@ -16,15 +18,22 @@ export default function DeliveryRoutes() {
       const school = schools.find((s) => s.id === order.schoolId)
       const routeName = school?.route || 'Sem Rota'
       if (!acc[routeName]) acc[routeName] = []
-      acc[routeName].push({ ...order, address: school?.address })
+      acc[routeName].push({
+        ...order,
+        address: school?.address || 'Endereço não informado',
+      })
       return acc
     },
     {} as Record<string, any[]>,
   )
 
-  const handleMarkDelivered = (orderId: string) => {
-    updateOrderStatus(orderId, 'Entregue')
-    toast.success('Entrega confirmada! Pronto para gerar atesto.')
+  const handleMarkDelivered = async (orderId: string) => {
+    setUpdatingId(orderId)
+    const success = await updateOrderStatus(orderId, 'Entregue')
+    setUpdatingId(null)
+    if (success) {
+      toast.success('Entrega confirmada no banco de dados! Pronto para gerar atesto.')
+    }
   }
 
   return (
@@ -33,16 +42,20 @@ export default function DeliveryRoutes() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Planejamento de Rotas</h1>
           <p className="text-muted-foreground">
-            Organize as entregas por região e confirme o recebimento.
+            Organize as entregas por região e confirme o recebimento diretamente no banco.
           </p>
         </div>
       </div>
 
-      {Object.keys(groupedByRoute).length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" /> Carregando rotas de entrega...
+        </div>
+      ) : Object.keys(groupedByRoute).length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center py-12 text-muted-foreground">
             <Map className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <p>Não há entregas pendentes para planejamento.</p>
+            <p>Não há entregas pendentes para planejamento no momento.</p>
           </CardContent>
         </Card>
       ) : (
@@ -73,17 +86,34 @@ export default function DeliveryRoutes() {
                           <p className="font-semibold text-sm">{delivery.schoolName}</p>
                           <p className="text-xs text-muted-foreground">{delivery.address}</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Pedido: {delivery.id}
+                            Pedido: {delivery.numero || delivery.id} • Data:{' '}
+                            {new Date(delivery.date).toLocaleDateString('pt-BR')}
                           </p>
+                          {delivery.items && delivery.items.length > 0 && (
+                            <p className="text-xs text-primary/80 mt-0.5">
+                              {delivery.items
+                                .map((i: any) => `${i.quantity}x ${i.name}`)
+                                .join(', ')}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <Button
                         size="sm"
                         variant={delivery.status === 'Em Rota' ? 'default' : 'outline'}
                         onClick={() => handleMarkDelivered(delivery.id)}
+                        disabled={updatingId === delivery.id}
                         className="w-full sm:w-auto"
                       >
-                        <CheckCircle2 className="mr-2 h-4 w-4" /> Entregue
+                        {updatingId === delivery.id ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Atualizando...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="mr-2 h-4 w-4" /> Entregue
+                          </>
+                        )}
                       </Button>
                     </div>
                   ))}

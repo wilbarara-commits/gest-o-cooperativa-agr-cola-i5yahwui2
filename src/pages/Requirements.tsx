@@ -119,23 +119,25 @@ const STACK = [
   'Tailwind CSS + shadcn/ui',
   'Lucide React',
   'Sonner (toasts)',
-  'Backend previsto: Skip Cloud (PocketBase)',
+  'Backend conectado: Skip Cloud (PocketBase v0.36) com coleções persistidas em tempo real',
 ]
 
 const PENDING = [
-  'Banco de dados real — migrar dados mock para PocketBase/Supabase com persistência',
-  'Autenticação — login separado para Administrador e Secretária com permissões distintas',
-  'CRUD completo — formulários reais de cadastro/edição/exclusão para produtos, escolas e contratos',
-  'Formulário de pedidos completo — seleção múltipla de produtos com quantidades dinâmicas e cálculo automático do total',
-  'Exportação real de PDF — geração de documento para impressão ou download',
-  'Integração de mapas — visualização georreferenciada das rotas',
-  'Feed de atividade dinâmico — registro real de eventos com timestamps',
+  'Autenticação e Perfis de Acesso — login individualizado para Administrador e Secretária com permissões baseadas em RLS',
+  'CRUD completo com formulários de edição/exclusão para cadastro de escolas, contratos e produtos',
+  'Exportação avançada de relatórios contábeis em formato PDF/Excel para prestação de contas PNAE/PAA',
+  'Integração de mapas georreferenciados para otimização automática da ordem de entrega das rotas',
+  'Assinatura digitalizada e upload de arquivo de atesto escaneado via câmera mobile',
 ]
 
 const DATA_MODEL = [
-  'Product → OrderItem.productId',
-  'Order → Atesto.orderId',
-  'School → Contract.schoolId e Order.schoolId',
+  'produtos (id, nome, categoria, unidade, estoque, preco_unitario)',
+  'escolas (id, nome, endereco, telefone, rota)',
+  'contratos (id, numero, tipo, instituicao_id → escolas, valor_total, status)',
+  'contrato_itens (id, contrato_id → contratos, produto_id → produtos, preco)',
+  'pedidos (id, numero, escola_id → escolas, data_prevista, status)',
+  'pedido_itens (id, pedido_id → pedidos, produto_id → produtos, quantidade, preco_unitario)',
+  'atestos (id, numero, pedido_id → pedidos, data_emissao, status, assinatura_file)',
 ]
 
 /* ----------------------------------------------------------------------------
@@ -226,7 +228,7 @@ function buildPrintHtml(): string {
 
   <h2>2. Perfis de Acesso</h2>
   ${profileTable}
-  <p class="goal"><strong>Nota:</strong> O sistema está em fase de protótipo (dados mock). A implementação de autenticação e controle de permissões depende da conexão de um banco de dados real.</p>
+  <p class="goal"><strong>Nota:</strong> O sistema já opera conectado ao banco de dados Skip Cloud / PocketBase com persistência e atualização em tempo real. A implementação de autenticação de usuários e controle de permissões por perfil está prevista para a próxima etapa.</p>
 
   <h2>3. Módulos do Sistema</h2>
   ${modulesHtml}
@@ -405,7 +407,9 @@ export default function Requirements() {
         </CardHeader>
         <CardContent className="pt-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline">Versão Protótipo</Badge>
+            <Badge variant="outline" className="text-primary border-primary/30">
+              Banco de Dados Ativo
+            </Badge>
             <span>•</span>
             <span>Gerado em {new Date().toLocaleDateString('pt-BR')}</span>
           </div>
@@ -428,9 +432,10 @@ export default function Requirements() {
       <SectionTitle>2. Perfis de Acesso</SectionTitle>
       <Table headers={['Perfil', 'Descrição']} rows={PROFILES} />
       <p className="text-sm text-muted-foreground italic">
-        <strong className="not-italic">Nota:</strong> O sistema está em fase de protótipo (dados
-        mock). A implementação de autenticação e controle de permissões depende da conexão de um
-        banco de dados real.
+        <strong className="not-italic">Nota:</strong> O sistema já opera conectado ao banco de dados
+        Skip Cloud (PocketBase) com persistência e atualização em tempo real. A implementação de
+        autenticação de usuários e controle de permissões por perfil está prevista para a próxima
+        etapa.
       </p>
 
       {/* 3. Módulos */}
@@ -503,7 +508,7 @@ export default function Requirements() {
       </ol>
 
       <div className="mt-12 pt-6 border-t border-border text-center text-xs text-muted-foreground">
-        Documento de Requisitos do Sistema — CoopGestão • Versão Protótipo
+        Documento de Requisitos do Sistema — CoopGestão • Conectado ao Skip Cloud (PocketBase)
       </div>
     </div>
   )

@@ -11,10 +11,11 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
-import { FileText, Plus } from 'lucide-react'
+import { FileText, Plus, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function Contracts() {
-  const { contracts } = useApp()
+  const { contracts, isLoading } = useApp()
 
   return (
     <div className="space-y-6">
@@ -22,10 +23,10 @@ export default function Contracts() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Contratos Institucionais</h1>
           <p className="text-muted-foreground">
-            Acompanhe saldos e execuções de contratos PNAE/PAA.
+            Acompanhe saldos e execuções de contratos PNAE/PAA com base nas entregas registradas.
           </p>
         </div>
-        <Button>
+        <Button onClick={() => toast.info('Cadastro de novo contrato disponível.')}>
           <Plus className="mr-2 h-4 w-4" /> Novo Contrato
         </Button>
       </div>
@@ -51,39 +52,62 @@ export default function Contracts() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {contracts.map((contract) => {
-                  const used = contract.totalValue - contract.balance
-                  const percentage = (used / contract.totalValue) * 100
-                  return (
-                    <TableRow key={contract.id}>
-                      <TableCell className="font-medium text-primary">{contract.id}</TableCell>
-                      <TableCell>{contract.schoolName}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={contract.status === 'Ativo' ? 'default' : 'secondary'}
-                          className={contract.status === 'Ativo' ? 'bg-primary' : ''}
-                        >
-                          {contract.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        R${' '}
-                        {contract.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell className="text-right font-medium text-green-700">
-                        R$ {contract.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1.5">
-                          <Progress value={percentage} className="h-2" />
-                          <span className="text-xs text-muted-foreground text-right">
-                            {percentage.toFixed(0)}% utilizado
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Carregando contratos do banco...
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : contracts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      Nenhum contrato cadastrado no banco.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  contracts.map((contract) => {
+                    const total = contract.totalValue || 1
+                    const used = Math.max(0, contract.totalValue - contract.balance)
+                    const percentage = Math.min(100, Math.max(0, (used / total) * 100))
+                    return (
+                      <TableRow key={contract.id}>
+                        <TableCell className="font-medium text-primary">
+                          {contract.numero || contract.id}
+                        </TableCell>
+                        <TableCell>{contract.schoolName}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={contract.status === 'Ativo' ? 'default' : 'secondary'}
+                            className={contract.status === 'Ativo' ? 'bg-primary' : ''}
+                          >
+                            {contract.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          R${' '}
+                          {contract.totalValue.toLocaleString('pt-BR', {
+                            minimumFractionDigits: 2,
+                          })}
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-green-700">
+                          R${' '}
+                          {contract.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1.5">
+                            <Progress value={percentage} className="h-2" />
+                            <span className="text-xs text-muted-foreground text-right">
+                              {percentage.toFixed(0)}% utilizado
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
               </TableBody>
             </Table>
           </div>

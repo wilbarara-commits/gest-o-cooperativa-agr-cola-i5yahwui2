@@ -10,6 +10,7 @@ interface AuthContextType {
   isLoading: boolean
   login: (email: string, password: string) => Promise<UserRecord>
   logout: () => void
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>
   hasAccessToRoute: (pathname: string) => boolean
 }
 
@@ -48,6 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  const changePassword = async (oldPassword: string, newPassword: string): Promise<void> => {
+    await authService.changePassword(oldPassword, newPassword)
+  }
+
   const isAuthenticated = !!user
   const isAdmin = user?.perfil === 'administrador'
   const isSecretaria = user?.perfil === 'secretaria'
@@ -73,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         logout,
+        changePassword,
         hasAccessToRoute,
       }}
     >

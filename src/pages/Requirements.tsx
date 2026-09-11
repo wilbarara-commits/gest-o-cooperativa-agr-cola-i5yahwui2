@@ -87,23 +87,37 @@ const MODULES: ModuleSpec[] = [
     id: '3.7',
     title: 'Emissão de Atestos',
     route: '/atestos',
-    goal: 'Gerar certificados de recebimento para faturamento.',
+    goal: 'Gerar certificados formais de recebimento para comprovação e faturamento.',
     details: [
       'Campos (Atesto): id, orderId, schoolName, date, status (Pendente Assinatura/Confirmado/Arquivado)',
-      'Funcionalidades: alerta de pedidos prontos para atesto (fundo âmbar), tabela de histórico, Dialog modal com visualização formal (papel timbrado, cabeçalho CoopGestão, declaração de recebimento, linha de assinatura), botão "Imprimir PDF", geração condicional (só pedidos Entregue sem atesto)',
+      'Requisito Legal: O upload de assinatura digitalizada foi expressamente descartado por não possuir validade jurídica. O processo opera com emissão de atesto formal e confirmação de recebimento no sistema, com linha de assinatura para via física quando impresso.',
+      'Funcionalidades: alerta de pedidos entregues prontos para atesto, tabela de histórico de atestos, ação direta de confirmação de recebimento, Dialog modal com visualização formal em papel timbrado CoopGestão e botão de impressão.',
     ],
   },
   {
     id: '3.8',
-    title: 'Relatórios Contábeis & Prestação de Contas',
+    title: 'Relatórios Contábeis & Fechamento Mensal',
     route: '/relatorios',
     goal: 'Geração e exportação avançada de demonstrativos para fechamento mensal e prestação de contas PNAE/PAA.',
     details: [
       'Três relatórios contábeis integrados: Faturamento por Contrato (entregue vs saldo vs % execução), Entregas por Período (pedidos faturados consolidado por escola e total geral) e Produtos Entregues (volume e valor por item agrícola).',
+      'Botão de Relatório Mensal no Fechamento: botão de exportação manual (sob demanda do usuário, sem cron/job automático) ativo exclusivamente na janela de fechamento do mês (a partir do dia 25 do mês corrente e até o dia 05 do mês subsequente para consolidação do mês anterior). Fora desse período o botão permanece desabilitado com tooltip informativo.',
       'Filtros avançados: intervalo de datas com atalhos ("Este Mês", "Mês Anterior", "Ano Vigente"), programa institucional (PNAE/PAA/Municipal), escola parceira e categoria.',
       'Exportação Excel real (.xlsx): implementada com SheetJS (xlsx), contendo metadados do cabeçalho, filtros aplicados, cartões de resumo e totalizadores no rodapé.',
       'Exportação PDF real: implementada diretamente com jsPDF e jspdf-autotable em layout profissional timbrado CooperGestão, sem window.print/iframe, com download direto via save().',
       'Acessibilidade de perfis: disponível para Administrador e Secretária.',
+    ],
+  },
+  {
+    id: '3.9',
+    title: 'Segurança & Troca de Senha',
+    route: 'Menu do Usuário (Header)',
+    goal: 'Permitir que usuários autenticados alterem sua senha de acesso com validação e persistência segura.',
+    details: [
+      'Acesso rápido pelo menu do usuário no cabeçalho (desktop e mobile).',
+      'Modal de diálogo com validação de senha atual obrigatória, nova senha com tamanho mínimo de 8 caracteres e confirmação de senha.',
+      'Persistência real no backend PocketBase (coleção users) com tratamento de erros e notificações toast.',
+      'Disponível para ambos os perfis (Administrador e Secretária).',
     ],
   },
 ]
@@ -145,7 +159,7 @@ const DATA_MODEL = [
   'contrato_itens (id, contrato_id → contratos, produto_id → produtos, preco)',
   'pedidos (id, numero, escola_id → escolas, data_prevista, status)',
   'pedido_itens (id, pedido_id → pedidos, produto_id → produtos, quantidade, preco_unitario)',
-  'atestos (id, numero, pedido_id → pedidos, data_emissao, status, assinatura_file)',
+  'atestos (id, numero, pedido_id → pedidos, data_emissao, status)',
 ]
 
 /* ----------------------------------------------------------------------------
@@ -242,10 +256,9 @@ function buildPrintHtml(): string {
   <h2>1. Visão Geral do Produto</h2>
   <p>O CooperGestão é um sistema web voltado para cooperativas agrícolas de pequeno porte que participam de programas institucionais como o PNAE (Programa Nacional de Alimentação Escolar) e o PAA (Programa de Aquisição de Alimentos). A plataforma centraliza a gestão operacional com dois focos principais: Coleta de pedidos das escolas parceiras e Emissão de atestos de entrega para comprovação de recebimento e posterior faturamento. O público-alvo inclui administradores da cooperativa (coordenação, finanças) e secretárias (operacional, lançamento de pedidos e emissão de documentos).</p>
 
-  <h2>2. Perfis de Acesso</h2>
+  <h2>2. Perfis de Acesso e Segurança</h2>
   ${profileTable}
-  <p class="goal"><strong>Status:</strong> Implementado e ativo. O sistema conta com autenticação real via PocketBase, persistência de sessão e controle de permissões por perfil (Administrador com acesso integral e Secretária com acesso operacional).</p>
-
+  <p class="goal"><strong>Status:</strong> Implementado e ativo. O sistema conta com autenticação real via PocketBase, persistência de sessão, controle de permissões por perfil (Administrador com acesso integral e Secretária com acesso operacional) e recurso de alteração de senha segura diretamente no menu do usuário.</p>
   <h2>3. Módulos do Sistema</h2>
   ${modulesHtml}
 

@@ -15,6 +15,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { MonthlyReportButton } from '@/components/MonthlyReportButton'
 
 export default function Index() {
   const { orders, contracts, atestos, isLoading } = useApp()
@@ -92,7 +93,8 @@ export default function Index() {
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">Resumo das atividades da cooperativa.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <MonthlyReportButton variant="outline" size="default" />
           <Button asChild variant="outline">
             <Link to="/atestos">Emitir Atesto</Link>
           </Button>

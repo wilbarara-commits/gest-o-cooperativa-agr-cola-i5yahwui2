@@ -15,6 +15,7 @@ import {
   Search,
   FileBarChart,
   School as SchoolIcon,
+  CalendarCheck,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -48,6 +49,8 @@ import {
   type ReportFilterSummary,
   type TableExportColumn,
 } from '@/lib/exportUtils'
+import { MonthlyReportButton } from '@/components/MonthlyReportButton'
+import { getMonthlyClosingStatus } from '@/lib/monthlyClosing'
 
 export default function Reports() {
   const { contracts, orders, schools, products, isLoading, refreshData } = useApp()
@@ -669,6 +672,9 @@ export default function Reports() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Botão de Relatório Mensal — ativo no fechamento do mês (manual, sem job) */}
+          <MonthlyReportButton size="sm" variant="default" className="h-9" />
+
           <Button
             variant="outline"
             size="sm"

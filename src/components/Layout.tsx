@@ -16,6 +16,7 @@ import {
   UserCheck,
   BookOpen,
   BarChart3,
+  KeyRound,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/auth-context'
 import { toast } from 'sonner'
+import { ChangePasswordDialog } from '@/components/ChangePasswordDialog'
 
 interface NavItem {
   name: string
@@ -58,6 +60,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const { user, isAdmin, logout } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
 
   const handleLogout = () => {
     logout()
@@ -198,14 +201,28 @@ export default function Layout() {
                         <span className="text-[10px] text-muted-foreground">{perfilLabel}</span>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleLogout}
-                      className="text-destructive h-8 px-2 text-xs"
-                    >
-                      <LogOut className="h-3.5 w-3.5 mr-1" /> Sair
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setMobileOpen(false)
+                          setChangePasswordOpen(true)
+                        }}
+                        className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        title="Alterar Senha"
+                      >
+                        <KeyRound className="h-3.5 w-3.5 mr-1" /> Senha
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleLogout}
+                        className="text-destructive h-8 px-2 text-xs"
+                      >
+                        <LogOut className="h-3.5 w-3.5 mr-1" /> Sair
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </SheetContent>
@@ -294,6 +311,14 @@ export default function Layout() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  onClick={() => setChangePasswordOpen(true)}
+                  className="cursor-pointer"
+                >
+                  <KeyRound className="mr-2 h-4 w-4 text-primary" />
+                  <span>Alterar Senha</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
                   onClick={handleLogout}
                   className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
                 >
@@ -304,6 +329,9 @@ export default function Layout() {
             </DropdownMenu>
           </div>
         </header>
+
+        {/* Modal de Alterar Senha */}
+        <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 animate-fade-in">

@@ -21,4 +21,8 @@ export const atestosService = {
   async updateStatus(id: string, status: AtestoRecord['status']): Promise<AtestoRecord> {
     return await pb.collection('atestos').update<AtestoRecord>(id, { status })
   },
+
+  async confirm(id: string): Promise<AtestoRecord> {
+    return await pb.collection('atestos').update<AtestoRecord>(id, { status: 'Confirmado' })
+  },
 }

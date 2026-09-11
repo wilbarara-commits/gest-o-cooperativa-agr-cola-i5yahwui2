@@ -34,6 +34,18 @@ export const authService = {
     }
   },
 
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    if (!pb.authStore.isValid || !pb.authStore.record) {
+      throw new Error('Usuário não autenticado.')
+    }
+    const currentUserId = pb.authStore.record.id
+    await pb.collection('users').update(currentUserId, {
+      oldPassword,
+      password: newPassword,
+      passwordConfirm: newPassword,
+    })
+  },
+
   logout(): void {
     pb.authStore.clear()
   },

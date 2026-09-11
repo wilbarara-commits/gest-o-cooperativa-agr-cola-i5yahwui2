@@ -35,6 +35,7 @@ interface AppState {
   refreshData: () => Promise<void>
   addOrder: (orderData: CreateOrderData) => Promise<boolean>
   generateAtesto: (orderId: string) => Promise<boolean>
+  confirmAtesto: (atestoId: string) => Promise<boolean>
   updateOrderStatus: (id: string, status: Order['status']) => Promise<boolean>
   adjustProductPrices: (percentage: number) => Promise<boolean>
 }
@@ -284,6 +285,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const confirmAtesto = async (atestoId: string): Promise<boolean> => {
+    try {
+      await atestosService.confirm(atestoId)
+      await loadAllData()
+      return true
+    } catch (err: any) {
+      console.error('Erro ao confirmar atesto:', err)
+      toast.error('Falha ao confirmar atesto.')
+      return false
+    }
+  }
+
   const adjustProductPrices = async (percentage: number): Promise<boolean> => {
     try {
       await produtosService.bulkAdjustPrices(percentage)
@@ -310,6 +323,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addOrder,
         updateOrderStatus,
         generateAtesto,
+        confirmAtesto,
         adjustProductPrices,
       }}
     >

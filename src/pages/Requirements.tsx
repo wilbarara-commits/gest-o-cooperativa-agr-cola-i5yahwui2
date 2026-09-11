@@ -126,7 +126,6 @@ const STACK = [
 ]
 
 const PENDING = [
-  'CRUD completo com formulários de edição/exclusão para cadastro de escolas, contratos e produtos',
   'Exportação avançada de relatórios contábeis em formato PDF/Excel para prestação de contas PNAE/PAA',
   'Integração de mapas georreferenciados para otimização automática da ordem de entrega das rotas',
   'Assinatura digitalizada e upload de arquivo de atesto escaneado via câmera mobile',

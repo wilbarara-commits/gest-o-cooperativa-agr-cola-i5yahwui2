@@ -139,6 +139,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return {
           id: c.id,
           numero: c.numero,
+          tipo: c.tipo || 'PNAE',
           schoolId: c.instituicao_id,
           schoolName,
           totalValue,

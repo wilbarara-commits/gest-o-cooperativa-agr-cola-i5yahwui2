@@ -23,4 +23,15 @@ export const escolasService = {
   async delete(id: string): Promise<boolean> {
     return await pb.collection('escolas').delete(id)
   },
+
+  async checkDependencies(id: string): Promise<{ contractsCount: number; ordersCount: number }> {
+    const [contracts, orders] = await Promise.all([
+      pb.collection('contratos').getList(1, 1, { filter: `instituicao_id = "${id}"` }),
+      pb.collection('pedidos').getList(1, 1, { filter: `escola_id = "${id}"` }),
+    ])
+    return {
+      contractsCount: contracts.totalItems,
+      ordersCount: orders.totalItems,
+    }
+  },
 }

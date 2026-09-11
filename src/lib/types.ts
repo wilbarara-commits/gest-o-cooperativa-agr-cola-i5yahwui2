@@ -110,6 +110,7 @@ export interface School {
 export interface Contract {
   id: string
   numero: string
+  tipo?: string
   schoolId: string
   schoolName: string
   totalValue: number

@@ -69,7 +69,6 @@ interface AppState {
     data_fim: string
     status: 'coletando' | 'correcao' | 'fechado'
   }) => Promise<CicloRecord | null>
-  adjustProductPrices: (percentage: number) => Promise<boolean>
 }
 
 const AppContext = createContext<AppState | undefined>(undefined)
@@ -130,7 +129,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stock: Number(p.estoque) || 0,
         unit: p.unidade,
         price: Number(p.preco_unitario) || 0,
-        essencial: Boolean(p.essencial),
         disponibilidade: p.disponibilidade || 'normal',
       }))
       setProducts(mappedProds)
@@ -455,18 +453,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const adjustProductPrices = async (percentage: number): Promise<boolean> => {
-    try {
-      await produtosService.bulkAdjustPrices(percentage)
-      await loadAllData()
-      return true
-    } catch (err: any) {
-      console.error('Erro ao reajustar preços:', err)
-      toast.error('Falha ao ajustar preços no banco.')
-      return false
-    }
-  }
-
   return (
     <AppContext.Provider
       value={{
@@ -489,7 +475,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         createCiclo,
         generateAtesto,
         confirmAtesto,
-        adjustProductPrices,
       }}
     >
       {children}

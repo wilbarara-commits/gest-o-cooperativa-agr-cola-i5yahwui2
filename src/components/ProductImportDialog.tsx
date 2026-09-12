@@ -116,7 +116,6 @@ export function ProductImportDialog({
         unidade: r.unidade || 'Kg',
         estoque: r.estoque,
         preco_unitario: r.preco_unitario,
-        essencial: r.essencial,
         disponibilidade: r.disponibilidade,
       }))
 
@@ -179,7 +178,7 @@ export function ProductImportDialog({
           <DialogDescription>
             Faça upload de uma planilha (.csv ou .xlsx) contendo as colunas{' '}
             <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">
-              nome, categoria, unidade, estoque, preco_unitario, essencial, disponibilidade
+              nome, categoria, unidade, estoque, preco_unitario, disponibilidade
             </code>
             . Os produtos serão cadastrados no banco de dados com prevenção contra duplicidades.
           </DialogDescription>
@@ -359,7 +358,6 @@ export function ProductImportDialog({
                     <th className="py-2 px-3">Unidade</th>
                     <th className="py-2 px-3 text-right">Estoque</th>
                     <th className="py-2 px-3 text-right">Preço</th>
-                    <th className="py-2 px-3">Essencial</th>
                     <th className="py-2 px-3">Disponibilidade</th>
                     <th className="py-2 px-3">Status</th>
                   </tr>
@@ -425,13 +423,6 @@ export function ProductImportDialog({
                             maximumFractionDigits: 2,
                           })}
                         </td>
-                        <td className="py-2 px-3">
-                          {row.essencial ? (
-                            <Badge className="bg-blue-600 text-[10px]">Sim</Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-[11px]">Não</span>
-                          )}
-                        </td>
                         <td className="py-2 px-3">{dispBadge}</td>
                         <td className="py-2 px-3">
                           {isValid && (
@@ -468,7 +459,7 @@ export function ProductImportDialog({
                   })}
                   {displayRows.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-muted-foreground text-xs">
+                      <td colSpan={8} className="py-8 text-center text-muted-foreground text-xs">
                         Nenhuma linha encontrada neste filtro.
                       </td>
                     </tr>

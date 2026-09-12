@@ -37,10 +37,9 @@ const MODULES: ModuleSpec[] = [
     route: '/produtos',
     goal: 'Cadastro e manutenção do catálogo de produtos agrícolas e tabela de preços com diretrizes de safra.',
     details: [
-      'Campos: id, nome, categoria, estoque, unidade, preco_unitario, essencial (boolean), disponibilidade (normal / escassez / abundancia).',
-      'Classificação de Itens Essenciais: obrigatoriedade na validação dos pedidos semanais.',
+      'Campos: id, nome, categoria, estoque, unidade, preco_unitario, disponibilidade (normal / escassez / abundancia).',
       'Disponibilidade de Safra: produtos em abundância (incentivo de colheita) e escassez (restrição e compensação na fase de correção).',
-      'Ajuste em Massa percentual de preços.',
+      'Edição Individual de Preços e Estoques: manutenção pontual direta por produto.',
     ],
   },
   {
@@ -79,7 +78,7 @@ const MODULES: ModuleSpec[] = [
     goal: 'Lançamento e acompanhamento do ciclo de vida dos pedidos com auditoria de regras de negócio.',
     details: [
       'Campos: id, numero, escola_id, ciclo_id (FK ciclos), origem (excel / whatsapp / manual), rota_id (FK rotas), validacao (json: status, motivo, detalhes).',
-      'Validação Automática do Pedido: inválido se vazio, se faltar item essencial, ou se na fase de correção não compensar item em escassez com itens em abundância.',
+      'Validação Automática do Pedido: inválido se vazio, ou se na fase de correção não compensar item em escassez com itens em abundância.',
       'Lançamento de Pedidos via WhatsApp: suporte para contratos individualizados com pré-preenchimento e atribuição ao ciclo ativo.',
       'Filtros avançados por origem, status de entrega e validação.',
     ],
@@ -138,7 +137,7 @@ const MODULES: ModuleSpec[] = [
     route: '/comunicacao',
     goal: 'Disparo de comunicados semanais de safra, links e controle de envio por escola.',
     details: [
-      'Template de mensagem semanal com produtos em abundância, escassez, itens essenciais e link do formulário.',
+      'Template de mensagem semanal com produtos em abundância, escassez e link do formulário.',
       'Ações "Enviar Manual" (abre o WhatsApp Web/App com texto pronto) e "Enviar para Todos".',
       'Histórico e auditoria de disparos na collection envios_whatsapp (ciclo_id, escola_id, status, enviado_em).',
     ],
@@ -207,7 +206,7 @@ const STACK = [
 
 const DATA_MODEL = [
   'ciclos (id, nome, data_inicio, data_fim, status [coletando/correcao/fechado], snapshot [json])',
-  'produtos (id, nome, categoria, unidade, estoque, preco_unitario, essencial [bool], disponibilidade [normal/escassez/abundancia])',
+  'produtos (id, nome, categoria, unidade, estoque, preco_unitario, disponibilidade [normal/escassez/abundancia])',
   'escolas (id, nome, endereco, telefone, email, tipo [CMEI/CRECHE/INTEGRAL/FUNDAMENTAL], rota) [Cadastro Mestre Global]',
   'contratos (id, numero, tipo, modalidade_pedido [individualizado/centralizado], valor_total, status)',
   'contrato_escolas (id, contrato_id → contratos, escola_id → escolas, rota_id → rotas) [Vínculos N:N]',
@@ -237,7 +236,7 @@ function buildPrintHtml(): string {
       <tbody>
         ${rows([
           'Administrador',
-          'Acesso total ao sistema, configuração e reajustes.',
+          'Acesso total ao sistema, catálogo de produtos e configurações.',
           'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Relatórios, Requisitos',
         ])}
         ${rows([
@@ -520,7 +519,7 @@ export default function Requirements() {
           [
             'Administrador',
             'Acesso total e gestão completa do sistema.',
-            'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Relatórios, Requisitos + Ajuste em Massa',
+            'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Relatórios, Requisitos',
           ],
           [
             'Secretária',

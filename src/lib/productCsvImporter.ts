@@ -12,7 +12,6 @@ export interface ParsedCsvProductRow {
   rawUnidade: string
   rawEstoque: string
   rawPreco: string
-  rawEssencial: string
   rawDisponibilidade: string
 
   // Campos mapeados e normalizados
@@ -21,7 +20,6 @@ export interface ParsedCsvProductRow {
   unidade: string
   estoque: number
   preco_unitario: number
-  essencial: boolean
   disponibilidade: ProdutoDisponibilidade
 
   // Status de validação
@@ -89,8 +87,7 @@ export function normalizeProdutoCategoria(rawCategoria: string): {
 }
 
 /**
- * Normaliza o campo essencial (booleano):
- * true/false, "sim"/"não", 1/0, "s"/"n", "verdadeiro"/"falso"
+ * Normaliza o campo essencial (booleano) mantido para compatibilidade se invocado externamente
  */
 export function parseEssencialField(val: string): boolean {
   if (!val) return false
@@ -152,7 +149,7 @@ export function parseNumberField(val: string): { value: number; isValid: boolean
 
 /**
  * Mapeia cabeçalhos para os índices correspondentes das colunas:
- * nome, categoria, unidade, estoque, preco_unitario, essencial, disponibilidade
+ * nome, categoria, unidade, estoque, preco_unitario, disponibilidade
  */
 function findColumnIndexes(headerRow: string[]): {
   nomeIdx: number
@@ -160,7 +157,6 @@ function findColumnIndexes(headerRow: string[]): {
   unidadeIdx: number
   estoqueIdx: number
   precoIdx: number
-  essencialIdx: number
   disponibilidadeIdx: number
 } {
   let nomeIdx = -1
@@ -168,7 +164,6 @@ function findColumnIndexes(headerRow: string[]): {
   let unidadeIdx = -1
   let estoqueIdx = -1
   let precoIdx = -1
-  let essencialIdx = -1
   let disponibilidadeIdx = -1
 
   headerRow.forEach((col, idx) => {
@@ -212,8 +207,6 @@ function findColumnIndexes(headerRow: string[]): {
         norm.includes('custo'))
     ) {
       precoIdx = idx
-    } else if (essencialIdx === -1 && (norm === 'essencial' || norm.includes('obrigatorio'))) {
-      essencialIdx = idx
     } else if (
       disponibilidadeIdx === -1 &&
       (norm === 'disponibilidade' ||
@@ -226,14 +219,13 @@ function findColumnIndexes(headerRow: string[]): {
   })
 
   // Se não achou por nome flexível e tiver posições padrão
-  // [nome, categoria, unidade, estoque, preco_unitario, essencial, disponibilidade]
+  // [nome, categoria, unidade, estoque, preco_unitario, disponibilidade]
   if (nomeIdx === -1 && headerRow.length >= 1) nomeIdx = 0
   if (categoriaIdx === -1 && headerRow.length >= 2) categoriaIdx = 1
   if (unidadeIdx === -1 && headerRow.length >= 3) unidadeIdx = 2
   if (estoqueIdx === -1 && headerRow.length >= 4) estoqueIdx = 3
   if (precoIdx === -1 && headerRow.length >= 5) precoIdx = 4
-  if (essencialIdx === -1 && headerRow.length >= 6) essencialIdx = 5
-  if (disponibilidadeIdx === -1 && headerRow.length >= 7) disponibilidadeIdx = 6
+  if (disponibilidadeIdx === -1 && headerRow.length >= 6) disponibilidadeIdx = 5
 
   return {
     nomeIdx,
@@ -241,7 +233,6 @@ function findColumnIndexes(headerRow: string[]): {
     unidadeIdx,
     estoqueIdx,
     precoIdx,
-    essencialIdx,
     disponibilidadeIdx,
   }
 }
@@ -281,15 +272,8 @@ export async function parseProductsFile(
   }
 
   const header = rawMatrix[0]
-  const {
-    nomeIdx,
-    categoriaIdx,
-    unidadeIdx,
-    estoqueIdx,
-    precoIdx,
-    essencialIdx,
-    disponibilidadeIdx,
-  } = findColumnIndexes(header)
+  const { nomeIdx, categoriaIdx, unidadeIdx, estoqueIdx, precoIdx, disponibilidadeIdx } =
+    findColumnIndexes(header)
 
   const dataRows = rawMatrix.slice(1)
   if (dataRows.length === 0) {
@@ -322,7 +306,6 @@ export async function parseProductsFile(
     const rawUnidade = row[unidadeIdx] !== undefined ? String(row[unidadeIdx]).trim() : ''
     const rawEstoque = row[estoqueIdx] !== undefined ? String(row[estoqueIdx]).trim() : ''
     const rawPreco = row[precoIdx] !== undefined ? String(row[precoIdx]).trim() : ''
-    const rawEssencial = row[essencialIdx] !== undefined ? String(row[essencialIdx]).trim() : ''
     const rawDisponibilidade =
       row[disponibilidadeIdx] !== undefined ? String(row[disponibilidadeIdx]).trim() : ''
 
@@ -342,14 +325,12 @@ export async function parseProductsFile(
         rawUnidade,
         rawEstoque,
         rawPreco,
-        rawEssencial,
         rawDisponibilidade,
         nome: '',
         categoria: '',
         unidade: rawUnidade || 'Kg',
         estoque: 0,
         preco_unitario: 0,
-        essencial: false,
         disponibilidade: 'normal',
         status,
         statusReason,
@@ -418,10 +399,7 @@ export async function parseProductsFile(
       }
     }
 
-    // 8. Essencial
-    const mappedEssencial = parseEssencialField(rawEssencial)
-
-    // 9. Disponibilidade
+    // 8. Disponibilidade
     const mappedDisponibilidade = normalizeDisponibilidade(rawDisponibilidade)
 
     allRows.push({
@@ -431,14 +409,12 @@ export async function parseProductsFile(
       rawUnidade,
       rawEstoque,
       rawPreco,
-      rawEssencial,
       rawDisponibilidade,
       nome: rawNome,
       categoria: finalCategoria,
       unidade: mappedUnidade,
       estoque: mappedEstoque,
       preco_unitario: mappedPreco,
-      essencial: mappedEssencial,
       disponibilidade: mappedDisponibilidade,
       status,
       statusReason,

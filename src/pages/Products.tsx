@@ -20,16 +20,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
-import {
-  Search,
-  Plus,
-  TrendingUp,
-  Loader2,
-  Sparkles,
-  Check,
-  AlertCircle,
-  FileSpreadsheet,
-} from 'lucide-react'
+import { Search, Plus, Loader2, FileSpreadsheet } from 'lucide-react'
 import { toast } from 'sonner'
 import { useState } from 'react'
 import { Label } from '@/components/ui/label'
@@ -37,18 +28,17 @@ import { produtosService } from '@/services/produtos'
 import { ProductImportDialog } from '@/components/ProductImportDialog'
 
 export default function Products() {
-  const { products, isLoading, adjustProductPrices, refreshData } = useApp()
+  const { products, isLoading, refreshData } = useApp()
   const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
-  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [percentage, setPercentage] = useState('5')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Estados de edição de disponibilidade/essencial
+  // Estados de edição de produto (disponibilidade, estoque e preço)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<any>(null)
-  const [editEssencial, setEditEssencial] = useState(false)
+  const [editPreco, setEditPreco] = useState('')
+  const [editEstoque, setEditEstoque] = useState('')
   const [editDisponibilidade, setEditDisponibilidade] = useState<
     'normal' | 'escassez' | 'abundancia'
   >('normal')
@@ -59,20 +49,34 @@ export default function Products() {
 
   const handleOpenEdit = (p: any) => {
     setEditingProduct(p)
-    setEditEssencial(Boolean(p.essencial))
+    setEditPreco(String(p.price ?? 0))
+    setEditEstoque(String(p.stock ?? 0))
     setEditDisponibilidade(p.disponibilidade || 'normal')
     setEditDialogOpen(true)
   }
 
   const handleSaveProductConfig = async () => {
     if (!editingProduct) return
+    const parsedPrice = parseFloat(editPreco.replace(',', '.'))
+    const parsedStock = parseInt(editEstoque, 10)
+
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      toast.error('Informe um preço unitário válido.')
+      return
+    }
+    if (isNaN(parsedStock) || parsedStock < 0) {
+      toast.error('Informe uma quantidade de estoque válida.')
+      return
+    }
+
     setIsSubmitting(true)
     try {
       await produtosService.update(editingProduct.id, {
-        essencial: editEssencial,
+        preco_unitario: parsedPrice,
+        estoque: parsedStock,
         disponibilidade: editDisponibilidade,
       })
-      toast.success(`Configurações de "${editingProduct.name}" atualizadas!`)
+      toast.success(`Produto "${editingProduct.name}" atualizado com sucesso!`)
       setEditDialogOpen(false)
       await refreshData()
     } catch (err) {
@@ -80,23 +84,6 @@ export default function Products() {
       toast.error('Falha ao atualizar parâmetros do produto.')
     } finally {
       setIsSubmitting(false)
-    }
-  }
-
-  const handleBulkUpdate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const pct = parseFloat(percentage)
-    if (isNaN(pct) || pct === 0) {
-      toast.error('Informe uma porcentagem válida.')
-      return
-    }
-
-    setIsSubmitting(true)
-    const success = await adjustProductPrices(pct)
-    setIsSubmitting(false)
-    if (success) {
-      toast.success(`Preços ajustados com sucesso em ${pct}% no banco de dados!`)
-      setBulkDialogOpen(false)
     }
   }
 
@@ -111,9 +98,6 @@ export default function Products() {
         </div>
         {isAdmin && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
-              <TrendingUp className="mr-2 h-4 w-4" /> Ajuste em Massa
-            </Button>
             <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="gap-1.5">
               <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               Importar CSV
@@ -124,56 +108,6 @@ export default function Products() {
           </div>
         )}
       </div>
-
-      {/* Dialog de Ajuste em Massa Real */}
-      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Ajuste de Preços em Massa</DialogTitle>
-            <DialogDescription>
-              Aplique um reajuste percentual a todos os produtos cadastrados no banco de dados.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleBulkUpdate} className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label htmlFor="percentage">Percentual de Reajuste (%)</Label>
-              <div className="relative">
-                <Input
-                  id="percentage"
-                  type="number"
-                  step="0.5"
-                  value={percentage}
-                  onChange={(e) => setPercentage(e.target.value)}
-                  placeholder="Ex: 5 ou -5"
-                  required
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Valores positivos aumentam o preço; valores negativos concedem desconto.
-              </p>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setBulkDialogOpen(false)}
-                disabled={isSubmitting}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Atualizando...
-                  </>
-                ) : (
-                  'Aplicar Reajuste'
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       <Card>
         <CardHeader className="pb-3">
@@ -197,7 +131,6 @@ export default function Products() {
                 <TableRow>
                   <TableHead>Produto</TableHead>
                   <TableHead>Categoria</TableHead>
-                  <TableHead>Essencial</TableHead>
                   <TableHead>Disponibilidade</TableHead>
                   <TableHead className="text-right">Estoque</TableHead>
                   <TableHead>Unidade</TableHead>
@@ -208,7 +141,7 @@ export default function Products() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       <div className="flex items-center justify-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Carregando produtos do banco...
@@ -217,7 +150,7 @@ export default function Products() {
                   </TableRow>
                 ) : filteredProducts.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       Nenhum produto encontrado.
                     </TableCell>
                   </TableRow>
@@ -244,13 +177,6 @@ export default function Products() {
                             {product.category}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          {product.essencial ? (
-                            <Badge className="bg-blue-600 text-[10px]">Obrigatório</Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
                         <TableCell>{dispBadge}</TableCell>
                         <TableCell className="text-right">
                           <span
@@ -275,7 +201,7 @@ export default function Products() {
                               className="text-xs h-7"
                               onClick={() => handleOpenEdit(product)}
                             >
-                              Configurar
+                              Editar
                             </Button>
                           </TableCell>
                         )}
@@ -289,30 +215,44 @@ export default function Products() {
         </CardContent>
       </Card>
 
-      {/* Modal de Configuração de Essencial e Disponibilidade */}
+      {/* Modal de Edição Individual do Produto */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Configurar Produto: {editingProduct?.name}</DialogTitle>
+            <DialogTitle>Editar Produto: {editingProduct?.name}</DialogTitle>
             <DialogDescription>
-              Defina se o produto é essencial para validação dos pedidos e o status de safra
-              semanal.
+              Ajuste individualmente o preço, estoque e a disponibilidade de safra deste produto.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
-            <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
-              <div>
-                <Label className="font-semibold text-sm">Item Essencial Obrigatório</Label>
-                <p className="text-xs text-muted-foreground">
-                  Pedidos sem este produto serão sinalizados como inválidos.
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                checked={editEssencial}
-                onChange={(e) => setEditEssencial(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            <div className="space-y-2">
+              <Label htmlFor="edit-preco" className="text-sm font-semibold">
+                Preço Unitário (R$)
+              </Label>
+              <Input
+                id="edit-preco"
+                type="number"
+                step="0.01"
+                min="0"
+                value={editPreco}
+                onChange={(e) => setEditPreco(e.target.value)}
+                placeholder="Ex: 5.50"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-estoque" className="text-sm font-semibold">
+                Estoque ({editingProduct?.unit || 'Un'})
+              </Label>
+              <Input
+                id="edit-estoque"
+                type="number"
+                step="1"
+                min="0"
+                value={editEstoque}
+                onChange={(e) => setEditEstoque(e.target.value)}
+                placeholder="Ex: 100"
               />
             </div>
 
@@ -342,7 +282,13 @@ export default function Products() {
               Cancelar
             </Button>
             <Button onClick={handleSaveProductConfig} disabled={isSubmitting}>
-              {isSubmitting ? 'Salvando...' : 'Salvar Parâmetros'}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...
+                </>
+              ) : (
+                'Salvar Alterações'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

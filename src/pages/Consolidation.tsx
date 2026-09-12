@@ -377,17 +377,7 @@ export default function Consolidation() {
                         return (
                           <TableRow key={prod.id} className="hover:bg-muted/40">
                             <TableCell className="font-medium sticky left-0 bg-background z-10 border-r">
-                              <div className="flex items-center gap-1.5">
-                                <span>{prod.name}</span>
-                                {prod.essencial && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[9px] px-1 py-0 h-3.5 bg-amber-100 text-amber-800"
-                                  >
-                                    Essencial
-                                  </Badge>
-                                )}
-                              </div>
+                              <span>{prod.name}</span>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
                               {prod.unit}

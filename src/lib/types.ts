@@ -5,7 +5,6 @@ export interface ProdutoRecord {
   unidade: string
   estoque: number
   preco_unitario: number
-  essencial?: boolean
   disponibilidade?: 'normal' | 'escassez' | 'abundancia'
   created?: string
   updated?: string
@@ -181,7 +180,6 @@ export interface Product {
   stock: number
   unit: string
   price: number
-  essencial: boolean
   disponibilidade: 'normal' | 'escassez' | 'abundancia'
 }
 

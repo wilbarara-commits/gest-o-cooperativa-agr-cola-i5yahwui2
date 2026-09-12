@@ -44,10 +44,6 @@ export default function WhatsappCommunication() {
     () => products.filter((p) => p.disponibilidade === 'escassez').map((p) => p.name),
     [products],
   )
-  const itensEssenciais = useMemo(
-    () => products.filter((p) => p.essencial).map((p) => p.name),
-    [products],
-  )
 
   // Mensagem padrão customizável
   const [customMsg, setCustomMsg] = useState('')
@@ -58,20 +54,17 @@ export default function WhatsappCommunication() {
       itensAbundantes.length > 0 ? itensAbundantes.join(', ') : 'Diversos itens da horta'
     const escassStr =
       itensEscassos.length > 0 ? itensEscassos.join(', ') : 'Nenhum item com restrição'
-    const essencStr =
-      itensEssenciais.length > 0 ? itensEssenciais.join(', ') : 'Alface, Cenoura, Feijão'
 
     const tpl = `Olá! Mensagem da CooperGestão referente ao *${activeCiclo?.nome || 'Ciclo Semanal'}*.
 
 🥦 *Itens em Abundância (Incentivo de Pedido):* ${abundStr}
 ⚠️ *Itens em Escassez (Limitar pedido):* ${escassStr}
-✅ *Itens Essenciais Obrigatórios:* ${essencStr}
 
 📋 *Link para formulário/lançamento:* https://coopergestao.app/pedidos
 Por favor, envie suas quantidades até o prazo da fase de coleta para garantir a entrega na sua rota!`
 
     setCustomMsg(tpl)
-  }, [activeCiclo, itensAbundantes, itensEscassos, itensEssenciais])
+  }, [activeCiclo, itensAbundantes, itensEscassos])
 
   // Carregar histórico de envios do ciclo ativo
   const loadEnvios = async () => {
@@ -163,8 +156,8 @@ Por favor, envie suas quantidades até o prazo da fase de coleta para garantir a
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Comunicação Semanal (WhatsApp)</h1>
           <p className="text-muted-foreground">
-            Dispare templates informativos sobre disponibilidade, itens essenciais e acompanhe
-            envios por escola.
+            Dispare templates informativos sobre disponibilidade de safra e acompanhe envios por
+            escola.
           </p>
         </div>
 
@@ -215,9 +208,6 @@ Por favor, envie suas quantidades até o prazo da fase de coleta para garantir a
             </Badge>
             <Badge variant="outline" className="border-amber-500/40 text-amber-700">
               {itensEscassos.length} em escassez
-            </Badge>
-            <Badge variant="outline" className="border-blue-500/40 text-blue-700">
-              {itensEssenciais.length} essenciais
             </Badge>
           </div>
         </CardContent>

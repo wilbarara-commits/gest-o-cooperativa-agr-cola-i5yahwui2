@@ -345,7 +345,7 @@ export default function Orders() {
                   <div>
                     <Label className="font-semibold text-sm">Itens e Quantidades</Label>
                     <p className="text-xs text-muted-foreground">
-                      O pedido será validado contra itens essenciais e disponibilidade na fase de
+                      O pedido será validado contra compensação de disponibilidade na fase de
                       correção.
                     </p>
                   </div>
@@ -383,8 +383,7 @@ export default function Orders() {
                             <SelectContent>
                               {products.map((p) => (
                                 <SelectItem key={p.id} value={p.id}>
-                                  {p.name} {p.essencial ? '(Essencial)' : ''} - R${' '}
-                                  {p.price.toFixed(2)} / {p.unit}
+                                  {p.name} - R$ {p.price.toFixed(2)} / {p.unit}
                                 </SelectItem>
                               ))}
                             </SelectContent>

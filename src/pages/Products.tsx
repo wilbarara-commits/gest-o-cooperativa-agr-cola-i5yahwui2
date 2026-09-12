@@ -20,22 +20,57 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Search, Plus, TrendingUp, Loader2 } from 'lucide-react'
+import { Search, Plus, TrendingUp, Loader2, Sparkles, Check, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useState } from 'react'
 import { Label } from '@/components/ui/label'
+import { produtosService } from '@/services/produtos'
 
 export default function Products() {
-  const { products, isLoading, adjustProductPrices } = useApp()
+  const { products, isLoading, adjustProductPrices, refreshData } = useApp()
   const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [percentage, setPercentage] = useState('5')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Estados de edição de disponibilidade/essencial
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<any>(null)
+  const [editEssencial, setEditEssencial] = useState(false)
+  const [editDisponibilidade, setEditDisponibilidade] = useState<
+    'normal' | 'escassez' | 'abundancia'
+  >('normal')
+
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()),
   )
+
+  const handleOpenEdit = (p: any) => {
+    setEditingProduct(p)
+    setEditEssencial(Boolean(p.essencial))
+    setEditDisponibilidade(p.disponibilidade || 'normal')
+    setEditDialogOpen(true)
+  }
+
+  const handleSaveProductConfig = async () => {
+    if (!editingProduct) return
+    setIsSubmitting(true)
+    try {
+      await produtosService.update(editingProduct.id, {
+        essencial: editEssencial,
+        disponibilidade: editDisponibilidade,
+      })
+      toast.success(`Configurações de "${editingProduct.name}" atualizadas!`)
+      setEditDialogOpen(false)
+      await refreshData()
+    } catch (err) {
+      console.error('Erro ao atualizar produto:', err)
+      toast.error('Falha ao atualizar parâmetros do produto.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const handleBulkUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -147,9 +182,12 @@ export default function Products() {
                 <TableRow>
                   <TableHead>Produto</TableHead>
                   <TableHead>Categoria</TableHead>
+                  <TableHead>Essencial</TableHead>
+                  <TableHead>Disponibilidade</TableHead>
                   <TableHead className="text-right">Estoque</TableHead>
                   <TableHead>Unidade</TableHead>
                   <TableHead className="text-right">Preço Unit.</TableHead>
+                  {isAdmin && <TableHead className="text-right">Ação</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -169,35 +207,131 @@ export default function Products() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredProducts.map((product) => (
-                    <TableRow key={product.id}>
-                      <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="font-normal">
-                          {product.category}
+                  filteredProducts.map((product) => {
+                    const dispBadge =
+                      product.disponibilidade === 'abundancia' ? (
+                        <Badge className="bg-emerald-600 hover:bg-emerald-700 text-xs">
+                          Abundância
                         </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span className={product.stock < 100 ? 'text-destructive font-medium' : ''}>
-                          {product.stock}
-                        </span>
-                      </TableCell>
-                      <TableCell>{product.unit}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        R${' '}
-                        {product.price.toLocaleString('pt-BR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </TableCell>
-                    </TableRow>
-                  ))
+                      ) : product.disponibilidade === 'escassez' ? (
+                        <Badge className="bg-amber-600 hover:bg-amber-700 text-xs">Escassez</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          Normal
+                        </Badge>
+                      )
+
+                    return (
+                      <TableRow key={product.id}>
+                        <TableCell className="font-medium">{product.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="font-normal">
+                            {product.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {product.essencial ? (
+                            <Badge className="bg-blue-600 text-[10px]">Obrigatório</Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>{dispBadge}</TableCell>
+                        <TableCell className="text-right">
+                          <span
+                            className={product.stock < 100 ? 'text-destructive font-medium' : ''}
+                          >
+                            {product.stock}
+                          </span>
+                        </TableCell>
+                        <TableCell>{product.unit}</TableCell>
+                        <TableCell className="text-right font-medium font-mono">
+                          R${' '}
+                          {product.price.toLocaleString('pt-BR', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </TableCell>
+                        {isAdmin && (
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs h-7"
+                              onClick={() => handleOpenEdit(product)}
+                            >
+                              Configurar
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
+
+      {/* Modal de Configuração de Essencial e Disponibilidade */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Configurar Produto: {editingProduct?.name}</DialogTitle>
+            <DialogDescription>
+              Defina se o produto é essencial para validação dos pedidos e o status de safra
+              semanal.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
+              <div>
+                <Label className="font-semibold text-sm">Item Essencial Obrigatório</Label>
+                <p className="text-xs text-muted-foreground">
+                  Pedidos sem este produto serão sinalizados como inválidos.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={editEssencial}
+                onChange={(e) => setEditEssencial(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Disponibilidade na Safra do Ciclo</Label>
+              <select
+                value={editDisponibilidade}
+                onChange={(e) =>
+                  setEditDisponibilidade(e.target.value as 'normal' | 'escassez' | 'abundancia')
+                }
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="normal">Normal (Estoque Regular)</option>
+                <option value="abundancia">Abundância (Safra Alta / Incentivo)</option>
+                <option value="escassez">Escassez (Restrição / Compensar em Correção)</option>
+              </select>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditDialogOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveProductConfig} disabled={isSubmitting}>
+              {isSubmitting ? 'Salvando...' : 'Salvar Parâmetros'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

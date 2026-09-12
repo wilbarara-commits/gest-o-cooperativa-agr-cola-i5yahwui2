@@ -1,5 +1,11 @@
+import { useState, useMemo } from 'react'
 import { useApp } from '@/context/app-context'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import type { Order } from '@/lib/types'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Table,
   TableBody,
@@ -8,8 +14,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -18,112 +31,208 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogDescription,
-} from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Calendar as CalIcon, Loader2, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+  ShoppingCart,
+  Plus,
+  Trash2,
+  Calendar as CalIcon,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Filter,
+  MessageSquare,
+  FileSpreadsheet,
+  Layers,
+  Sparkles,
+  Info,
+} from 'lucide-react'
 import { toast } from 'sonner'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-
-interface OrderFormItem {
-  productId: string
-  quantity: number
-}
 
 export default function Orders() {
-  const { orders, schools, products, addOrder, isLoading } = useApp()
+  const { products, schools, orders, contracts, activeCiclo, addOrder, isLoading } = useApp()
+
   const [open, setOpen] = useState(false)
-  const [selectedSchool, setSelectedSchool] = useState('')
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split('T')[0])
-  const [orderItems, setOrderItems] = useState<OrderFormItem[]>([{ productId: '', quantity: 10 }])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Filtros de listagem
+  const [filterOrigem, setFilterOrigem] = useState<string>('todos')
+  const [filterStatus, setFilterStatus] = useState<string>('todos')
+  const [filterValidacao, setFilterValidacao] = useState<string>('todos')
+
+  // Form de criação de pedido
+  const [selectedContractId, setSelectedContractId] = useState<string>('')
+  const [selectedSchool, setSelectedSchool] = useState('')
+  const [orderOrigem, setOrderOrigem] = useState<'whatsapp' | 'manual'>('whatsapp')
+  const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0])
+  const [orderItems, setOrderItems] = useState<Array<{ productId: string; quantity: number }>>([
+    { productId: products[0]?.id || '', quantity: 5 },
+  ])
+
+  // Detalhes do pedido selecionado
+  const [viewingOrder, setViewingOrder] = useState<Order | null>(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+
+  // Filtrar contratos com modalidade individualizada para lançamento via WhatsApp
+  const individualContracts = useMemo(
+    () => contracts.filter((c) => c.modalidade_pedido === 'individualizado'),
+    [contracts],
+  )
+
+  // Escolas disponíveis baseadas no contrato selecionado (ou todas se não filtrar)
+  const availableSchools = useMemo(() => {
+    if (!selectedContractId) return schools
+    const c = contracts.find((cnt) => cnt.id === selectedContractId)
+    if (!c) return schools
+    const schoolIds = new Set(c.escolas.map((e) => e.escolaId))
+    return schools.filter((s) => schoolIds.has(s.id))
+  }, [selectedContractId, contracts, schools])
+
+  const calculatedTotal = useMemo(() => {
+    return orderItems.reduce((acc, item) => {
+      const prod = products.find((p) => p.id === item.productId)
+      return acc + (prod?.price || 0) * (Number(item.quantity) || 0)
+    }, 0)
+  }, [orderItems, products])
+
   const handleAddItem = () => {
-    setOrderItems((prev) => [...prev, { productId: '', quantity: 1 }])
+    const nextProd = products.find((p) => !orderItems.some((i) => i.productId === p.id))
+    setOrderItems((prev) => [
+      ...prev,
+      {
+        productId: nextProd?.id || products[0]?.id || '',
+        quantity: 1,
+      },
+    ])
   }
 
   const handleRemoveItem = (index: number) => {
-    if (orderItems.length === 1) {
-      toast.error('O pedido deve conter pelo menos um produto.')
-      return
-    }
     setOrderItems((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const handleItemChange = (index: number, field: 'productId' | 'quantity', value: any) => {
+  const handleItemChange = (
+    index: number,
+    field: 'productId' | 'quantity',
+    value: string | number,
+  ) => {
     setOrderItems((prev) =>
-      prev.map((item, i) => {
-        if (i !== index) return item
-        return { ...item, [field]: value }
-      }),
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     )
   }
-
-  // Calculate dynamic order total
-  const calculatedTotal = orderItems.reduce((acc, it) => {
-    const prod = products.find((p) => p.id === it.productId)
-    if (!prod) return acc
-    return acc + prod.price * (Number(it.quantity) || 0)
-  }, 0)
 
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!selectedSchool) {
-      toast.error('Por favor, selecione a escola.')
+      toast.error('Selecione a escola solicitante.')
       return
     }
 
-    const validItems = orderItems.filter((it) => it.productId && Number(it.quantity) > 0)
-
+    const validItems = orderItems.filter((i) => i.productId && Number(i.quantity) > 0)
     if (validItems.length === 0) {
-      toast.error('Adicione ao menos um produto válido com quantidade.')
+      toast.error('Adicione ao menos um produto válido com quantidade maior que zero.')
       return
     }
 
     setIsSubmitting(true)
+
+    // Achar rota associada da escola no contrato
+    let rotaIdToUse: string | undefined = undefined
+    if (selectedContractId) {
+      const c = contracts.find((cnt) => cnt.id === selectedContractId)
+      const esc = c?.escolas.find((e) => e.escolaId === selectedSchool)
+      rotaIdToUse = esc?.rotaId
+    }
+
     const success = await addOrder({
       schoolId: selectedSchool,
       date: orderDate,
-      items: validItems.map((it) => ({
-        productId: it.productId,
-        quantity: Number(it.quantity),
+      cicloId: activeCiclo?.id,
+      origem: orderOrigem,
+      rotaId: rotaIdToUse,
+      items: validItems.map((i) => ({
+        productId: i.productId,
+        quantity: Number(i.quantity),
       })),
     })
+
     setIsSubmitting(false)
 
     if (success) {
-      toast.success('Pedido gravado com sucesso no banco de dados!')
       setOpen(false)
       setSelectedSchool('')
-      setOrderItems([{ productId: '', quantity: 10 }])
-      setOrderDate(new Date().toISOString().split('T')[0])
+      setOrderItems([{ productId: products[0]?.id || '', quantity: 5 }])
     }
   }
 
-  const getStatusBadge = (status: string) => {
+  // Filtragem da lista
+  const filteredOrders = useMemo(() => {
+    return orders.filter((o) => {
+      if (filterOrigem !== 'todos' && o.origem !== filterOrigem) return false
+      if (filterStatus !== 'todos' && o.status !== filterStatus) return false
+      if (filterValidacao !== 'todos' && o.validacao?.status !== filterValidacao) return false
+      return true
+    })
+  }, [orders, filterOrigem, filterStatus, filterValidacao])
+
+  const getOrigemBadge = (origem: Order['origem']) => {
+    switch (origem) {
+      case 'excel':
+        return (
+          <Badge
+            variant="outline"
+            className="text-emerald-700 bg-emerald-50 border-emerald-300 gap-1 text-[11px]"
+          >
+            <FileSpreadsheet className="h-3 w-3" /> Excel
+          </Badge>
+        )
+      case 'whatsapp':
+        return (
+          <Badge
+            variant="outline"
+            className="text-green-700 bg-green-50 border-green-400 gap-1 text-[11px]"
+          >
+            <MessageSquare className="h-3 w-3" /> WhatsApp
+          </Badge>
+        )
+      default:
+        return (
+          <Badge variant="outline" className="text-muted-foreground gap-1 text-[11px]">
+            Manual
+          </Badge>
+        )
+    }
+  }
+
+  const getValidacaoBadge = (val: Order['validacao']) => {
+    if (!val || val.status === 'validado') {
+      return (
+        <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] gap-1">
+          <CheckCircle2 className="h-3 w-3" /> Validado
+        </Badge>
+      )
+    }
+    if (val.status === 'invalido') {
+      return (
+        <Badge variant="destructive" className="text-[10px] gap-1" title={val.motivo}>
+          <AlertTriangle className="h-3 w-3" /> Inválido
+        </Badge>
+      )
+    }
+    return (
+      <Badge className="bg-amber-600 text-[10px] gap-1">
+        <Clock className="h-3 w-3" /> Em Progresso
+      </Badge>
+    )
+  }
+
+  const getStatusBadge = (status: Order['status']) => {
     switch (status) {
       case 'Entregue':
-        return <Badge className="bg-primary hover:bg-primary/90">Entregue</Badge>
+        return <Badge className="bg-emerald-600">Entregue</Badge>
       case 'Pendente':
-        return (
-          <Badge variant="secondary" className="bg-secondary text-secondary-foreground">
-            Pendente
-          </Badge>
-        )
+        return <Badge variant="secondary">Pendente</Badge>
       case 'Em Rota':
-        return (
-          <Badge variant="outline" className="text-blue-600 border-blue-600">
-            Em Rota
-          </Badge>
-        )
+        return <Badge className="bg-amber-600">Em Rota</Badge>
       default:
         return <Badge variant="destructive">Cancelado</Badge>
     }
@@ -133,58 +242,113 @@ export default function Orders() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Pedidos</h1>
-          <p className="text-muted-foreground">Lançamento de pedidos e acompanhamento de status.</p>
+          <h1 className="text-2xl font-bold tracking-tight">Gestão de Pedidos</h1>
+          <p className="text-muted-foreground">
+            Lançamento via WhatsApp para contratos individualizados, validação de regras e rastreio
+            por origem.
+          </p>
         </div>
 
+        {/* Botão de Lançar Pedido */}
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" /> Nova Encomenda
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" /> Lançar Pedido
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-[620px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Lançar Novo Pedido</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5 text-primary" /> Novo Pedido (Individualizado /
+                WhatsApp)
+              </DialogTitle>
               <DialogDescription>
-                Selecione a instituição, data prevista e os produtos agrícolas do catálogo.
+                Ciclo Ativo:{' '}
+                <strong className="text-foreground">{activeCiclo?.nome || 'Nenhum'}</strong> (
+                {activeCiclo?.status || '-'})
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleCreateOrder} className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="school">Escola / Instituição</Label>
-                <Select value={selectedSchool} onValueChange={setSelectedSchool} required>
-                  <SelectTrigger id="school">
-                    <SelectValue placeholder="Selecione a escola" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {schools.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name} ({s.route})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="date">Data Prevista de Entrega</Label>
-                <div className="relative">
-                  <CalIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    type="date"
-                    id="date"
-                    className="pl-9"
-                    value={orderDate}
-                    onChange={(e) => setOrderDate(e.target.value)}
-                    required
-                  />
+            <form onSubmit={handleCreateOrder} className="space-y-4 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="ord-contrato">Contrato Vinculado</Label>
+                  <Select value={selectedContractId} onValueChange={setSelectedContractId}>
+                    <SelectTrigger id="ord-contrato">
+                      <SelectValue placeholder="Selecione o Contrato" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {individualContracts.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.numero} ({c.escolas.length} escolas)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ord-origem">Canal de Origem</Label>
+                  <Select
+                    value={orderOrigem}
+                    onValueChange={(v) => setOrderOrigem(v as 'whatsapp' | 'manual')}
+                  >
+                    <SelectTrigger id="ord-origem">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="whatsapp">Mensagem WhatsApp (Individual)</SelectItem>
+                      <SelectItem value="manual">Lançamento Interno / Manual</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
-              <div className="space-y-3 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="ord-escola">
+                    Escola / Instituição <span className="text-destructive">*</span>
+                  </Label>
+                  <Select value={selectedSchool} onValueChange={setSelectedSchool} required>
+                    <SelectTrigger id="ord-escola">
+                      <SelectValue placeholder="Selecione a escola" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableSchools.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name} ({s.route})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ord-date">Data Prevista de Entrega</Label>
+                  <div className="relative">
+                    <CalIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      type="date"
+                      id="ord-date"
+                      className="pl-9"
+                      value={orderDate}
+                      onChange={(e) => setOrderDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Itens do Pedido */}
+              <div className="space-y-3 pt-2 border-t">
                 <div className="flex items-center justify-between">
-                  <Label className="font-semibold">Itens do Pedido</Label>
+                  <div>
+                    <Label className="font-semibold text-sm">Itens e Quantidades</Label>
+                    <p className="text-xs text-muted-foreground">
+                      O pedido será validado contra itens essenciais e disponibilidade na fase de
+                      correção.
+                    </p>
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
@@ -196,7 +360,7 @@ export default function Orders() {
                   </Button>
                 </div>
 
-                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
                   {orderItems.map((item, idx) => {
                     const selectedProd = products.find((p) => p.id === item.productId)
                     const itemSubtotal = selectedProd
@@ -206,20 +370,21 @@ export default function Orders() {
                     return (
                       <div
                         key={idx}
-                        className="flex items-center gap-2 p-2 rounded-lg border bg-muted/20"
+                        className="flex items-center gap-2 p-2 rounded-lg border bg-muted/20 text-xs"
                       >
                         <div className="flex-1">
                           <Select
                             value={item.productId}
                             onValueChange={(val) => handleItemChange(idx, 'productId', val)}
                           >
-                            <SelectTrigger className="h-9">
+                            <SelectTrigger className="h-8 text-xs">
                               <SelectValue placeholder="Selecione o produto" />
                             </SelectTrigger>
                             <SelectContent>
                               {products.map((p) => (
                                 <SelectItem key={p.id} value={p.id}>
-                                  {p.name} (R$ {p.price.toFixed(2)} / {p.unit})
+                                  {p.name} {p.essencial ? '(Essencial)' : ''} - R${' '}
+                                  {p.price.toFixed(2)} / {p.unit}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -230,7 +395,7 @@ export default function Orders() {
                             type="number"
                             min="1"
                             step="1"
-                            className="h-9"
+                            className="h-8 text-xs font-mono"
                             placeholder="Qtd"
                             value={item.quantity}
                             onChange={(e) =>
@@ -238,17 +403,17 @@ export default function Orders() {
                             }
                           />
                         </div>
-                        <div className="w-20 text-right text-xs font-medium text-muted-foreground">
+                        <div className="w-24 text-right font-mono font-medium text-foreground">
                           R$ {itemSubtotal.toFixed(2)}
                         </div>
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
                           onClick={() => handleRemoveItem(idx)}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     )
@@ -256,8 +421,8 @@ export default function Orders() {
                 </div>
 
                 <div className="flex justify-between items-center p-3 bg-primary/5 rounded-lg border border-primary/20">
-                  <span className="font-semibold text-sm">Valor Total Previsto:</span>
-                  <span className="text-lg font-bold text-primary">
+                  <span className="font-semibold text-xs">Valor Total Calculado:</span>
+                  <span className="text-base font-bold text-primary">
                     R${' '}
                     {calculatedTotal.toLocaleString('pt-BR', {
                       minimumFractionDigits: 2,
@@ -291,12 +456,69 @@ export default function Orders() {
         </Dialog>
       </div>
 
+      {/* Barra de Filtros */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+            <div>
+              <Label className="text-xs">Origem do Pedido</Label>
+              <Select value={filterOrigem} onValueChange={setFilterOrigem}>
+                <SelectTrigger className="h-9 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas as Origens</SelectItem>
+                  <SelectItem value="excel">Excel (Centralizado)</SelectItem>
+                  <SelectItem value="whatsapp">WhatsApp (Individual)</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-xs">Status da Entrega</Label>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="h-9 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os Status</SelectItem>
+                  <SelectItem value="Pendente">Pendente</SelectItem>
+                  <SelectItem value="Em Rota">Em Rota</SelectItem>
+                  <SelectItem value="Entregue">Entregue</SelectItem>
+                  <SelectItem value="Cancelado">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-xs">Status da Validação</Label>
+              <Select value={filterValidacao} onValueChange={setFilterValidacao}>
+                <SelectTrigger className="h-9 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas as Validações</SelectItem>
+                  <SelectItem value="validado">Validado</SelectItem>
+                  <SelectItem value="invalido">Inválido / Pendente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Lista de Pedidos */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-primary" />
-            Lista de Pedidos
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShoppingCart className="h-5 w-5 text-primary" /> Relação de Pedidos Lançados
+            </CardTitle>
+            <Badge variant="outline" className="text-xs">
+              {filteredOrders.length} pedido(s) listado(s)
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
@@ -304,52 +526,69 @@ export default function Orders() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nº Pedido</TableHead>
-                  <TableHead>Instituição</TableHead>
+                  <TableHead>Origem</TableHead>
+                  <TableHead>Instituição Escolar</TableHead>
+                  <TableHead>Rota</TableHead>
                   <TableHead>Data Prevista</TableHead>
-                  <TableHead>Itens</TableHead>
+                  <TableHead>Validação</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Total (R$)</TableHead>
+                  <TableHead className="text-right">Ação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       <div className="flex items-center justify-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Carregando pedidos do banco...
+                        <Loader2 className="h-4 w-4 animate-spin" /> Carregando pedidos...
                       </div>
                     </TableCell>
                   </TableRow>
-                ) : orders.length === 0 ? (
+                ) : filteredOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Nenhum pedido registrado no banco.
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      Nenhum pedido encontrado para os filtros selecionados.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  orders.map((order) => (
+                  filteredOrders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell className="font-medium text-primary">
-                        {order.numero || order.id}
+                      <TableCell className="font-semibold text-primary text-xs">
+                        {order.numero}
                       </TableCell>
-                      <TableCell>{order.schoolName}</TableCell>
-                      <TableCell>{new Date(order.date).toLocaleDateString('pt-BR')}</TableCell>
+                      <TableCell>{getOrigemBadge(order.origem)}</TableCell>
+                      <TableCell className="font-medium text-xs">{order.schoolName}</TableCell>
                       <TableCell>
-                        <span
-                          className="text-xs text-muted-foreground"
-                          title={order.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}
-                        >
-                          {order.items.length > 0 ? `${order.items.length} item(ns)` : 'Sem itens'}
-                        </span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {order.rotaNome || 'Sem rota'}
+                        </Badge>
                       </TableCell>
+                      <TableCell className="text-xs">
+                        {new Date(order.date).toLocaleDateString('pt-BR')}
+                      </TableCell>
+                      <TableCell>{getValidacaoBadge(order.validacao)}</TableCell>
                       <TableCell>{getStatusBadge(order.status)}</TableCell>
-                      <TableCell className="text-right font-medium">
+                      <TableCell className="text-right font-mono font-medium text-xs">
                         R${' '}
                         {order.total.toLocaleString('pt-BR', {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          title="Ver detalhes do pedido"
+                          onClick={() => {
+                            setViewingOrder(order)
+                            setDetailsOpen(true)
+                          }}
+                        >
+                          <Info className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))
@@ -359,6 +598,56 @@ export default function Orders() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Modal de Detalhes do Pedido */}
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 text-primary" /> Pedido {viewingOrder?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              {viewingOrder?.schoolName} • Origem: {viewingOrder?.origem}
+            </DialogDescription>
+          </DialogHeader>
+
+          {viewingOrder && (
+            <div className="space-y-4 pt-2 text-xs">
+              <div className="p-3 rounded border bg-muted/20 space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Status da Validação:</span>
+                  <span>{getValidacaoBadge(viewingOrder.validacao)}</span>
+                </div>
+                {viewingOrder.validacao?.motivo && (
+                  <p className="text-[11px] text-muted-foreground pt-1">
+                    👉 {viewingOrder.validacao.motivo}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold text-xs mb-2">Itens Solicitados:</h4>
+                <div className="rounded border divide-y max-h-[220px] overflow-y-auto">
+                  {viewingOrder.items.map((it, idx) => (
+                    <div key={idx} className="flex justify-between p-2">
+                      <span>{it.name}</span>
+                      <span className="font-mono">
+                        {it.quantity} un × R$ {it.price.toFixed(2)} = R${' '}
+                        {(it.quantity * it.price).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-2 font-bold text-sm">
+                <span>Total do Pedido:</span>
+                <span className="text-primary font-mono">R$ {viewingOrder.total.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -118,16 +118,17 @@ export default function Reports() {
         if (searchContrato.trim()) {
           const q = searchContrato.toLowerCase()
           const matchNum = c.numero.toLowerCase().includes(q)
-          const matchSchool = c.schoolName.toLowerCase().includes(q)
+          const matchSchool = c.escolas.some((e) => (e.escolaNome || '').toLowerCase().includes(q))
           if (!matchNum && !matchSchool) return false
         }
         return true
       })
       .map((c) => {
-        // Calculate delivered/faturado for this contract's school
+        // Calculate delivered/faturado for this contract's participating schools
         // Filtering by period if dates are selected
+        const contractSchoolIds = new Set(c.escolas.map((e) => e.escolaId))
         const schoolOrders = orders.filter((o) => {
-          if (o.schoolId !== c.schoolId) return false
+          if (!contractSchoolIds.has(o.schoolId)) return false
           if (o.status !== 'Entregue') return false
           if (startDate && o.date < startDate) return false
           if (endDate && o.date > endDate) return false
@@ -139,12 +140,17 @@ export default function Reports() {
         const saldoRestante = Math.max(0, valorPactuado - totalEntregue)
         const percentExecucao = valorPactuado > 0 ? (totalEntregue / valorPactuado) * 100 : 0
 
+        const escolaNomes =
+          c.escolas.length > 0
+            ? c.escolas.map((e) => e.escolaNome).join(', ')
+            : 'Nenhuma escola vinculada'
+
         return {
           id: c.id,
           numero: c.numero,
           tipo: c.tipo || 'PNAE',
-          escolaId: c.schoolId,
-          escolaNome: c.schoolName,
+          escolaId: c.escolas[0]?.escolaId || '',
+          escolaNome: escolaNomes,
           status: c.status,
           valorPactuado,
           totalEntregue,

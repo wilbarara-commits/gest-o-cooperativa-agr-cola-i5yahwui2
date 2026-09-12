@@ -18,6 +18,11 @@ import DeliveryRoutes from './pages/DeliveryRoutes'
 import Atestos from './pages/Atestos'
 import Reports from './pages/Reports'
 import Requirements from './pages/Requirements'
+import Consolidation from './pages/Consolidation'
+import CycleHistory from './pages/CycleHistory'
+import Monitoring from './pages/Monitoring'
+import WhatsappCommunication from './pages/WhatsappCommunication'
+import ExcelImport from './pages/ExcelImport'
 
 const App = () => (
   <AuthProvider>
@@ -42,6 +47,11 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/pedidos" element={<Orders />} />
               <Route path="/rotas" element={<DeliveryRoutes />} />
+              <Route path="/consolidacao" element={<Consolidation />} />
+              <Route path="/historico-ciclos" element={<CycleHistory />} />
+              <Route path="/monitoramento" element={<Monitoring />} />
+              <Route path="/comunicacao" element={<WhatsappCommunication />} />
+              <Route path="/importacao" element={<ExcelImport />} />
               <Route path="/atestos" element={<Atestos />} />
               <Route path="/relatorios" element={<Reports />} />
 

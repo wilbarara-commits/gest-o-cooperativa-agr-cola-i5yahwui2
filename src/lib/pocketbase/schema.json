@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T23:02:01.364Z",
+  "generatedAt": "2026-09-12T14:48:27.813Z",
   "collections": [
     {
       "name": "users",
@@ -112,6 +112,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "essencial",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "disponibilidade",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["normal", "escassez", "abundancia"]
         }
       ],
       "indexes": ["CREATE INDEX idx_produtos_nome ON produtos (nome)"]
@@ -195,13 +208,6 @@
           "system": false
         },
         {
-          "name": "instituicao_id",
-          "type": "relation",
-          "required": true,
-          "system": false,
-          "collectionRef": "escolas"
-        },
-        {
           "name": "valor_total",
           "type": "number",
           "required": false,
@@ -227,9 +233,16 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "modalidade_pedido",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["individualizado", "centralizado"]
         }
       ],
-      "indexes": ["CREATE INDEX idx_contratos_instituicao ON contratos (instituicao_id)"]
+      "indexes": []
     },
     {
       "name": "contrato_itens",
@@ -275,6 +288,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "cota_anual",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE INDEX idx_contrato_itens_contrato ON contrato_itens (contrato_id)"]
@@ -329,6 +348,33 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "ciclo_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "ciclos"
+        },
+        {
+          "name": "origem",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["excel", "whatsapp", "manual"]
+        },
+        {
+          "name": "rota_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "rotas"
+        },
+        {
+          "name": "validacao",
+          "type": "json",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -451,6 +497,316 @@
       "indexes": [
         "CREATE INDEX idx_atestos_pedido ON atestos (pedido_id)",
         "CREATE INDEX idx_atestos_status ON atestos (status)"
+      ]
+    },
+    {
+      "name": "ciclos",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "data_inicio",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "data_fim",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["coletando", "correcao", "fechado"]
+        },
+        {
+          "name": "snapshot",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ciclos_status ON ciclos (status)",
+        "CREATE INDEX idx_ciclos_datas ON ciclos (data_inicio, data_fim)"
+      ]
+    },
+    {
+      "name": "rotas",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "contrato_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "contratos"
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ordem",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_rotas_contrato ON rotas (contrato_id)",
+        "CREATE INDEX idx_rotas_nome ON rotas (nome)"
+      ]
+    },
+    {
+      "name": "contrato_escolas",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "contrato_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "contratos"
+        },
+        {
+          "name": "escola_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "escolas"
+        },
+        {
+          "name": "rota_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "rotas"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_contrato_escolas_contrato ON contrato_escolas (contrato_id)",
+        "CREATE INDEX idx_contrato_escolas_escola ON contrato_escolas (escola_id)"
+      ]
+    },
+    {
+      "name": "envios_whatsapp",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "ciclo_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "ciclos"
+        },
+        {
+          "name": "escola_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "escolas"
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pendente", "enviado", "falha"]
+        },
+        {
+          "name": "enviado_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_envios_wa_ciclo ON envios_whatsapp (ciclo_id)",
+        "CREATE INDEX idx_envios_wa_escola ON envios_whatsapp (escola_id)"
+      ]
+    },
+    {
+      "name": "importacoes",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "ciclo_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "ciclos"
+        },
+        {
+          "name": "contrato_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "contratos"
+        },
+        {
+          "name": "arquivo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "usuario_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "linhas_total",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "linhas_ok",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "linhas_erro",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "erros",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_importacoes_ciclo ON importacoes (ciclo_id)",
+        "CREATE INDEX idx_importacoes_contrato ON importacoes (contrato_id)"
       ]
     }
   ]

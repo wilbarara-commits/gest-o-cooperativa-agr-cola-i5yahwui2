@@ -5,6 +5,8 @@ export interface ProdutoRecord {
   unidade: string
   estoque: number
   preco_unitario: number
+  essencial?: boolean
+  disponibilidade?: 'normal' | 'escassez' | 'abundancia'
   created?: string
   updated?: string
 }
@@ -19,15 +21,46 @@ export interface EscolaRecord {
   updated?: string
 }
 
+export interface CicloRecord {
+  id: string
+  nome: string
+  data_inicio: string
+  data_fim: string
+  status: 'coletando' | 'correcao' | 'fechado'
+  snapshot?: any
+  created?: string
+  updated?: string
+}
+
+export interface RotaRecord {
+  id: string
+  contrato_id: string
+  nome: string
+  ordem?: number
+  created?: string
+  updated?: string
+}
+
 export interface ContratoRecord {
   id: string
   numero: string
   tipo?: string
-  instituicao_id: string
+  modalidade_pedido?: 'individualizado' | 'centralizado'
   valor_total: number
   status: 'Ativo' | 'Encerrado' | 'Pendente'
+  created?: string
+  updated?: string
+}
+
+export interface ContratoEscolaRecord {
+  id: string
+  contrato_id: string
+  escola_id: string
+  rota_id?: string
   expand?: {
-    instituicao_id?: EscolaRecord
+    escola_id?: EscolaRecord
+    rota_id?: RotaRecord
+    contrato_id?: ContratoRecord
   }
   created?: string
   updated?: string
@@ -38,6 +71,7 @@ export interface ContratoItemRecord {
   contrato_id: string
   produto_id: string
   preco: number
+  cota_anual?: number
   expand?: {
     produto_id?: ProdutoRecord
   }
@@ -45,14 +79,26 @@ export interface ContratoItemRecord {
   updated?: string
 }
 
+export interface PedidoValidacao {
+  status: 'validado' | 'em_progresso' | 'invalido'
+  motivo?: string
+  detalhes?: string[]
+}
+
 export interface PedidoRecord {
   id: string
   numero: string
   escola_id: string
+  ciclo_id?: string
+  origem?: 'excel' | 'whatsapp' | 'manual'
+  rota_id?: string
+  validacao?: PedidoValidacao
   data_prevista: string
   status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
   expand?: {
     escola_id?: EscolaRecord
+    ciclo_id?: CicloRecord
+    rota_id?: RotaRecord
   }
   created?: string
   updated?: string
@@ -89,7 +135,41 @@ export interface AtestoRecord {
   updated?: string
 }
 
-// UI Models compatible with the app pages
+export interface EnvioWhatsappRecord {
+  id: string
+  ciclo_id: string
+  escola_id: string
+  status: 'pendente' | 'enviado' | 'falha'
+  enviado_em?: string
+  expand?: {
+    escola_id?: EscolaRecord
+    ciclo_id?: CicloRecord
+  }
+  created?: string
+  updated?: string
+}
+
+export interface ImportacaoRecord {
+  id: string
+  ciclo_id: string
+  contrato_id: string
+  arquivo: string
+  data: string
+  usuario_id?: string
+  linhas_total?: number
+  linhas_ok?: number
+  linhas_erro?: number
+  erros?: any
+  expand?: {
+    ciclo_id?: CicloRecord
+    contrato_id?: ContratoRecord
+    usuario_id?: UserRecord
+  }
+  created?: string
+  updated?: string
+}
+
+// UI Models
 export interface Product {
   id: string
   name: string
@@ -97,6 +177,8 @@ export interface Product {
   stock: number
   unit: string
   price: number
+  essencial: boolean
+  disponibilidade: 'normal' | 'escassez' | 'abundancia'
 }
 
 export interface School {
@@ -107,15 +189,26 @@ export interface School {
   route: string
 }
 
+export interface ContractSchoolLink {
+  id: string
+  contratoId: string
+  escolaId: string
+  rotaId?: string
+  escolaNome?: string
+  escolaEndereco?: string
+  escolaTelefone?: string
+  rotaNome?: string
+}
+
 export interface Contract {
   id: string
   numero: string
   tipo?: string
-  schoolId: string
-  schoolName: string
+  modalidade_pedido: 'individualizado' | 'centralizado'
   totalValue: number
   balance: number
   status: 'Ativo' | 'Encerrado' | 'Pendente'
+  escolas: ContractSchoolLink[]
 }
 
 export interface OrderItem {
@@ -131,6 +224,11 @@ export interface Order {
   numero: string
   schoolId: string
   schoolName: string
+  cicloId?: string
+  origem: 'excel' | 'whatsapp' | 'manual'
+  rotaId?: string
+  rotaNome?: string
+  validacao: PedidoValidacao
   date: string
   status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
   total: number

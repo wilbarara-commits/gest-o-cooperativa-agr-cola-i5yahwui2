@@ -6,18 +6,35 @@ import React, {
   useCallback,
   ReactNode,
 } from 'react'
-import type { Product, School, Contract, Order, Atesto } from '@/lib/types'
+import type {
+  Product,
+  School,
+  Contract,
+  Order,
+  Atesto,
+  CicloRecord,
+  RotaRecord,
+  ContratoEscolaRecord,
+  ContratoItemRecord,
+  PedidoValidacao,
+} from '@/lib/types'
 import { produtosService } from '@/services/produtos'
 import { escolasService } from '@/services/escolas'
 import { contratosService } from '@/services/contratos'
 import { pedidosService } from '@/services/pedidos'
 import { atestosService } from '@/services/atestos'
+import { ciclosService } from '@/services/ciclos'
+import { rotasService } from '@/services/rotas'
 import { toast } from 'sonner'
 import useRealtime from '@/hooks/use-realtime'
+import { validateOrder } from '@/lib/orderValidation'
 
-interface CreateOrderData {
+export interface CreateOrderData {
   schoolId: string
   date: string
+  cicloId?: string
+  origem?: 'excel' | 'whatsapp' | 'manual'
+  rotaId?: string
   items: Array<{
     productId: string
     quantity: number
@@ -28,8 +45,13 @@ interface AppState {
   products: Product[]
   schools: School[]
   contracts: Contract[]
+  contractSchools: ContratoEscolaRecord[]
+  contractItems: ContratoItemRecord[]
   orders: Order[]
   atestos: Atesto[]
+  ciclos: CicloRecord[]
+  activeCiclo: CicloRecord | null
+  rotas: RotaRecord[]
   isLoading: boolean
   error: string | null
   refreshData: () => Promise<void>
@@ -37,6 +59,16 @@ interface AppState {
   generateAtesto: (orderId: string) => Promise<boolean>
   confirmAtesto: (atestoId: string) => Promise<boolean>
   updateOrderStatus: (id: string, status: Order['status']) => Promise<boolean>
+  updateCicloStatus: (
+    cicloId: string,
+    status: 'coletando' | 'correcao' | 'fechado',
+  ) => Promise<boolean>
+  createCiclo: (data: {
+    nome: string
+    data_inicio: string
+    data_fim: string
+    status: 'coletando' | 'correcao' | 'fechado'
+  }) => Promise<CicloRecord | null>
   adjustProductPrices: (percentage: number) => Promise<boolean>
 }
 
@@ -46,23 +78,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([])
   const [schools, setSchools] = useState<School[]>([])
   const [contracts, setContracts] = useState<Contract[]>([])
+  const [contractSchools, setContractSchools] = useState<ContratoEscolaRecord[]>([])
+  const [contractItems, setContractItems] = useState<ContratoItemRecord[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [atestos, setAtestos] = useState<Atesto[]>([])
+  const [ciclos, setCiclos] = useState<CicloRecord[]>([])
+  const [activeCiclo, setActiveCiclo] = useState<CicloRecord | null>(null)
+  const [rotas, setRotas] = useState<RotaRecord[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
 
   const loadAllData = useCallback(async () => {
     try {
       setError(null)
-      const [rawProds, rawSchools, rawContratos, rawPedidos, rawPedidoItens, rawAtestos] =
-        await Promise.all([
-          produtosService.getAll(),
-          escolasService.getAll(),
-          contratosService.getAll(),
-          pedidosService.getAll(),
-          pedidosService.getAllItems(),
-          atestosService.getAll(),
-        ])
+      const [
+        rawProds,
+        rawSchools,
+        rawContratos,
+        rawContratoEscolas,
+        rawContratoItens,
+        rawPedidos,
+        rawPedidoItens,
+        rawAtestos,
+        rawCiclos,
+        rawRotas,
+      ] = await Promise.all([
+        produtosService.getAll(),
+        escolasService.getAll(),
+        contratosService.getAll(),
+        contratosService.getEscolas(),
+        contratosService.getAllItems(),
+        pedidosService.getAll(),
+        pedidosService.getAllItems(),
+        atestosService.getAll(),
+        ciclosService.getAll(),
+        rotasService.getAll(),
+      ])
+
+      setCiclos(rawCiclos)
+      const currentActive = rawCiclos.find((c) => c.status !== 'fechado') || rawCiclos[0] || null
+      setActiveCiclo(currentActive)
+      setRotas(rawRotas)
+      setContractSchools(rawContratoEscolas)
+      setContractItems(rawContratoItens)
 
       // Map produtos
       const mappedProds: Product[] = rawProds.map((p) => ({
@@ -72,6 +130,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stock: Number(p.estoque) || 0,
         unit: p.unidade,
         price: Number(p.preco_unitario) || 0,
+        essencial: Boolean(p.essencial),
+        disponibilidade: p.disponibilidade || 'normal',
       }))
       setProducts(mappedProds)
 
@@ -85,11 +145,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }))
       setSchools(mappedSchools)
 
-      // Map pedidos with items
+      // Map pedidos with items, rota, ciclo and validation
       const mappedOrders: Order[] = rawPedidos.map((ped) => {
         const schoolObj = mappedSchools.find((s) => s.id === ped.escola_id)
         const schoolName =
           ped.expand?.escola_id?.nome || schoolObj?.name || 'Escola não identificada'
+
+        const rotaObj = rawRotas.find((r) => r.id === ped.rota_id)
+        const rotaNome = ped.expand?.rota_id?.nome || rotaObj?.nome || schoolObj?.route
 
         const pItens = rawPedidoItens.filter((pi) => pi.pedido_id === ped.id)
         let total = 0
@@ -108,11 +171,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         })
 
+        // Validacao default se nao existir
+        const rawValidacao = (ped.validacao as PedidoValidacao) || {
+          status: 'validado',
+          motivo: 'Registrado no sistema',
+        }
+
         return {
           id: ped.id,
           numero: ped.numero,
           schoolId: ped.escola_id,
           schoolName,
+          cicloId: ped.ciclo_id,
+          origem: ped.origem || 'manual',
+          rotaId: ped.rota_id,
+          rotaNome,
+          validacao: rawValidacao,
           date:
             ped.data_prevista ||
             ped.created?.split('T')[0] ||
@@ -124,28 +198,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       setOrders(mappedOrders)
 
-      // Map contratos with balance calculation
+      // Map contratos with N:N escolas and balance calculation
       const mappedContracts: Contract[] = rawContratos.map((c) => {
-        const schoolObj = mappedSchools.find((s) => s.id === c.instituicao_id)
-        const schoolName = c.expand?.instituicao_id?.nome || schoolObj?.name || 'Instituição'
+        const links = rawContratoEscolas.filter((ce) => ce.contrato_id === c.id)
+        const linkedSchools = links.map((ce) => {
+          const sch = mappedSchools.find((s) => s.id === ce.escola_id)
+          const rt = rawRotas.find((r) => r.id === ce.rota_id)
+          return {
+            id: ce.id,
+            contratoId: ce.contrato_id,
+            escolaId: ce.escola_id,
+            rotaId: ce.rota_id,
+            escolaNome: ce.expand?.escola_id?.nome || sch?.name || 'Escola',
+            escolaEndereco: ce.expand?.escola_id?.endereco || sch?.address || '',
+            escolaTelefone: ce.expand?.escola_id?.telefone || sch?.contact || '',
+            rotaNome: ce.expand?.rota_id?.nome || rt?.nome || 'Sem Rota',
+          }
+        })
+
         const totalValue = Number(c.valor_total) || 0
 
-        // Calculate consumed value from orders of this school
-        const schoolOrders = mappedOrders.filter(
-          (o) => o.schoolId === c.instituicao_id && o.status !== 'Cancelado',
+        // Consumed value from orders of all participating schools
+        const participatingSchoolIds = new Set(linkedSchools.map((l) => l.escolaId))
+        const contractOrders = mappedOrders.filter(
+          (o) => participatingSchoolIds.has(o.schoolId) && o.status !== 'Cancelado',
         )
-        const consumed = schoolOrders.reduce((acc, o) => acc + o.total, 0)
+        const consumed = contractOrders.reduce((acc, o) => acc + o.total, 0)
         const balance = Math.max(0, totalValue - consumed)
 
         return {
           id: c.id,
           numero: c.numero,
           tipo: c.tipo || 'PNAE',
-          schoolId: c.instituicao_id,
-          schoolName,
+          modalidade_pedido: c.modalidade_pedido || 'individualizado',
           totalValue,
           balance,
           status: c.status,
+          escolas: linkedSchools,
         }
       })
       setContracts(mappedContracts)
@@ -182,25 +271,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadAllData()
   }, [loadAllData])
 
-  // Realtime subscriptions for live updates
-  useRealtime('produtos', () => {
-    loadAllData()
-  })
-  useRealtime('escolas', () => {
-    loadAllData()
-  })
-  useRealtime('contratos', () => {
-    loadAllData()
-  })
-  useRealtime('pedidos', () => {
-    loadAllData()
-  })
-  useRealtime('pedido_itens', () => {
-    loadAllData()
-  })
-  useRealtime('atestos', () => {
-    loadAllData()
-  })
+  // Realtime subscriptions
+  useRealtime('produtos', () => loadAllData())
+  useRealtime('escolas', () => loadAllData())
+  useRealtime('contratos', () => loadAllData())
+  useRealtime('contrato_escolas', () => loadAllData())
+  useRealtime('contrato_itens', () => loadAllData())
+  useRealtime('pedidos', () => loadAllData())
+  useRealtime('pedido_itens', () => loadAllData())
+  useRealtime('atestos', () => loadAllData())
+  useRealtime('ciclos', () => loadAllData())
+  useRealtime('rotas', () => loadAllData())
 
   const addOrder = async (orderData: CreateOrderData): Promise<boolean> => {
     try {
@@ -210,13 +291,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const formattedItens = orderData.items.map((it) => {
         const prod = products.find((p) => p.id === it.productId)
         return {
-          produto_id: it.productId,
+          id: it.productId,
+          productId: it.productId,
+          name: prod?.name || 'Produto',
           quantidade: it.quantity,
           preco_unitario: prod?.price || 0,
+          price: prod?.price || 0,
         }
       })
 
-      // Format date for PocketBase DateField
+      // Validation
+      const cicloStatus = activeCiclo?.status || 'coletando'
+      const validationResult = validateOrder({
+        items: formattedItens.map((i) => ({
+          productId: i.productId,
+          name: i.name,
+          quantity: i.quantidade,
+          price: i.preco_unitario,
+        })),
+        allProducts: products,
+        cicloStatus,
+      })
+
+      // Find route if not provided
+      let rotaId = orderData.rotaId
+      if (!rotaId) {
+        const ce = contractSchools.find((c) => c.escola_id === orderData.schoolId && c.rota_id)
+        if (ce) {
+          rotaId = ce.rota_id
+        }
+      }
+
       const datePrevista = orderData.date.includes('T')
         ? orderData.date
         : `${orderData.date} 12:00:00.000Z`
@@ -224,10 +329,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await pedidosService.create({
         numero,
         escola_id: orderData.schoolId,
+        ciclo_id: orderData.cicloId || activeCiclo?.id,
+        origem: orderData.origem || 'manual',
+        rota_id: rotaId,
+        validacao: validationResult,
         data_prevista: datePrevista,
         status: 'Pendente',
-        itens: formattedItens,
+        itens: formattedItens.map((i) => ({
+          produto_id: i.productId,
+          quantidade: i.quantidade,
+          preco_unitario: i.preco_unitario,
+        })),
       })
+
+      if (validationResult.status === 'invalido') {
+        toast.warning(`Pedido cadastrado com pendência de validação: ${validationResult.motivo}`)
+      } else {
+        toast.success('Pedido registrado com sucesso!')
+      }
 
       await loadAllData()
       return true
@@ -250,6 +369,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const updateCicloStatus = async (
+    cicloId: string,
+    status: 'coletando' | 'correcao' | 'fechado',
+  ): Promise<boolean> => {
+    try {
+      await ciclosService.setStatus(cicloId, status)
+      await loadAllData()
+      toast.success(`Fase do ciclo alterada para "${status}" com sucesso!`)
+      return true
+    } catch (err: any) {
+      console.error('Erro ao alterar status do ciclo:', err)
+      toast.error('Erro ao atualizar status do ciclo.')
+      return false
+    }
+  }
+
+  const createCiclo = async (data: {
+    nome: string
+    data_inicio: string
+    data_fim: string
+    status: 'coletando' | 'correcao' | 'fechado'
+  }): Promise<CicloRecord | null> => {
+    try {
+      const created = await ciclosService.create(data)
+      await loadAllData()
+      toast.success(`Ciclo "${data.nome}" criado com sucesso!`)
+      return created
+    } catch (err: any) {
+      console.error('Erro ao criar ciclo:', err)
+      toast.error('Falha ao criar novo ciclo.')
+      return null
+    }
+  }
+
   const generateAtesto = async (orderId: string): Promise<boolean> => {
     try {
       const order = orders.find((o) => o.id === orderId)
@@ -266,7 +419,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const atestoCount = atestos.length + 1
       const numero = `AT-${String(atestoCount).padStart(3, '0')}`
-
       const now = new Date().toISOString()
 
       await atestosService.create({
@@ -315,13 +467,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         products,
         schools,
         contracts,
+        contractSchools,
+        contractItems,
         orders,
         atestos,
+        ciclos,
+        activeCiclo,
+        rotas,
         isLoading,
         error,
         refreshData: loadAllData,
         addOrder,
         updateOrderStatus,
+        updateCicloStatus,
+        createCiclo,
         generateAtesto,
         confirmAtesto,
         adjustProductPrices,

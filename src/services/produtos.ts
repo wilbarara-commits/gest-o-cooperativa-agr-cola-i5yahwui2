@@ -8,8 +8,16 @@ export const produtosService = {
     })
   },
 
-  async create(data: Omit<ProdutoRecord, 'id' | 'created' | 'updated'>): Promise<ProdutoRecord> {
-    return await pb.collection('produtos').create<ProdutoRecord>(data)
+  async getById(id: string): Promise<ProdutoRecord> {
+    return await pb.collection('produtos').getOne<ProdutoRecord>(id)
+  },
+
+  async create(data: Partial<ProdutoRecord>): Promise<ProdutoRecord> {
+    return await pb.collection('produtos').create<ProdutoRecord>({
+      ...data,
+      essencial: data.essencial || false,
+      disponibilidade: data.disponibilidade || 'normal',
+    })
   },
 
   async update(id: string, data: Partial<ProdutoRecord>): Promise<ProdutoRecord> {
@@ -21,11 +29,13 @@ export const produtosService = {
   },
 
   async bulkAdjustPrices(percentage: number): Promise<void> {
-    const list = await this.getAll()
-    for (const item of list) {
-      const currentPrice = Number(item.preco_unitario) || 0
-      const newPrice = Math.round(currentPrice * (1 + percentage / 100) * 100) / 100
-      await pb.collection('produtos').update(item.id, { preco_unitario: newPrice })
+    const prods = await this.getAll()
+    const factor = 1 + percentage / 100
+    for (const p of prods) {
+      const newPrice = Math.round(p.preco_unitario * factor * 100) / 100
+      await pb.collection('produtos').update(p.id, {
+        preco_unitario: Math.max(0, newPrice),
+      })
     }
   },
 }

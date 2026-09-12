@@ -17,6 +17,11 @@ import {
   BookOpen,
   BarChart3,
   KeyRound,
+  Grid,
+  History,
+  Activity,
+  MessageSquare,
+  Upload,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -49,7 +54,12 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Escolas', path: '/escolas', icon: School, adminOnly: true },
   { name: 'Contratos', path: '/contratos', icon: FileText, adminOnly: true },
   { name: 'Pedidos', path: '/pedidos', icon: ShoppingCart },
-  { name: 'Rotas', path: '/rotas', icon: Map },
+  { name: 'Importação Excel', path: '/importacao', icon: Upload },
+  { name: 'Consolidação', path: '/consolidacao', icon: Grid },
+  { name: 'Rotas de Entrega', path: '/rotas', icon: Map },
+  { name: 'Monitoramento', path: '/monitoramento', icon: Activity },
+  { name: 'Comunicação WhatsApp', path: '/comunicacao', icon: MessageSquare },
+  { name: 'Histórico de Ciclos', path: '/historico-ciclos', icon: History },
   { name: 'Atestos', path: '/atestos', icon: FileCheck },
   { name: 'Relatórios', path: '/relatorios', icon: BarChart3 },
   { name: 'Documento de Requisitos', path: '/requisitos', icon: BookOpen, adminOnly: true },

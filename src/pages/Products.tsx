@@ -20,17 +20,28 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Search, Plus, TrendingUp, Loader2, Sparkles, Check, AlertCircle } from 'lucide-react'
+import {
+  Search,
+  Plus,
+  TrendingUp,
+  Loader2,
+  Sparkles,
+  Check,
+  AlertCircle,
+  FileSpreadsheet,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useState } from 'react'
 import { Label } from '@/components/ui/label'
 import { produtosService } from '@/services/produtos'
+import { ProductImportDialog } from '@/components/ProductImportDialog'
 
 export default function Products() {
   const { products, isLoading, adjustProductPrices, refreshData } = useApp()
   const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [percentage, setPercentage] = useState('5')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -102,6 +113,10 @@ export default function Products() {
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
               <TrendingUp className="mr-2 h-4 w-4" /> Ajuste em Massa
+            </Button>
+            <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="gap-1.5">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              Importar CSV
             </Button>
             <Button onClick={() => toast.info('Cadastro de novos produtos disponível no banco.')}>
               <Plus className="mr-2 h-4 w-4" /> Novo Produto
@@ -332,6 +347,16 @@ export default function Products() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Importação CSV / Planilha de Produtos */}
+      <ProductImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        products={products}
+        onSuccess={async () => {
+          await refreshData()
+        }}
+      />
     </div>
   )
 }

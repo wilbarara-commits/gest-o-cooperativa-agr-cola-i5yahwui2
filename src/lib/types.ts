@@ -11,12 +11,7 @@ export interface ProdutoRecord {
   updated?: string
 }
 
-export type EscolaTipo =
-  | 'Municipal'
-  | 'Estadual'
-  | 'Creche / CMEI'
-  | 'Filantrópica / Conveniada'
-  | 'Outro'
+export type EscolaTipo = 'CMEI' | 'CRECHE' | 'INTEGRAL' | 'FUNDAMENTAL'
 
 export interface EscolaRecord {
   id: string

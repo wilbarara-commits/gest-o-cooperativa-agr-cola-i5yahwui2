@@ -49,7 +49,7 @@ const MODULES: ModuleSpec[] = [
     route: '/escolas',
     goal: 'Cadastro mestre único, global e independente de contratos para todas as instituições parceiras atendidas, com listagem compacta em linhas, visão detalhada e filtros operacionais por contrato e rota.',
     details: [
-      'Campos: id, nome, endereco, telefone, email, tipo (Municipal, Estadual, Creche / CMEI, Filantrópica / Conveniada, Outro), rota (padrão) e alunos (nº de alunos matriculados).',
+      'Campos: id, nome, endereco, telefone, email, tipo (CMEI, CRECHE, INTEGRAL, FUNDAMENTAL), rota (padrão) e alunos (nº de alunos matriculados).',
       'Listagem Compacta em Linhas (Tabela): Apresentação em linhas via componente Table do shadcn/ui para visualização de mais escolas por página (com paginação configurável: 10, 25, 50, 100 linhas), contendo colunas: Escola/Instituição, Tipo, Rota(s), Nº de Alunos, Telefone, Contratos Vinculados (badges) e Ações.',
       'Visão Detalhada da Escola Selecionada: Ao clicar em uma linha da tabela ou no botão "Ver detalhes", é aberto um painel/diálogo modal exibindo todos os dados mestres (endereço completo, telefone, e-mail institucional, tipo, alunos, rota padrão), lista de contratos aos quais a escola está vinculada com a rota específica definida em cada vínculo (collection contrato_escolas), e atalho direto para edição cadastral.',
       'Filtros Combinados por Contrato e Rota: Selects dedicados para filtrar por Contrato (todos os contratos existentes ou escolas sem vínculo contratual) e por Rota (rotas derivadas dos vínculos contrato_escolas, rotas cadastradas e rotas padrão), combináveis simultaneamente com a busca textual e com o filtro por Tipo de instituição.',
@@ -207,7 +207,7 @@ const STACK = [
 const DATA_MODEL = [
   'ciclos (id, nome, data_inicio, data_fim, status [coletando/correcao/fechado], snapshot [json])',
   'produtos (id, nome, categoria, unidade, estoque, preco_unitario, essencial [bool], disponibilidade [normal/escassez/abundancia])',
-  'escolas (id, nome, endereco, telefone, email, tipo [Municipal/Estadual/Creche...], rota) [Cadastro Mestre Global]',
+  'escolas (id, nome, endereco, telefone, email, tipo [CMEI/CRECHE/INTEGRAL/FUNDAMENTAL], rota) [Cadastro Mestre Global]',
   'contratos (id, numero, tipo, modalidade_pedido [individualizado/centralizado], valor_total, status)',
   'contrato_escolas (id, contrato_id → contratos, escola_id → escolas, rota_id → rotas) [Vínculos N:N]',
   'rotas (id, contrato_id → contratos, nome, ordem)',

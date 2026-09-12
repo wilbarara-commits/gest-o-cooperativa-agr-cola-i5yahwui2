@@ -77,13 +77,7 @@ const PRESET_ROUTES = [
   'Outra',
 ]
 
-const ESCOLA_TIPOS: EscolaTipo[] = [
-  'Municipal',
-  'Estadual',
-  'Creche / CMEI',
-  'Filantrópica / Conveniada',
-  'Outro',
-]
+const ESCOLA_TIPOS: EscolaTipo[] = ['CMEI', 'CRECHE', 'INTEGRAL', 'FUNDAMENTAL']
 
 export default function Schools() {
   const { schools, contracts, contractSchools, rotas, isLoading, refreshData } = useApp()
@@ -109,7 +103,7 @@ export default function Schools() {
   const [address, setAddress] = useState('')
   const [contact, setContact] = useState('')
   const [email, setEmail] = useState('')
-  const [tipo, setTipo] = useState<EscolaTipo>('Municipal')
+  const [tipo, setTipo] = useState<string>('')
   const [alunos, setAlunos] = useState<string>('')
   const [routeType, setRouteType] = useState('Rota Norte')
   const [customRoute, setCustomRoute] = useState('')
@@ -203,7 +197,8 @@ export default function Schools() {
         )
 
       // Filter by tipo
-      const matchesTipo = filterTipo === 'todos' || s.tipo === filterTipo
+      const matchesTipo =
+        filterTipo === 'todos' ? true : filterTipo === 'sem_tipo' ? !s.tipo : s.tipo === filterTipo
 
       // Filter by contract
       const matchesContrato =
@@ -262,7 +257,7 @@ export default function Schools() {
     setAddress('')
     setContact('')
     setEmail('')
-    setTipo('Municipal')
+    setTipo('')
     setAlunos('')
     setRouteType('Rota Norte')
     setCustomRoute('')
@@ -275,7 +270,7 @@ export default function Schools() {
     setAddress(school.address)
     setContact(school.contact)
     setEmail(school.email || '')
-    setTipo((school.tipo as EscolaTipo) || 'Municipal')
+    setTipo(school.tipo || '')
     setAlunos(school.alunos !== undefined ? String(school.alunos) : '')
     if (PRESET_ROUTES.slice(0, 5).includes(school.route)) {
       setRouteType(school.route)
@@ -317,7 +312,7 @@ export default function Schools() {
           endereco: address.trim(),
           telefone: contact.trim(),
           email: email.trim() || undefined,
-          tipo: tipo,
+          tipo: tipo || undefined,
           rota: finalRoute,
           alunos: parsedAlunos,
         })
@@ -338,7 +333,7 @@ export default function Schools() {
           endereco: address.trim(),
           telefone: contact.trim(),
           email: email.trim() || undefined,
-          tipo: tipo,
+          tipo: tipo || undefined,
           rota: finalRoute,
           alunos: parsedAlunos,
         })
@@ -462,6 +457,7 @@ export default function Schools() {
                       {t}
                     </SelectItem>
                   ))}
+                  <SelectItem value="sem_tipo">Sem Tipo (Não classificado)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1034,11 +1030,15 @@ export default function Schools() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-2 sm:col-span-1">
                 <Label htmlFor="school-tipo">Tipo</Label>
-                <Select value={tipo} onValueChange={(val) => setTipo(val as EscolaTipo)}>
+                <Select
+                  value={tipo || 'none'}
+                  onValueChange={(val) => setTipo(val === 'none' ? '' : val)}
+                >
                   <SelectTrigger id="school-tipo">
-                    <SelectValue placeholder="Selecione o tipo" />
+                    <SelectValue placeholder="Selecione o tipo (opcional)" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">Nenhum (Vazio)</SelectItem>
                     {ESCOLA_TIPOS.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}

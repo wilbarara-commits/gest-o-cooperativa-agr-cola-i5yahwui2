@@ -10,7 +10,7 @@ export interface ParsedCsvSchoolRow {
   rawAlunos: string
   // Mapeados
   nome: string
-  tipo: EscolaTipo
+  tipo: EscolaTipo | ''
   rota: string
   alunos?: number
   // Validações
@@ -30,52 +30,37 @@ export interface CsvParseResult {
 }
 
 /**
- * Normaliza o tipo vindo do CSV para os tipos válidos da collection escolas:
- * 'Municipal' | 'Estadual' | 'Creche / CMEI' | 'Filantrópica / Conveniada' | 'Outro'
+ * Normaliza o tipo vindo do CSV para os 4 tipos exatos da planilha da secretaria:
+ * 'CMEI' | 'CRECHE' | 'INTEGRAL' | 'FUNDAMENTAL' (ou '' se vazio/não informado)
  *
- * Mapeamentos requeridos:
- * CMEI, CRECHE -> "Creche / CMEI"
- * FUNDAMENTAL, INTEGRAL, MUNICIPAL -> "Municipal"
- * ESTADUAL -> "Estadual"
- * FILANTROPICA, CONVENIADA -> "Filantrópica / Conveniada"
- * Outro -> "Outro"
+ * O valor da coluna "tipo" do arquivo deve ser gravado exatamente como vem, sem agrupar categorias.
  */
-export function normalizeEscolaTipo(rawTipo: string): EscolaTipo {
+export function normalizeEscolaTipo(rawTipo: string): EscolaTipo | '' {
+  if (!rawTipo) return ''
+  const trimmed = rawTipo.trim().toUpperCase()
+
+  if (trimmed === 'CMEI') return 'CMEI'
+  if (trimmed === 'CRECHE') return 'CRECHE'
+  if (trimmed === 'INTEGRAL') return 'INTEGRAL'
+  if (trimmed === 'FUNDAMENTAL') return 'FUNDAMENTAL'
+
   const norm = normalizeName(rawTipo).toUpperCase()
+  if (!norm) return ''
 
-  if (!norm) return 'Outro'
-
-  if (
-    norm.includes('CMEI') ||
-    norm.includes('CRECHE') ||
-    norm.startsWith('CC') ||
-    norm.startsWith('CM')
-  ) {
-    return 'Creche / CMEI'
+  if (norm === 'CMEI' || norm.includes('CMEI')) {
+    return 'CMEI'
   }
-  if (
-    norm.includes('FUNDAMENTAL') ||
-    norm.includes('INTEGRAL') ||
-    norm.includes('MUNICIPAL') ||
-    norm.startsWith('EM')
-  ) {
-    return 'Municipal'
+  if (norm === 'CRECHE' || norm.includes('CRECHE')) {
+    return 'CRECHE'
   }
-  if (norm.includes('ESTADUAL') || norm.startsWith('EE')) {
-    return 'Estadual'
+  if (norm === 'INTEGRAL' || norm.includes('INTEGRAL')) {
+    return 'INTEGRAL'
   }
-  if (norm.includes('FILANTROP') || norm.includes('CONVENIAD') || norm.includes('APAE')) {
-    return 'Filantrópica / Conveniada'
+  if (norm === 'FUNDAMENTAL' || norm.includes('FUNDAMENTAL')) {
+    return 'FUNDAMENTAL'
   }
 
-  // Casar diretamente se já for idêntico a um valor válido
-  if (rawTipo.trim() === 'Creche / CMEI') return 'Creche / CMEI'
-  if (rawTipo.trim() === 'Municipal') return 'Municipal'
-  if (rawTipo.trim() === 'Estadual') return 'Estadual'
-  if (rawTipo.trim() === 'Filantrópica / Conveniada') return 'Filantrópica / Conveniada'
-  if (rawTipo.trim() === 'Outro') return 'Outro'
-
-  return 'Outro'
+  return ''
 }
 
 /**
@@ -286,7 +271,7 @@ export async function parseSchoolsFile(
         rawRota,
         rawAlunos,
         nome: '',
-        tipo: 'Outro',
+        tipo: '',
         rota: rawRota || 'Sem Rota',
         status,
         statusReason,
@@ -318,8 +303,10 @@ export async function parseSchoolsFile(
 
     // 4. Mapeamento de tipo
     const mappedTipo = normalizeEscolaTipo(rawTipo)
-    if (rawTipo && mappedTipo === 'Outro' && rawTipo.toUpperCase() !== 'OUTRO') {
-      warnings.push(`Tipo "${rawTipo}" não reconhecido, normalizado para "Outro".`)
+    if (rawTipo && !mappedTipo) {
+      warnings.push(
+        `Tipo "${rawTipo}" não reconhecido como CMEI, CRECHE, INTEGRAL ou FUNDAMENTAL. Campo ficará vazio.`,
+      )
     }
 
     // 5. Mapeamento de alunos

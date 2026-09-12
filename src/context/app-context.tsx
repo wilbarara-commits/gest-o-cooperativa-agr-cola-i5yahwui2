@@ -143,7 +143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         contact: s.telefone || '',
         route: s.rota || 'Sem Rota',
         email: s.email || '',
-        tipo: s.tipo || 'Municipal',
+        tipo: s.tipo || '',
         alunos: s.alunos !== undefined && s.alunos !== null ? Number(s.alunos) : undefined,
       }))
       setSchools(mappedSchools)

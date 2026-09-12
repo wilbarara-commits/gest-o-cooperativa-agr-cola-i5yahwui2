@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T17:33:12.973Z",
+  "generatedAt": "2026-09-12T21:14:34.223Z",
   "collections": [
     {
       "name": "users",
@@ -189,13 +189,7 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": [
-            "Municipal",
-            "Estadual",
-            "Creche / CMEI",
-            "Filantrópica / Conveniada",
-            "Outro"
-          ]
+          "selectValues": ["CMEI", "CRECHE", "INTEGRAL", "FUNDAMENTAL"]
         },
         {
           "name": "alunos",

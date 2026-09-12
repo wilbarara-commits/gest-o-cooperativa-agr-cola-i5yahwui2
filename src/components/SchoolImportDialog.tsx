@@ -384,9 +384,13 @@ export function SchoolImportDialog({
                           )}
                         </td>
                         <td className="py-2 px-3">
-                          <Badge variant="outline" className="text-[10px] font-normal">
-                            {row.tipo}
-                          </Badge>
+                          {row.tipo ? (
+                            <Badge variant="outline" className="text-[10px] font-normal">
+                              {row.tipo}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground italic text-[11px]">-</span>
+                          )}
                           {row.rawTipo && row.rawTipo !== row.tipo && (
                             <span className="text-[10px] text-muted-foreground block">
                               de: {row.rawTipo}

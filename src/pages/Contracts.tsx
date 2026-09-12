@@ -117,7 +117,7 @@ export default function Contracts() {
   const [quickSchoolAddress, setQuickSchoolAddress] = useState('')
   const [quickSchoolContact, setQuickSchoolContact] = useState('')
   const [quickSchoolEmail, setQuickSchoolEmail] = useState('')
-  const [quickSchoolTipo, setQuickSchoolTipo] = useState('Municipal')
+  const [quickSchoolTipo, setQuickSchoolTipo] = useState('')
   const [quickSchoolRota, setQuickSchoolRota] = useState('')
   const [isCreatingQuickSchool, setIsCreatingQuickSchool] = useState(false)
 
@@ -306,7 +306,7 @@ export default function Contracts() {
           endereco: quickSchoolAddress.trim(),
           telefone: quickSchoolContact.trim(),
           email: quickSchoolEmail.trim() || undefined,
-          tipo: quickSchoolTipo,
+          tipo: quickSchoolTipo || undefined,
           rota: quickSchoolRota.trim() || contractRotas[0]?.nome || 'Sem Rota',
         })
         targetSchoolId = created.id
@@ -975,18 +975,19 @@ export default function Contracts() {
                         <Label htmlFor="qk-tipo" className="text-[11px]">
                           Tipo de Instituição
                         </Label>
-                        <Select value={quickSchoolTipo} onValueChange={setQuickSchoolTipo}>
+                        <Select
+                          value={quickSchoolTipo || 'none'}
+                          onValueChange={(val) => setQuickSchoolTipo(val === 'none' ? '' : val)}
+                        >
                           <SelectTrigger id="qk-tipo" className="h-8 text-xs">
-                            <SelectValue />
+                            <SelectValue placeholder="Selecione tipo (opcional)" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Municipal">Municipal</SelectItem>
-                            <SelectItem value="Estadual">Estadual</SelectItem>
-                            <SelectItem value="Creche / CMEI">Creche / CMEI</SelectItem>
-                            <SelectItem value="Filantrópica / Conveniada">
-                              Filantrópica / Conveniada
-                            </SelectItem>
-                            <SelectItem value="Outro">Outro</SelectItem>
+                            <SelectItem value="none">Nenhum (Vazio)</SelectItem>
+                            <SelectItem value="CMEI">CMEI</SelectItem>
+                            <SelectItem value="CRECHE">CRECHE</SelectItem>
+                            <SelectItem value="INTEGRAL">INTEGRAL</SelectItem>
+                            <SelectItem value="FUNDAMENTAL">FUNDAMENTAL</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

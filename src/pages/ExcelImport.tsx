@@ -97,7 +97,7 @@ export default function ExcelImport() {
   const [newSchoolAddress, setNewSchoolAddress] = useState('')
   const [newSchoolContact, setNewSchoolContact] = useState('')
   const [newSchoolEmail, setNewSchoolEmail] = useState('')
-  const [newSchoolTipo, setNewSchoolTipo] = useState<EscolaTipo>('Municipal')
+  const [newSchoolTipo, setNewSchoolTipo] = useState<EscolaTipo | ''>('')
   const [newSchoolRota, setNewSchoolRota] = useState('')
   const [isCreatingSchool, setIsCreatingSchool] = useState(false)
 
@@ -283,7 +283,7 @@ export default function ExcelImport() {
     setNewSchoolAddress('')
     setNewSchoolContact('')
     setNewSchoolEmail('')
-    setNewSchoolTipo('Municipal')
+    setNewSchoolTipo('')
     setNewSchoolRota(order.routeRaw)
     setCreateDialogOpen(true)
   }
@@ -316,7 +316,7 @@ export default function ExcelImport() {
           endereco: newSchoolAddress.trim(),
           telefone: newSchoolContact.trim(),
           email: newSchoolEmail.trim() || undefined,
-          tipo: newSchoolTipo,
+          tipo: newSchoolTipo || undefined,
           rota: newSchoolRota.trim() || pendingCreateOrder.routeRaw,
         })
         schoolId = created.id
@@ -1017,20 +1017,20 @@ export default function ExcelImport() {
                     Tipo de Instituição
                   </Label>
                   <Select
-                    value={newSchoolTipo}
-                    onValueChange={(val) => setNewSchoolTipo(val as EscolaTipo)}
+                    value={newSchoolTipo || 'none'}
+                    onValueChange={(val) =>
+                      setNewSchoolTipo(val === 'none' ? '' : (val as EscolaTipo))
+                    }
                   >
                     <SelectTrigger id="new-sch-tipo" className="h-8 text-xs">
-                      <SelectValue />
+                      <SelectValue placeholder="Selecione tipo (opcional)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Municipal">Municipal</SelectItem>
-                      <SelectItem value="Estadual">Estadual</SelectItem>
-                      <SelectItem value="Creche / CMEI">Creche / CMEI</SelectItem>
-                      <SelectItem value="Filantrópica / Conveniada">
-                        Filantrópica / Conveniada
-                      </SelectItem>
-                      <SelectItem value="Outro">Outro</SelectItem>
+                      <SelectItem value="none">Nenhum (Vazio)</SelectItem>
+                      <SelectItem value="CMEI">CMEI</SelectItem>
+                      <SelectItem value="CRECHE">CRECHE</SelectItem>
+                      <SelectItem value="INTEGRAL">INTEGRAL</SelectItem>
+                      <SelectItem value="FUNDAMENTAL">FUNDAMENTAL</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

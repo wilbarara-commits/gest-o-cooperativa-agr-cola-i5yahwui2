@@ -47,12 +47,13 @@ const MODULES: ModuleSpec[] = [
     id: '3.3',
     title: 'Cadastro Mestre Global de Escolas',
     route: '/escolas',
-    goal: 'Cadastro mestre único, global e independente de contratos para todas as instituições parceiras atendidas.',
+    goal: 'Cadastro mestre único, global e independente de contratos para todas as instituições parceiras atendidas, com listagem compacta em linhas, visão detalhada e filtros operacionais por contrato e rota.',
     details: [
-      'Campos: id, nome, endereco, telefone, email, tipo (Municipal, Estadual, Creche / CMEI, Filantrópica / Conveniada, Outro), rota.',
-      'Princípio de Unicidade: Uma escola é criada uma única vez no cadastro mestre global e depois vinculada a um ou mais contratos. Escolas de contratos anteriores já existem e são reutilizadas, nunca duplicadas.',
-      'Prevenção de Duplicidade: Normalização estrita de nomes (ignorando acentos, maiúsculas, pontuação e espaços extras) antes de criar novos registros.',
-      'Visibilidade de Contratos: Exibição na ficha de cada escola dos contratos vigentes aos quais está vinculada.',
+      'Campos: id, nome, endereco, telefone, email, tipo (Municipal, Estadual, Creche / CMEI, Filantrópica / Conveniada, Outro), rota (padrão) e alunos (nº de alunos matriculados).',
+      'Listagem Compacta em Linhas (Tabela): Apresentação em linhas via componente Table do shadcn/ui para visualização de mais escolas por página (com paginação configurável: 10, 25, 50, 100 linhas), contendo colunas: Escola/Instituição, Tipo, Rota(s), Nº de Alunos, Telefone, Contratos Vinculados (badges) e Ações.',
+      'Visão Detalhada da Escola Selecionada: Ao clicar em uma linha da tabela ou no botão "Ver detalhes", é aberto um painel/diálogo modal exibindo todos os dados mestres (endereço completo, telefone, e-mail institucional, tipo, alunos, rota padrão), lista de contratos aos quais a escola está vinculada com a rota específica definida em cada vínculo (collection contrato_escolas), e atalho direto para edição cadastral.',
+      'Filtros Combinados por Contrato e Rota: Selects dedicados para filtrar por Contrato (todos os contratos existentes ou escolas sem vínculo contratual) e por Rota (rotas derivadas dos vínculos contrato_escolas, rotas cadastradas e rotas padrão), combináveis simultaneamente com a busca textual e com o filtro por Tipo de instituição.',
+      'Princípio de Unicidade & Integridade: Uma escola é criada uma única vez no cadastro mestre global e depois vinculada a múltiplos contratos PNAE/PAA. Prevenção de duplicidade por normalização estrita de nomes e exclusão protegida com verificação prévia de dependências contratuais e pedidos.',
     ],
   },
   {

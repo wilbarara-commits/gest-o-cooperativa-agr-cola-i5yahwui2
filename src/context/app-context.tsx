@@ -142,6 +142,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         address: s.endereco || '',
         contact: s.telefone || '',
         route: s.rota || 'Sem Rota',
+        email: s.email || '',
+        tipo: s.tipo || 'Municipal',
       }))
       setSchools(mappedSchools)
 
@@ -212,6 +214,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             escolaNome: ce.expand?.escola_id?.nome || sch?.name || 'Escola',
             escolaEndereco: ce.expand?.escola_id?.endereco || sch?.address || '',
             escolaTelefone: ce.expand?.escola_id?.telefone || sch?.contact || '',
+            escolaEmail: ce.expand?.escola_id?.email || sch?.email || '',
+            escolaTipo: ce.expand?.escola_id?.tipo || sch?.tipo || '',
             rotaNome: ce.expand?.rota_id?.nome || rt?.nome || 'Sem Rota',
           }
         })

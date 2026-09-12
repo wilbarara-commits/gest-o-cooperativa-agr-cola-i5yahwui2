@@ -34,14 +34,34 @@ import {
   Layers,
   History,
   FileCheck,
+  Link2,
+  PlusCircle,
+  ExternalLink,
+  Building2,
+  Sparkles,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import * as XLSX from 'xlsx'
 import { toast } from 'sonner'
-import { parseSecretaryExcel, type ParsedExcelResult } from '@/lib/excelImporter'
+import {
+  parseSecretaryExcel,
+  normalizeName,
+  type ParsedExcelResult,
+  type ParsedSchoolOrder,
+} from '@/lib/excelImporter'
 import { rotasService } from '@/services/rotas'
 import { pedidosService } from '@/services/pedidos'
+import { contratosService } from '@/services/contratos'
+import { escolasService } from '@/services/escolas'
 import { importacoesService } from '@/services/whatsapp-import'
-import type { ImportacaoRecord } from '@/lib/types'
+import type { ImportacaoRecord, EscolaTipo } from '@/lib/types'
 
 export default function ExcelImport() {
   const { contracts, schools, products, activeCiclo, rotas, refreshData } = useApp()
@@ -57,11 +77,30 @@ export default function ExcelImport() {
     centralContracts[0]?.id || '',
   )
   const [fileName, setFileName] = useState('')
+  const [rawWorkbook, setRawWorkbook] = useState<XLSX.WorkBook | null>(null)
   const [isParsing, setIsParsing] = useState(false)
   const [parsedData, setParsedData] = useState<ParsedExcelResult | null>(null)
   const [isImporting, setIsImporting] = useState(false)
   const [historyList, setHistoryList] = useState<ImportacaoRecord[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
+
+  // Diálogo para resolver pendência "Vincular ao contrato" (pré-preenchido)
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [pendingLinkOrder, setPendingLinkOrder] = useState<ParsedSchoolOrder | null>(null)
+  const [linkRotaNome, setLinkRotaNome] = useState('')
+  const [linkCota, setLinkCota] = useState('')
+  const [isLinking, setIsLinking] = useState(false)
+
+  // Diálogo para resolver pendência "Cadastrar escola" (não cria automaticamente)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [pendingCreateOrder, setPendingCreateOrder] = useState<ParsedSchoolOrder | null>(null)
+  const [newSchoolName, setNewSchoolName] = useState('')
+  const [newSchoolAddress, setNewSchoolAddress] = useState('')
+  const [newSchoolContact, setNewSchoolContact] = useState('')
+  const [newSchoolEmail, setNewSchoolEmail] = useState('')
+  const [newSchoolTipo, setNewSchoolTipo] = useState<EscolaTipo>('Municipal')
+  const [newSchoolRota, setNewSchoolRota] = useState('')
+  const [isCreatingSchool, setIsCreatingSchool] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -104,6 +143,7 @@ export default function ExcelImport() {
     try {
       const arrayBuffer = await file.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      setRawWorkbook(workbook)
 
       const result = parseSecretaryExcel(workbook, schools, selectedContract.escolas, products)
 
@@ -114,7 +154,7 @@ export default function ExcelImport() {
         )
       } else if (result.pendingIssuesCount > 0) {
         toast.info(
-          `Planilha lida. Há ${result.pendingIssuesCount} pendência(s) de vinculação a resolver.`,
+          `Planilha processada com ${result.pendingIssuesCount} pendência(s) de escola para resolver.`,
         )
       } else {
         toast.success(
@@ -174,6 +214,171 @@ export default function ExcelImport() {
     }
   }
 
+  // Re-analisar planilha em memória após vincular ou cadastrar escola
+  const reparseWorkbook = (
+    currentSchools: typeof schools,
+    currentLinks: typeof selectedContract.escolas,
+  ) => {
+    if (!rawWorkbook || !selectedContract) return
+    const result = parseSecretaryExcel(rawWorkbook, currentSchools, currentLinks, products)
+    setParsedData(result)
+  }
+
+  // Abrir diálogo "Vincular ao Contrato" com dados pré-preenchidos
+  const handleOpenLinkDialog = (order: ParsedSchoolOrder) => {
+    setPendingLinkOrder(order)
+    setLinkRotaNome(order.prefilledLink?.rotaSugerida || order.routeRaw)
+    setLinkCota('')
+    setLinkDialogOpen(true)
+  }
+
+  // Confirmar vínculo pré-preenchido
+  const handleConfirmLinkSchool = async () => {
+    if (!pendingLinkOrder || !pendingLinkOrder.prefilledLink || !selectedContract) return
+    setIsLinking(true)
+    try {
+      // 1. Garantir que a rota existe no contrato
+      const rotaRec = await rotasService.findOrCreate(selectedContract.id, linkRotaNome)
+
+      // 2. Criar vínculo em contrato_escolas
+      await contratosService.linkEscola({
+        contrato_id: selectedContract.id,
+        escola_id: pendingLinkOrder.prefilledLink.escolaId,
+        rota_id: rotaRec.id,
+      })
+
+      toast.success(
+        `Escola "${pendingLinkOrder.prefilledLink.escolaNome}" vinculada ao contrato com a rota ${linkRotaNome}!`,
+      )
+      setLinkDialogOpen(false)
+
+      await refreshData()
+
+      // Atualizar localmente a prévia
+      if (rawWorkbook) {
+        // Criar lista de links atualizada
+        const updatedLinks = [
+          ...selectedContract.escolas,
+          {
+            id: 'temp-' + Date.now(),
+            contratoId: selectedContract.id,
+            escolaId: pendingLinkOrder.prefilledLink.escolaId,
+            rotaId: rotaRec.id,
+            escolaNome: pendingLinkOrder.prefilledLink.escolaNome,
+            rotaNome: linkRotaNome,
+          },
+        ]
+        reparseWorkbook(schools, updatedLinks)
+      }
+    } catch (err: any) {
+      console.error('Erro ao vincular escola ao contrato:', err)
+      toast.error('Falha ao vincular escola ao contrato.')
+    } finally {
+      setIsLinking(false)
+    }
+  }
+
+  // Abrir diálogo "Cadastrar Escola" no cadastro mestre
+  const handleOpenCreateSchoolDialog = (order: ParsedSchoolOrder) => {
+    setPendingCreateOrder(order)
+    setNewSchoolName(order.schoolNameRaw)
+    setNewSchoolAddress('')
+    setNewSchoolContact('')
+    setNewSchoolEmail('')
+    setNewSchoolTipo('Municipal')
+    setNewSchoolRota(order.routeRaw)
+    setCreateDialogOpen(true)
+  }
+
+  // Confirmar criação no cadastro mestre e vinculo ao contrato
+  const handleConfirmCreateSchool = async () => {
+    if (!pendingCreateOrder || !selectedContract) return
+    const trimmedName = newSchoolName.trim()
+    if (!trimmedName) {
+      toast.error('Informe o nome da escola.')
+      return
+    }
+
+    setIsCreatingSchool(true)
+    try {
+      // Checar se já existe nome normalizado no cadastro mestre
+      const normInput = normalizeName(trimmedName)
+      const existing = schools.find((s) => normalizeName(s.name) === normInput)
+
+      let schoolId: string
+      let schoolNameResult: string
+
+      if (existing) {
+        schoolId = existing.id
+        schoolNameResult = existing.name
+        toast.info(`Escola já existia no cadastro mestre como "${existing.name}". Reutilizada!`)
+      } else {
+        const created = await escolasService.create({
+          nome: trimmedName,
+          endereco: newSchoolAddress.trim(),
+          telefone: newSchoolContact.trim(),
+          email: newSchoolEmail.trim() || undefined,
+          tipo: newSchoolTipo,
+          rota: newSchoolRota.trim() || pendingCreateOrder.routeRaw,
+        })
+        schoolId = created.id
+        schoolNameResult = created.nome
+        toast.success(`Escola "${trimmedName}" cadastrada no cadastro mestre global!`)
+      }
+
+      // Criar a rota no contrato se necessário
+      const rotaRec = await rotasService.findOrCreate(
+        selectedContract.id,
+        newSchoolRota.trim() || pendingCreateOrder.routeRaw,
+      )
+
+      // Vincular ao contrato
+      await contratosService.linkEscola({
+        contrato_id: selectedContract.id,
+        escola_id: schoolId,
+        rota_id: rotaRec.id,
+      })
+
+      toast.success(`Escola vinculada ao contrato com a rota ${rotaRec.nome}!`)
+      setCreateDialogOpen(false)
+
+      await refreshData()
+
+      // Reparse
+      if (rawWorkbook) {
+        const updatedSchools = [
+          ...schools,
+          {
+            id: schoolId,
+            name: schoolNameResult,
+            address: newSchoolAddress,
+            contact: newSchoolContact,
+            route: newSchoolRota,
+            email: newSchoolEmail,
+            tipo: newSchoolTipo,
+          },
+        ]
+        const updatedLinks = [
+          ...selectedContract.escolas,
+          {
+            id: 'temp-' + Date.now(),
+            contratoId: selectedContract.id,
+            escolaId: schoolId,
+            rotaId: rotaRec.id,
+            escolaNome: schoolNameResult,
+            rotaNome: rotaRec.nome,
+          },
+        ]
+        reparseWorkbook(updatedSchools, updatedLinks)
+      }
+    } catch (err: any) {
+      console.error('Erro ao cadastrar e vincular escola:', err)
+      toast.error('Falha ao cadastrar escola.')
+    } finally {
+      setIsCreatingSchool(false)
+    }
+  }
+
   // Confirmar Importação e Gravar Pedidos no Banco
   const handleConfirmImport = async () => {
     if (!parsedData || !selectedContract) return
@@ -185,7 +390,7 @@ export default function ExcelImport() {
 
     if (validOrders.length === 0) {
       toast.error(
-        'Nenhum pedido pode ser importado. Resolva as pendências de vinculação das escolas ao contrato.',
+        'Nenhum pedido pode ser importado. Resolva as pendências de vinculação das escolas ao contrato através dos botões de ação na tabela.',
       )
       return
     }
@@ -530,12 +735,24 @@ export default function ExcelImport() {
                           <TableCell className="font-medium text-xs">{po.schoolNameRaw}</TableCell>
                           <TableCell className="text-xs">
                             {po.isLinkedToContract ? (
-                              <span className="text-emerald-600 flex items-center gap-1">
+                              <span className="text-emerald-600 flex items-center gap-1 font-medium">
                                 <CheckCircle2 className="h-3.5 w-3.5" /> {po.schoolNameMatched}
                               </span>
+                            ) : po.matchStatus === 'needs_link' ? (
+                              <div className="space-y-1">
+                                <span className="text-amber-600 flex items-center gap-1 font-medium">
+                                  <Building2 className="h-3.5 w-3.5" /> {po.schoolNameMatched}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] text-amber-700 border-amber-400 bg-amber-50 dark:bg-amber-950/40"
+                                >
+                                  No cadastro mestre (não vinculada)
+                                </Badge>
+                              </div>
                             ) : (
                               <span className="text-rose-600 flex items-center gap-1">
-                                <AlertTriangle className="h-3.5 w-3.5" /> Não vinculada
+                                <AlertTriangle className="h-3.5 w-3.5" /> Não cadastrada no mestre
                               </span>
                             )}
                           </TableCell>
@@ -560,18 +777,43 @@ export default function ExcelImport() {
                             })}
                           </TableCell>
                           <TableCell>
-                            {hasIssues ? (
-                              <div className="text-[11px] text-amber-700 space-y-0.5">
-                                {po.issues.map((iss, i) => (
-                                  <p key={i}>⚠️ {iss}</p>
-                                ))}
-                              </div>
-                            ) : (
+                            {po.isLinkedToContract ? (
                               <Badge className="bg-emerald-600 text-[10px]">
                                 Pronto para importar
                               </Badge>
+                            ) : po.matchStatus === 'needs_link' ? (
+                              <div className="space-y-1.5">
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 text-[10px]"
+                                >
+                                  Pendência: Vincular ao contrato
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs gap-1 border-amber-300 text-amber-800 hover:bg-amber-50 dark:text-amber-200 w-full"
+                                  onClick={() => handleOpenLinkDialog(po)}
+                                >
+                                  <Link2 className="h-3 w-3" /> Vincular ao contrato
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <Badge variant="destructive" className="text-[10px]">
+                                  Pendência: Cadastrar escola
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs gap-1 border-rose-300 text-rose-800 hover:bg-rose-50 dark:text-rose-200 w-full"
+                                  onClick={() => handleOpenCreateSchoolDialog(po)}
+                                >
+                                  <PlusCircle className="h-3 w-3" /> Cadastrar escola
+                                </Button>
+                              </div>
                             )}
-                          </TableCell>
+                          </TableCell>{' '}
                         </TableRow>
                       )
                     })}
@@ -654,6 +896,249 @@ export default function ExcelImport() {
           </div>
         </CardContent>
       </Card>
+
+      {/* DIALOG DE RESOLVER PENDÊNCIA: VINCULAR AO CONTRATO (PRÉ-PREENCHIDO) */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-primary" /> Vincular Escola ao Contrato
+            </DialogTitle>
+            <DialogDescription>
+              A escola já existe no <strong>cadastro mestre global</strong>. Confirme o vínculo ao
+              contrato <strong>{selectedContract?.numero}</strong> com a rota pré-preenchida.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingLinkOrder && (
+            <div className="space-y-4 pt-2 text-xs">
+              <div className="p-3 rounded-lg border bg-muted/30 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Nome na Planilha:</span>
+                  <span className="font-semibold text-foreground">
+                    {pendingLinkOrder.schoolNameRaw}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Escola no Cadastro Mestre:</span>
+                  <span className="font-semibold text-primary">
+                    {pendingLinkOrder.prefilledLink?.escolaNome}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Aba / Rota da Planilha:</span>
+                  <span className="font-mono text-foreground">{pendingLinkOrder.routeRaw}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="link-rota" className="text-xs">
+                  Rota Logística neste Contrato <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="link-rota"
+                  value={linkRotaNome}
+                  onChange={(e) => setLinkRotaNome(e.target.value)}
+                  placeholder="Ex: ROTA A"
+                  className="h-8 text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Pré-preenchida automaticamente com base na aba da planilha (
+                  {pendingLinkOrder.routeRaw}).
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="link-cota" className="text-xs">
+                  Cota Anual / Nº Alunos (Opcional)
+                </Label>
+                <Input
+                  id="link-cota"
+                  type="number"
+                  value={linkCota}
+                  onChange={(e) => setLinkCota(e.target.value)}
+                  placeholder="Ex: 150"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setLinkDialogOpen(false)}
+              disabled={isLinking}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmLinkSchool}
+              disabled={isLinking || !linkRotaNome.trim()}
+              className="gap-1.5"
+            >
+              {isLinking ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Vinculando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar Vínculo
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG DE RESOLVER PENDÊNCIA: CADASTRAR ESCOLA NO MESTRE */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PlusCircle className="h-5 w-5 text-primary" /> Cadastrar Escola no Cadastro Mestre
+            </DialogTitle>
+            <DialogDescription>
+              A escola não existe no cadastro mestre. Preencha os dados cadastrais para registrá-la
+              no sistema global e vinculá-la ao contrato <strong>{selectedContract?.numero}</strong>
+              .
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingCreateOrder && (
+            <div className="space-y-3 pt-1 text-xs">
+              <div className="space-y-1">
+                <Label htmlFor="new-sch-name" className="text-xs">
+                  Nome da Instituição Escolar <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="new-sch-name"
+                  value={newSchoolName}
+                  onChange={(e) => setNewSchoolName(e.target.value)}
+                  placeholder="Nome oficial da escola"
+                  className="h-8 text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Identificada na planilha como: <em>"{pendingCreateOrder.schoolNameRaw}"</em>.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="new-sch-tipo" className="text-xs">
+                    Tipo de Instituição
+                  </Label>
+                  <Select
+                    value={newSchoolTipo}
+                    onValueChange={(val) => setNewSchoolTipo(val as EscolaTipo)}
+                  >
+                    <SelectTrigger id="new-sch-tipo" className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Municipal">Municipal</SelectItem>
+                      <SelectItem value="Estadual">Estadual</SelectItem>
+                      <SelectItem value="Creche / CMEI">Creche / CMEI</SelectItem>
+                      <SelectItem value="Filantrópica / Conveniada">
+                        Filantrópica / Conveniada
+                      </SelectItem>
+                      <SelectItem value="Outro">Outro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="new-sch-rota" className="text-xs">
+                    Rota no Contrato
+                  </Label>
+                  <Input
+                    id="new-sch-rota"
+                    value={newSchoolRota}
+                    onChange={(e) => setNewSchoolRota(e.target.value)}
+                    placeholder="Ex: ROTA A"
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="new-sch-tel" className="text-xs">
+                    Telefone / Contato
+                  </Label>
+                  <Input
+                    id="new-sch-tel"
+                    value={newSchoolContact}
+                    onChange={(e) => setNewSchoolContact(e.target.value)}
+                    placeholder="(11) 98765-4321"
+                    className="h-8 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="new-sch-email" className="text-xs">
+                    E-mail
+                  </Label>
+                  <Input
+                    id="new-sch-email"
+                    type="email"
+                    value={newSchoolEmail}
+                    onChange={(e) => setNewSchoolEmail(e.target.value)}
+                    placeholder="escola@educacao.gov.br"
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="new-sch-end" className="text-xs">
+                  Endereço Completo
+                </Label>
+                <Input
+                  id="new-sch-end"
+                  value={newSchoolAddress}
+                  onChange={(e) => setNewSchoolAddress(e.target.value)}
+                  placeholder="Rua, número, bairro..."
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setCreateDialogOpen(false)}
+              disabled={isCreatingSchool}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmCreateSchool}
+              disabled={isCreatingSchool || !newSchoolName.trim()}
+              className="gap-1.5"
+            >
+              {isCreatingSchool ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cadastrando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Salvar & Vincular
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

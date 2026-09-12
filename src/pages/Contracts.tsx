@@ -59,10 +59,16 @@ import {
   TrendingUp,
   CheckCircle2,
   Check,
+  Search,
+  Globe,
+  Sparkles,
+  Link2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { contratosService } from '@/services/contratos'
 import { rotasService } from '@/services/rotas'
+import { escolasService } from '@/services/escolas'
+import { normalizeName } from '@/lib/excelImporter'
 
 interface ContractItemForm {
   id?: string
@@ -74,6 +80,7 @@ interface ContractItemForm {
 interface ContractSchoolForm {
   escolaId: string
   rotaId: string
+  cota?: number
 }
 
 export default function Contracts() {
@@ -105,6 +112,18 @@ export default function Contracts() {
   const [contractSchoolsForm, setContractSchoolsForm] = useState<ContractSchoolForm[]>([])
   const [contractItems, setContractItems] = useState<ContractItemForm[]>([])
 
+  // Autocomplete e busca de escolas mestre no diálogo
+  const [schoolSearchQuery, setSchoolSearchQuery] = useState('')
+  const [showQuickCreateSchool, setShowQuickCreateSchool] = useState(false)
+  const [quickSchoolName, setQuickSchoolName] = useState('')
+  const [quickSchoolAddress, setQuickSchoolAddress] = useState('')
+  const [quickSchoolContact, setQuickSchoolContact] = useState('')
+  const [quickSchoolEmail, setQuickSchoolEmail] = useState('')
+  const [quickSchoolTipo, setQuickSchoolTipo] = useState('Municipal')
+  const [quickSchoolRota, setQuickSchoolRota] = useState('')
+  const [quickSchoolCota, setQuickSchoolCota] = useState('')
+  const [isCreatingQuickSchool, setIsCreatingQuickSchool] = useState(false)
+
   // Gestão de Rotas do Contrato
   const [contractRotas, setContractRotas] = useState<
     Array<{ id?: string; nome: string; ordem: number }>
@@ -124,6 +143,8 @@ export default function Contracts() {
     setValorTotal('')
     setStatus('Ativo')
     setContractSchoolsForm([])
+    setSchoolSearchQuery('')
+    setShowQuickCreateSchool(false)
     setContractRotas([
       { nome: 'ROTA A', ordem: 1 },
       { nome: 'ROTA B', ordem: 2 },
@@ -151,8 +172,11 @@ export default function Contracts() {
       contract.escolas.map((e) => ({
         escolaId: e.escolaId,
         rotaId: e.rotaId || '',
+        cota: e.cota,
       })),
     )
+    setSchoolSearchQuery('')
+    setShowQuickCreateSchool(false)
 
     // Rotas do contrato
     const existingRotas = rotas.filter((r) => r.contrato_id === contract.id)
@@ -238,10 +262,96 @@ export default function Contracts() {
     })
   }
 
+  const handleAddSchoolLink = (schoolId: string) => {
+    if (contractSchoolsForm.some((s) => s.escolaId === schoolId)) {
+      toast.info('Esta escola já está vinculada ao contrato.')
+      return
+    }
+    const defaultRota = contractRotas[0]?.nome || ''
+    setContractSchoolsForm((prev) => [...prev, { escolaId: schoolId, rotaId: defaultRota }])
+    toast.success('Escola vinculada ao contrato!')
+  }
+
+  const handleRemoveSchoolLink = (schoolId: string) => {
+    setContractSchoolsForm((prev) => prev.filter((s) => s.escolaId !== schoolId))
+  }
+
   const handleSchoolRotaChange = (schoolId: string, rotaValue: string) => {
     setContractSchoolsForm((prev) =>
       prev.map((s) => (s.escolaId === schoolId ? { ...s, rotaId: rotaValue } : s)),
     )
+  }
+
+  const handleSchoolCotaChange = (schoolId: string, cotaValue: number) => {
+    setContractSchoolsForm((prev) =>
+      prev.map((s) => (s.escolaId === schoolId ? { ...s, cota: cotaValue } : s)),
+    )
+  }
+
+  // Criar escola no cadastro mestre direto do modal de contrato com normalização e checagem de duplicidade
+  const handleQuickCreateSchool = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmedName = quickSchoolName.trim()
+    if (!trimmedName) {
+      toast.error('Informe o nome da escola.')
+      return
+    }
+
+    setIsCreatingQuickSchool(true)
+    try {
+      // 1. Checar se já existe no cadastro mestre com nome normalizado
+      const normInput = normalizeName(trimmedName)
+      const existing = schools.find((s) => normalizeName(s.name) === normInput)
+
+      let targetSchoolId: string
+
+      if (existing) {
+        // REUTILIZAR a escola existente
+        targetSchoolId = existing.id
+        toast.info(
+          `A escola "${existing.name}" já existia no cadastro mestre e foi reutilizada (sem duplicar).`,
+        )
+      } else {
+        // Criar nova escola no cadastro mestre
+        const created = await escolasService.create({
+          nome: trimmedName,
+          endereco: quickSchoolAddress.trim(),
+          telefone: quickSchoolContact.trim(),
+          email: quickSchoolEmail.trim() || undefined,
+          tipo: quickSchoolTipo,
+          rota: quickSchoolRota.trim() || contractRotas[0]?.nome || 'Sem Rota',
+        })
+        targetSchoolId = created.id
+        toast.success(`Escola "${trimmedName}" cadastrada no cadastro mestre global!`)
+        await refreshData()
+      }
+
+      // 2. Vincular ao formulário do contrato com a rota e cota especificadas
+      const assignedRota = quickSchoolRota.trim() || contractRotas[0]?.nome || ''
+      const assignedCota = parseFloat(quickSchoolCota) || undefined
+
+      setContractSchoolsForm((prev) => {
+        if (prev.some((s) => s.escolaId === targetSchoolId)) {
+          return prev.map((s) =>
+            s.escolaId === targetSchoolId ? { ...s, rotaId: assignedRota, cota: assignedCota } : s,
+          )
+        }
+        return [...prev, { escolaId: targetSchoolId, rotaId: assignedRota, cota: assignedCota }]
+      })
+
+      // Resetar form rápido
+      setShowQuickCreateSchool(false)
+      setQuickSchoolName('')
+      setQuickSchoolAddress('')
+      setQuickSchoolContact('')
+      setQuickSchoolEmail('')
+      setQuickSchoolCota('')
+    } catch (err: any) {
+      console.error('Erro ao cadastrar e vincular escola:', err)
+      toast.error('Falha ao registrar escola no cadastro mestre.')
+    } finally {
+      setIsCreatingQuickSchool(false)
+    }
   }
 
   // Itens do contrato
@@ -837,67 +947,334 @@ export default function Contracts() {
                 </div>
               </TabsContent>
 
-              {/* Aba 3: Escolas Participantes (N:N com Rota) */}
+              {/* Aba 3: Escolas Participantes (Cadastro Mestre Global + Vínculo com Rota e Cota) */}
               <TabsContent value="escolas" className="space-y-3 pt-3">
-                <div>
-                  <Label className="text-sm font-semibold">
-                    Escolas Participantes & Atribuição de Rota
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    O vínculo aqui registra formalmente a escola no contrato e define sua rota
-                    logística.
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
+                  <div>
+                    <Label className="text-sm font-semibold flex items-center gap-1.5">
+                      <Globe className="h-4 w-4 text-primary" /> Vínculo de Escolas (Cadastro Mestre
+                      Global)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Busque no cadastro mestre global para vincular com rota e cota, ou cadastre
+                      uma nova escola sem duplicar.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs shrink-0 gap-1.5"
+                    onClick={() => setShowQuickCreateSchool(!showQuickCreateSchool)}
+                  >
+                    <Plus className="h-3.5 w-3.5 text-primary" />
+                    {showQuickCreateSchool ? 'Ocultar Cadastro' : 'Cadastrar Nova Escola'}
+                  </Button>
                 </div>
 
-                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
-                  {schools.map((sch) => {
-                    const isSelected = contractSchoolsForm.some((s) => s.escolaId === sch.id)
-                    const assignedLink = contractSchoolsForm.find((s) => s.escolaId === sch.id)
+                {/* Painel de Cadastro Rápido de Escola Nova no Mestre */}
+                {showQuickCreateSchool && (
+                  <div className="p-3 rounded-lg border bg-primary/5 border-primary/30 space-y-3 animate-fade-in text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-primary flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5" /> Nova Escola no Cadastro Mestre Global
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        Duplicações são prevenidas automaticamente por nome normalizado.
+                      </span>
+                    </div>
 
-                    return (
-                      <div
-                        key={sch.id}
-                        className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-colors ${
-                          isSelected
-                            ? 'bg-primary/5 border-primary/40'
-                            : 'bg-muted/10 border-border opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 flex-1">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleToggleSchool(sch.id)}
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                          />
-                          <div>
-                            <p className="font-medium text-foreground">{sch.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{sch.address}</p>
-                          </div>
-                        </div>
-
-                        {isSelected && (
-                          <div className="w-44 shrink-0">
-                            <Select
-                              value={assignedLink?.rotaId || contractRotas[0]?.nome || ''}
-                              onValueChange={(val) => handleSchoolRotaChange(sch.id, val)}
-                            >
-                              <SelectTrigger className="h-7 text-xs">
-                                <SelectValue placeholder="Selecione a Rota" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {contractRotas.map((cr, i) => (
-                                  <SelectItem key={i} value={cr.id || cr.nome}>
-                                    {cr.nome}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="qk-nome" className="text-[11px]">
+                          Nome da Instituição <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          id="qk-nome"
+                          placeholder="Ex: E.M. Darcy Ribeiro"
+                          className="h-8 text-xs"
+                          value={quickSchoolName}
+                          onChange={(e) => setQuickSchoolName(e.target.value)}
+                        />
                       </div>
-                    )
-                  })}
+
+                      <div className="space-y-1">
+                        <Label htmlFor="qk-tipo" className="text-[11px]">
+                          Tipo de Instituição
+                        </Label>
+                        <Select value={quickSchoolTipo} onValueChange={setQuickSchoolTipo}>
+                          <SelectTrigger id="qk-tipo" className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Municipal">Municipal</SelectItem>
+                            <SelectItem value="Estadual">Estadual</SelectItem>
+                            <SelectItem value="Creche / CMEI">Creche / CMEI</SelectItem>
+                            <SelectItem value="Filantrópica / Conveniada">
+                              Filantrópica / Conveniada
+                            </SelectItem>
+                            <SelectItem value="Outro">Outro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="qk-rota" className="text-[11px]">
+                          Rota no Contrato
+                        </Label>
+                        <Select
+                          value={quickSchoolRota || contractRotas[0]?.nome || ''}
+                          onValueChange={setQuickSchoolRota}
+                        >
+                          <SelectTrigger id="qk-rota" className="h-8 text-xs">
+                            <SelectValue placeholder="Selecione rota" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {contractRotas.map((cr, i) => (
+                              <SelectItem key={i} value={cr.id || cr.nome}>
+                                {cr.nome}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor="qk-cota" className="text-[11px]">
+                          Cota / Alunos (opcional)
+                        </Label>
+                        <Input
+                          id="qk-cota"
+                          type="number"
+                          placeholder="Ex: 250"
+                          className="h-8 text-xs"
+                          value={quickSchoolCota}
+                          onChange={(e) => setQuickSchoolCota(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor="qk-tel" className="text-[11px]">
+                          Telefone
+                        </Label>
+                        <Input
+                          id="qk-tel"
+                          placeholder="(11) 98765-4321"
+                          className="h-8 text-xs"
+                          value={quickSchoolContact}
+                          onChange={(e) => setQuickSchoolContact(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="qk-email" className="text-[11px]">
+                          E-mail
+                        </Label>
+                        <Input
+                          id="qk-email"
+                          type="email"
+                          placeholder="escola@educacao.gov.br"
+                          className="h-8 text-xs"
+                          value={quickSchoolEmail}
+                          onChange={(e) => setQuickSchoolEmail(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor="qk-end" className="text-[11px]">
+                          Endereço
+                        </Label>
+                        <Input
+                          id="qk-end"
+                          placeholder="Rua, número, bairro..."
+                          className="h-8 text-xs"
+                          value={quickSchoolAddress}
+                          onChange={(e) => setQuickSchoolAddress(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setShowQuickCreateSchool(false)}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 text-xs gap-1.5"
+                        disabled={isCreatingQuickSchool || !quickSchoolName.trim()}
+                        onClick={handleQuickCreateSchool}
+                      >
+                        {isCreatingQuickSchool ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" /> Salvando...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-3 w-3" /> Salvar & Vincular
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Campo de Autocomplete / Busca no Cadastro Mestre */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Filtrar escolas no cadastro mestre global por nome, tipo ou rota..."
+                    className="pl-8 h-8 text-xs bg-card"
+                    value={schoolSearchQuery}
+                    onChange={(e) => setSchoolSearchQuery(e.target.value)}
+                  />
+                </div>
+
+                {/* Resumo de Vínculos Atuais */}
+                <div className="flex items-center justify-between text-xs text-muted-foreground px-0.5">
+                  <span>
+                    <strong>{contractSchoolsForm.length}</strong> escola(s) vinculada(s) a este
+                    contrato
+                  </span>
+                  {schoolSearchQuery && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px] p-0 text-muted-foreground"
+                      onClick={() => setSchoolSearchQuery('')}
+                    >
+                      Limpar filtro
+                    </Button>
+                  )}
+                </div>
+
+                {/* Lista de Escolas com Autocomplete e Seleção */}
+                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                  {schools
+                    .filter((sch) => {
+                      if (!schoolSearchQuery) return true
+                      const q = schoolSearchQuery.toLowerCase()
+                      return (
+                        sch.name.toLowerCase().includes(q) ||
+                        (sch.tipo && sch.tipo.toLowerCase().includes(q)) ||
+                        sch.route.toLowerCase().includes(q) ||
+                        sch.address.toLowerCase().includes(q)
+                      )
+                    })
+                    .sort((a, b) => {
+                      // Colocar vinculadas no topo
+                      const aLinked = contractSchoolsForm.some((s) => s.escolaId === a.id)
+                      const bLinked = contractSchoolsForm.some((s) => s.escolaId === b.id)
+                      if (aLinked && !bLinked) return -1
+                      if (!aLinked && bLinked) return 1
+                      return a.name.localeCompare(b.name)
+                    })
+                    .map((sch) => {
+                      const isSelected = contractSchoolsForm.some((s) => s.escolaId === sch.id)
+                      const assignedLink = contractSchoolsForm.find((s) => s.escolaId === sch.id)
+
+                      return (
+                        <div
+                          key={sch.id}
+                          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg border text-xs transition-colors ${
+                            isSelected
+                              ? 'bg-primary/5 border-primary/40 shadow-xs'
+                              : 'bg-muted/10 border-border opacity-75 hover:opacity-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSchool(sch.id)}
+                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="font-semibold text-foreground truncate">{sch.name}</p>
+                                {sch.tipo && (
+                                  <Badge variant="outline" className="text-[9px] py-0 px-1">
+                                    {sch.tipo}
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground truncate">
+                                {sch.address || 'Endereço não informado'} • Padrão: {sch.route}
+                              </p>
+                            </div>
+                          </div>
+
+                          {isSelected && (
+                            <div className="flex items-center gap-2 shrink-0 pt-1 sm:pt-0">
+                              <div className="w-36">
+                                <Label className="text-[9px] text-muted-foreground block mb-0.5">
+                                  Rota Logística
+                                </Label>
+                                <Select
+                                  value={assignedLink?.rotaId || contractRotas[0]?.nome || ''}
+                                  onValueChange={(val) => handleSchoolRotaChange(sch.id, val)}
+                                >
+                                  <SelectTrigger className="h-7 text-xs">
+                                    <SelectValue placeholder="Selecione rota" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {contractRotas.map((cr, i) => (
+                                      <SelectItem key={i} value={cr.id || cr.nome}>
+                                        {cr.nome}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="w-24">
+                                <Label className="text-[9px] text-muted-foreground block mb-0.5">
+                                  Cota / Alunos
+                                </Label>
+                                <Input
+                                  type="number"
+                                  placeholder="Qtd"
+                                  className="h-7 text-xs"
+                                  value={assignedLink?.cota || ''}
+                                  onChange={(e) =>
+                                    handleSchoolCotaChange(sch.id, parseFloat(e.target.value) || 0)
+                                  }
+                                />
+                              </div>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0 mt-3"
+                                title="Desvincular"
+                                onClick={() => handleRemoveSchoolLink(sch.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+
+                  {schools.length === 0 && (
+                    <div className="py-6 text-center text-muted-foreground text-xs">
+                      Nenhuma escola cadastrada no cadastro mestre global. Cadastre pelo botão
+                      acima.
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 

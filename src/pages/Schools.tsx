@@ -33,6 +33,7 @@ import {
   Building2,
   MapPin,
   Phone,
+  Mail,
   Search,
   Map,
   Loader2,
@@ -40,11 +41,14 @@ import {
   Pencil,
   Trash2,
   AlertTriangle,
+  Globe,
+  FileCheck,
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { escolasService } from '@/services/escolas'
-import type { School } from '@/lib/types'
+import type { School, EscolaTipo } from '@/lib/types'
 
 const PRESET_ROUTES = [
   'Rota Norte',
@@ -55,10 +59,19 @@ const PRESET_ROUTES = [
   'Outra',
 ]
 
+const ESCOLA_TIPOS: EscolaTipo[] = [
+  'Municipal',
+  'Estadual',
+  'Creche / CMEI',
+  'Filantrópica / Conveniada',
+  'Outro',
+]
+
 export default function Schools() {
-  const { schools, isLoading, refreshData } = useApp()
+  const { schools, contracts, isLoading, refreshData } = useApp()
   const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
+  const [filterTipo, setFilterTipo] = useState<string>('todos')
 
   // Form dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -66,6 +79,8 @@ export default function Schools() {
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const [contact, setContact] = useState('')
+  const [email, setEmail] = useState('')
+  const [tipo, setTipo] = useState<EscolaTipo>('Municipal')
   const [routeType, setRouteType] = useState('Rota Norte')
   const [customRoute, setCustomRoute] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -80,18 +95,25 @@ export default function Schools() {
   const [isCheckingDeps, setIsCheckingDeps] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const filteredSchools = schools.filter(
-    (s) =>
+  const filteredSchools = schools.filter((s) => {
+    const matchesSearch =
       s.name.toLowerCase().includes(search.toLowerCase()) ||
       s.route.toLowerCase().includes(search.toLowerCase()) ||
-      s.address.toLowerCase().includes(search.toLowerCase()),
-  )
+      s.address.toLowerCase().includes(search.toLowerCase()) ||
+      (s.email && s.email.toLowerCase().includes(search.toLowerCase())) ||
+      (s.tipo && s.tipo.toLowerCase().includes(search.toLowerCase()))
+
+    const matchesTipo = filterTipo === 'todos' || s.tipo === filterTipo
+    return matchesSearch && matchesTipo
+  })
 
   const handleOpenCreate = () => {
     setEditingSchool(null)
     setName('')
     setAddress('')
     setContact('')
+    setEmail('')
+    setTipo('Municipal')
     setRouteType('Rota Norte')
     setCustomRoute('')
     setDialogOpen(true)
@@ -102,12 +124,14 @@ export default function Schools() {
     setName(school.name)
     setAddress(school.address)
     setContact(school.contact)
+    setEmail(school.email || '')
+    setTipo((school.tipo as EscolaTipo) || 'Municipal')
     if (PRESET_ROUTES.slice(0, 5).includes(school.route)) {
       setRouteType(school.route)
       setCustomRoute('')
     } else {
       setRouteType('Outra')
-      setCustomRoute(school.route)
+      setCustomRoute(school.route || '')
     }
     setDialogOpen(true)
   }
@@ -126,21 +150,45 @@ export default function Schools() {
     setIsSubmitting(true)
     try {
       if (editingSchool) {
+        // Checar duplicidade ao editar (caso mude o nome para outro existente)
+        const existing = await escolasService.findByNameNormalized(trimmedName)
+        if (existing && existing.id !== editingSchool.id) {
+          toast.warning(
+            `Já existe outra escola cadastrada com o nome similar "${existing.nome}". Use o registro existente.`,
+          )
+          setIsSubmitting(false)
+          return
+        }
+
         await escolasService.update(editingSchool.id, {
           nome: trimmedName,
           endereco: address.trim(),
           telefone: contact.trim(),
+          email: email.trim() || undefined,
+          tipo: tipo,
           rota: finalRoute,
         })
         toast.success(`Escola "${trimmedName}" atualizada com sucesso!`)
       } else {
+        // Checar duplicidade antes de criar no cadastro mestre
+        const existing = await escolasService.findByNameNormalized(trimmedName)
+        if (existing) {
+          toast.warning(
+            `A escola "${existing.nome}" já existe no cadastro mestre. Escolas devem ser criadas apenas uma vez e reutilizadas.`,
+          )
+          setIsSubmitting(false)
+          return
+        }
+
         await escolasService.create({
           nome: trimmedName,
           endereco: address.trim(),
           telefone: contact.trim(),
+          email: email.trim() || undefined,
+          tipo: tipo,
           rota: finalRoute,
         })
-        toast.success(`Escola "${trimmedName}" cadastrada com sucesso!`)
+        toast.success(`Escola "${trimmedName}" cadastrada no cadastro mestre global!`)
       }
       setDialogOpen(false)
       await refreshData()
@@ -194,24 +242,43 @@ export default function Schools() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Escolas Parceiras</h1>
-          <p className="text-muted-foreground">
-            Diretório e gerenciamento de instituições escolares atendidas pela cooperativa.
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight">Cadastro Mestre de Escolas</h1>
+            <Badge variant="outline" className="gap-1 text-xs border-primary/40 text-primary">
+              <Globe className="h-3 w-3" /> Global & Independente
+            </Badge>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            Diretório global único: cada escola é cadastrada <strong>uma única vez</strong> e
+            reutilizada em múltiplos contratos PNAE/PAA.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative w-full sm:w-64">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-56">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar por nome ou rota..."
+              placeholder="Buscar por nome, e-mail, rota..."
               className="pl-9 bg-card"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+          <Select value={filterTipo} onValueChange={setFilterTipo}>
+            <SelectTrigger className="w-[150px] bg-card text-xs">
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os Tipos</SelectItem>
+              {ESCOLA_TIPOS.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {isAdmin && (
             <Button onClick={handleOpenCreate} className="shrink-0">
-              <Plus className="mr-2 h-4 w-4" /> Nova Escola
+              <Plus className="mr-2 h-4 w-4" /> Nova Escola Mestre
             </Button>
           )}
         </div>
@@ -233,16 +300,25 @@ export default function Schools() {
                   <Building2 className="h-6 w-6" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <CardTitle className="text-lg leading-tight truncate" title={school.name}>
-                    {school.name}
-                  </CardTitle>
-                  <div className="flex items-center text-sm text-muted-foreground mt-2">
-                    <Map className="h-3 w-3 mr-1 shrink-0" />
-                    <span className="truncate">{school.route}</span>
+                  <div className="flex items-center justify-between gap-1">
+                    <CardTitle className="text-lg leading-tight truncate" title={school.name}>
+                      {school.name}
+                    </CardTitle>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {school.tipo && (
+                      <Badge variant="secondary" className="text-[10px] font-normal">
+                        {school.tipo}
+                      </Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground flex items-center">
+                      <Map className="h-3 w-3 mr-1 shrink-0" />
+                      {school.route || 'Sem rota padrão'}
+                    </span>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex-1 space-y-3 text-sm">
+              <CardContent className="flex-1 space-y-2.5 text-sm">
                 <div className="flex items-start gap-2">
                   <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                   <span className="text-muted-foreground line-clamp-2">
@@ -255,6 +331,31 @@ export default function Schools() {
                     {school.contact || 'Telefone não informado'}
                   </span>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground truncate">
+                    {school.email || 'E-mail não informado'}
+                  </span>
+                </div>
+
+                {/* Vínculos com contratos */}
+                {(() => {
+                  const linkedContracts = contracts.filter((c) =>
+                    c.escolas.some((e) => e.escolaId === school.id),
+                  )
+                  return (
+                    <div className="pt-2 border-t border-border/40 text-xs">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <FileCheck className="h-3.5 w-3.5 text-primary" />
+                        {linkedContracts.length > 0
+                          ? `Vinculada a ${linkedContracts.length} contrato(s): ${linkedContracts
+                              .map((c) => c.numero)
+                              .join(', ')}`
+                          : 'Ainda não vinculada a contratos'}
+                      </span>
+                    </div>
+                  )
+                })()}
               </CardContent>
               <CardFooter className="pt-4 border-t border-border/50 flex gap-2">
                 {isAdmin ? (
@@ -305,7 +406,7 @@ export default function Schools() {
           <form onSubmit={handleSubmit} className="space-y-4 pt-2">
             <div className="space-y-2">
               <Label htmlFor="school-name">
-                Nome da Instituição <span className="text-destructive">*</span>
+                Nome da Instituição Escolar <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="school-name"
@@ -313,6 +414,48 @@ export default function Schools() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
+              />
+              <p className="text-[11px] text-muted-foreground">
+                O nome é normalizado para evitar duplicidades no cadastro mestre global.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="school-tipo">Tipo de Instituição</Label>
+                <Select value={tipo} onValueChange={(val) => setTipo(val as EscolaTipo)}>
+                  <SelectTrigger id="school-tipo">
+                    <SelectValue placeholder="Selecione o tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ESCOLA_TIPOS.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="school-contact">Telefone / WhatsApp</Label>
+                <Input
+                  id="school-contact"
+                  placeholder="Ex: (11) 98765-4321"
+                  value={contact}
+                  onChange={(e) => setContact(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="school-email">E-mail Institucional</Label>
+              <Input
+                id="school-email"
+                type="email"
+                placeholder="Ex: escola.darcy@educacao.gov.br"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </div>
 
@@ -327,17 +470,7 @@ export default function Schools() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="school-contact">Telefone / Contato</Label>
-              <Input
-                id="school-contact"
-                placeholder="Ex: (11) 98765-4321 ou (11) 3456-7890"
-                value={contact}
-                onChange={(e) => setContact(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="school-route">Rota de Entrega</Label>
+              <Label htmlFor="school-route">Rota Logística Padrão</Label>
               <Select value={routeType} onValueChange={setRouteType}>
                 <SelectTrigger id="school-route">
                   <SelectValue placeholder="Selecione a rota" />

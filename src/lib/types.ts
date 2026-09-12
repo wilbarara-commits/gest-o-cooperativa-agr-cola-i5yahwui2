@@ -11,12 +11,21 @@ export interface ProdutoRecord {
   updated?: string
 }
 
+export type EscolaTipo =
+  | 'Municipal'
+  | 'Estadual'
+  | 'Creche / CMEI'
+  | 'Filantrópica / Conveniada'
+  | 'Outro'
+
 export interface EscolaRecord {
   id: string
   nome: string
   endereco: string
   telefone: string
   rota: string
+  email?: string
+  tipo?: EscolaTipo | string
   created?: string
   updated?: string
 }
@@ -187,6 +196,8 @@ export interface School {
   address: string
   contact: string
   route: string
+  email?: string
+  tipo?: EscolaTipo | string
 }
 
 export interface ContractSchoolLink {
@@ -194,9 +205,12 @@ export interface ContractSchoolLink {
   contratoId: string
   escolaId: string
   rotaId?: string
+  cota?: number
   escolaNome?: string
   escolaEndereco?: string
   escolaTelefone?: string
+  escolaEmail?: string
+  escolaTipo?: string
   rotaNome?: string
 }
 

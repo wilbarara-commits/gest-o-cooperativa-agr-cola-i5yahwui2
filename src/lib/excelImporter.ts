@@ -34,6 +34,8 @@ export interface ParsedOrderItem {
   price: number
 }
 
+export type SchoolMatchStatus = 'ok' | 'needs_link' | 'needs_register'
+
 export interface ParsedSchoolOrder {
   schoolNameRaw: string
   schoolId?: string
@@ -43,6 +45,12 @@ export interface ParsedSchoolOrder {
   rotaNomeMatched?: string
   isLinkedToContract: boolean
   isDuplicateInOtherSheets?: boolean
+  matchStatus: SchoolMatchStatus
+  prefilledLink?: {
+    escolaId: string
+    escolaNome: string
+    rotaSugerida: string
+  }
   items: ParsedOrderItem[]
   totalCalculated: number
   issues: string[]
@@ -272,16 +280,30 @@ export function parseSecretaryExcel(
 
       const issues: string[] = []
 
-      // Matching da escola com o cadastro existente
+      // Matching da escola contra o CADASTRO MESTRE GLOBAL
       const matchResult = matchSchoolName(sc.schoolNameRaw, availableSchools, contractSchools)
       const matchedSchool = matchResult.school
       const isLinked = matchResult.isLinked
 
+      let matchStatus: SchoolMatchStatus = 'ok'
+      let prefilledLink: { escolaId: string; escolaNome: string; rotaSugerida: string } | undefined
+
       if (!matchedSchool) {
-        issues.push(`Escola "${sc.schoolNameRaw}" não encontrada no cadastro do sistema.`)
-      } else if (!isLinked) {
+        // NÃO existe no cadastro mestre
+        matchStatus = 'needs_register'
         issues.push(
-          `Escola "${matchedSchool.name}" não está vinculada a este contrato em contrato_escolas. Vincule antes de importar.`,
+          `Cadastrar escola: "${sc.schoolNameRaw}" não existe no cadastro mestre global de escolas.`,
+        )
+      } else if (!isLinked) {
+        // EXISTE no cadastro mestre, mas NÃO está vinculada ao contrato atual
+        matchStatus = 'needs_link'
+        prefilledLink = {
+          escolaId: matchedSchool.id,
+          escolaNome: matchedSchool.name,
+          rotaSugerida: sheetName,
+        }
+        issues.push(
+          `Vincular ao contrato: Escola "${matchedSchool.name}" existe no cadastro mestre, mas não está vinculada ao contrato.`,
         )
       }
 
@@ -331,6 +353,8 @@ export function parseSecretaryExcel(
         schoolNameMatched: matchedSchool?.name,
         routeRaw: sheetName,
         isLinkedToContract: isLinked,
+        matchStatus,
+        prefilledLink,
         items,
         totalCalculated: Math.round(totalCalculated * 100) / 100,
         issues,

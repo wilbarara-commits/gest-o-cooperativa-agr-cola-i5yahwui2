@@ -16,6 +16,29 @@ export const escolasService = {
     return await pb.collection('escolas').create<EscolaRecord>(data)
   },
 
+  async createBatch(
+    items: Array<Omit<EscolaRecord, 'id' | 'created' | 'updated'>>,
+    onProgress?: (processed: number, total: number) => void,
+  ): Promise<{ created: number; errors: Array<{ index: number; nome: string; error: string }> }> {
+    let created = 0
+    const errors: Array<{ index: number; nome: string; error: string }> = []
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      try {
+        await pb.collection('escolas').create<EscolaRecord>(item)
+        created++
+      } catch (err: any) {
+        console.error(`Erro ao salvar escola [${item.nome}]:`, err)
+        const msg = err?.response?.message || err?.message || 'Falha ao salvar'
+        errors.push({ index: i, nome: item.nome, error: msg })
+      }
+      onProgress?.(i + 1, items.length)
+    }
+
+    return { created, errors }
+  },
+
   async update(id: string, data: Partial<EscolaRecord>): Promise<EscolaRecord> {
     return await pb.collection('escolas').update<EscolaRecord>(id, data)
   },

@@ -43,11 +43,14 @@ import {
   AlertTriangle,
   Globe,
   FileCheck,
+  FileSpreadsheet,
+  Users,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { escolasService } from '@/services/escolas'
+import { SchoolImportDialog } from '@/components/SchoolImportDialog'
 import type { School, EscolaTipo } from '@/lib/types'
 
 const PRESET_ROUTES = [
@@ -75,12 +78,14 @@ export default function Schools() {
 
   // Form dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [editingSchool, setEditingSchool] = useState<School | null>(null)
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const [contact, setContact] = useState('')
   const [email, setEmail] = useState('')
   const [tipo, setTipo] = useState<EscolaTipo>('Municipal')
+  const [alunos, setAlunos] = useState<string>('')
   const [routeType, setRouteType] = useState('Rota Norte')
   const [customRoute, setCustomRoute] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -114,6 +119,7 @@ export default function Schools() {
     setContact('')
     setEmail('')
     setTipo('Municipal')
+    setAlunos('')
     setRouteType('Rota Norte')
     setCustomRoute('')
     setDialogOpen(true)
@@ -126,6 +132,7 @@ export default function Schools() {
     setContact(school.contact)
     setEmail(school.email || '')
     setTipo((school.tipo as EscolaTipo) || 'Municipal')
+    setAlunos(school.alunos !== undefined ? String(school.alunos) : '')
     if (PRESET_ROUTES.slice(0, 5).includes(school.route)) {
       setRouteType(school.route)
       setCustomRoute('')
@@ -146,6 +153,7 @@ export default function Schools() {
     }
 
     const finalRoute = routeType === 'Outra' ? customRoute.trim() || 'Sem Rota' : routeType
+    const parsedAlunos = alunos.trim() ? parseInt(alunos.trim(), 10) : undefined
 
     setIsSubmitting(true)
     try {
@@ -167,6 +175,7 @@ export default function Schools() {
           email: email.trim() || undefined,
           tipo: tipo,
           rota: finalRoute,
+          alunos: parsedAlunos,
         })
         toast.success(`Escola "${trimmedName}" atualizada com sucesso!`)
       } else {
@@ -187,6 +196,7 @@ export default function Schools() {
           email: email.trim() || undefined,
           tipo: tipo,
           rota: finalRoute,
+          alunos: parsedAlunos,
         })
         toast.success(`Escola "${trimmedName}" cadastrada no cadastro mestre global!`)
       }
@@ -277,9 +287,19 @@ export default function Schools() {
             </SelectContent>
           </Select>
           {isAdmin && (
-            <Button onClick={handleOpenCreate} className="shrink-0">
-              <Plus className="mr-2 h-4 w-4" /> Nova Escola Mestre
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                onClick={() => setImportDialogOpen(true)}
+                className="gap-1.5"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                Importar CSV
+              </Button>
+              <Button onClick={handleOpenCreate}>
+                <Plus className="mr-2 h-4 w-4" /> Nova Escola Mestre
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -309,6 +329,12 @@ export default function Schools() {
                     {school.tipo && (
                       <Badge variant="secondary" className="text-[10px] font-normal">
                         {school.tipo}
+                      </Badge>
+                    )}
+                    {school.alunos !== undefined && (
+                      <Badge variant="outline" className="text-[10px] font-normal gap-1">
+                        <Users className="h-2.5 w-2.5" />
+                        {school.alunos} alunos
                       </Badge>
                     )}
                     <span className="text-xs text-muted-foreground flex items-center">
@@ -420,9 +446,9 @@ export default function Schools() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="school-tipo">Tipo de Instituição</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-2 sm:col-span-1">
+                <Label htmlFor="school-tipo">Tipo</Label>
                 <Select value={tipo} onValueChange={(val) => setTipo(val as EscolaTipo)}>
                   <SelectTrigger id="school-tipo">
                     <SelectValue placeholder="Selecione o tipo" />
@@ -437,7 +463,19 @@ export default function Schools() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 sm:col-span-1">
+                <Label htmlFor="school-alunos">Nº de Alunos</Label>
+                <Input
+                  id="school-alunos"
+                  type="number"
+                  min="0"
+                  placeholder="Ex: 250"
+                  value={alunos}
+                  onChange={(e) => setAlunos(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2 sm:col-span-1">
                 <Label htmlFor="school-contact">Telefone / WhatsApp</Label>
                 <Input
                   id="school-contact"
@@ -589,6 +627,16 @@ export default function Schools() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal de Importação CSV / Planilha */}
+      <SchoolImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        schools={schools}
+        onSuccess={async () => {
+          await refreshData()
+        }}
+      />
     </div>
   )
 }

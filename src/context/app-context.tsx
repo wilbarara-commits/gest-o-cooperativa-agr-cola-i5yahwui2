@@ -144,6 +144,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         route: s.rota || 'Sem Rota',
         email: s.email || '',
         tipo: s.tipo || 'Municipal',
+        alunos: s.alunos !== undefined && s.alunos !== null ? Number(s.alunos) : undefined,
       }))
       setSchools(mappedSchools)
 
@@ -216,6 +217,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             escolaTelefone: ce.expand?.escola_id?.telefone || sch?.contact || '',
             escolaEmail: ce.expand?.escola_id?.email || sch?.email || '',
             escolaTipo: ce.expand?.escola_id?.tipo || sch?.tipo || '',
+            escolaAlunos: ce.expand?.escola_id?.alunos ?? sch?.alunos,
             rotaNome: ce.expand?.rota_id?.nome || rt?.nome || 'Sem Rota',
           }
         })

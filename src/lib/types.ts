@@ -26,6 +26,7 @@ export interface EscolaRecord {
   rota: string
   email?: string
   tipo?: EscolaTipo | string
+  alunos?: number
   created?: string
   updated?: string
 }
@@ -198,6 +199,7 @@ export interface School {
   route: string
   email?: string
   tipo?: EscolaTipo | string
+  alunos?: number
 }
 
 export interface ContractSchoolLink {
@@ -211,6 +213,7 @@ export interface ContractSchoolLink {
   escolaTelefone?: string
   escolaEmail?: string
   escolaTipo?: string
+  escolaAlunos?: number
   rotaNome?: string
 }
 

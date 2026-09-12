@@ -22,6 +22,10 @@ import {
   Activity,
   MessageSquare,
   Upload,
+  User,
+  Users,
+  Settings,
+  Crown,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -46,6 +50,7 @@ interface NavItem {
   path: string
   icon: any
   adminOnly?: boolean
+  masterOnly?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -62,13 +67,16 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Histórico de Ciclos', path: '/historico-ciclos', icon: History },
   { name: 'Atestos', path: '/atestos', icon: FileCheck },
   { name: 'Relatórios', path: '/relatorios', icon: BarChart3 },
+  { name: 'Meu Perfil', path: '/perfil', icon: User },
+  { name: 'Usuários', path: '/usuarios', icon: Users, masterOnly: true },
+  { name: 'Configurações', path: '/configuracoes', icon: Settings, masterOnly: true },
   { name: 'Documento de Requisitos', path: '/requisitos', icon: BookOpen, adminOnly: true },
 ]
 
 export default function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, isAdmin, logout } = useAuth()
+  const { user, isMaster, isAdmin, logout } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
 
@@ -80,15 +88,20 @@ export default function Layout() {
 
   // Filtrar itens do menu de acordo com o perfil
   const visibleNavItems = NAV_ITEMS.filter((item) => {
-    if (item.adminOnly && !isAdmin) {
+    if (item.masterOnly && !isMaster) {
+      return false
+    }
+    if (item.adminOnly && !isAdmin && !isMaster) {
       return false
     }
     return true
   })
 
   const displayName = user?.nome || user?.name || user?.email || 'Usuário'
-  const isPerfilAdmin = user?.perfil === 'administrador'
-  const perfilLabel = isPerfilAdmin ? 'Administrador' : 'Secretária'
+  const rawPerfil = String(user?.perfil || 'SECRETARIA').toUpperCase()
+  const isPerfilMaster = rawPerfil === 'MASTER'
+  const isPerfilAdmin = rawPerfil === 'ADMINISTRADOR'
+  const perfilLabel = isPerfilMaster ? 'MASTER' : isPerfilAdmin ? 'Administrador' : 'Secretária'
 
   const initials =
     displayName
@@ -137,16 +150,22 @@ export default function Layout() {
         </div>
         {/* Rodapé do Sidebar com perfil do usuário */}
         <div className="p-4 border-t bg-muted/20">
-          <div className="flex items-center gap-3">
+          <Link
+            to="/perfil"
+            className="flex items-center gap-3 p-1 rounded-md hover:bg-muted/50 transition-colors"
+            title="Ir para Meu Perfil"
+          >
             <Avatar className="h-9 w-9 border border-border">
               {user?.avatar ? (
                 <AvatarImage src={user.avatar} alt={displayName} />
               ) : (
                 <AvatarImage
                   src={
-                    isPerfilAdmin
+                    isPerfilMaster
                       ? 'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=42'
-                      : 'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=1'
+                      : isPerfilAdmin
+                        ? 'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=77'
+                        : 'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=1'
                   }
                   alt={displayName}
                 />
@@ -161,10 +180,14 @@ export default function Layout() {
               </p>
               <div className="flex items-center gap-1 mt-0.5">
                 <Badge
-                  variant={isPerfilAdmin ? 'default' : 'secondary'}
-                  className="text-[10px] px-1.5 py-0 h-4 font-normal"
+                  variant={isPerfilMaster ? 'default' : isPerfilAdmin ? 'default' : 'secondary'}
+                  className={`text-[10px] px-1.5 py-0 h-4 font-normal ${
+                    isPerfilMaster ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''
+                  }`}
                 >
-                  {isPerfilAdmin ? (
+                  {isPerfilMaster ? (
+                    <Crown className="h-2.5 w-2.5 mr-0.5 inline" />
+                  ) : isPerfilAdmin ? (
                     <ShieldCheck className="h-2.5 w-2.5 mr-0.5 inline" />
                   ) : (
                     <UserCheck className="h-2.5 w-2.5 mr-0.5 inline" />
@@ -173,7 +196,7 @@ export default function Layout() {
                 </Badge>
               </div>
             </div>
-          </div>
+          </Link>
         </div>
       </aside>
 
@@ -252,12 +275,16 @@ export default function Layout() {
             {/* Indicador visual de perfil no header */}
             <div className="hidden sm:flex items-center gap-2 text-right">
               <div>
-                <p className="text-xs font-medium leading-none text-foreground">{displayName}</p>
+                <Link to="/perfil" className="hover:underline">
+                  <p className="text-xs font-medium leading-none text-foreground">{displayName}</p>
+                </Link>
                 <p className="text-[11px] text-muted-foreground mt-0.5">{user?.email}</p>
               </div>
               <Badge
-                variant={isPerfilAdmin ? 'default' : 'secondary'}
-                className="text-[11px] px-2 py-0.5 font-normal capitalize"
+                variant={isPerfilMaster ? 'default' : isPerfilAdmin ? 'default' : 'secondary'}
+                className={`text-[11px] px-2 py-0.5 font-normal capitalize ${
+                  isPerfilMaster ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''
+                }`}
               >
                 {perfilLabel}
               </Badge>
@@ -320,13 +347,36 @@ export default function Layout() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate('/perfil')} className="cursor-pointer">
+                  <User className="mr-2 h-4 w-4 text-primary" />
+                  <span>Meu Perfil</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setChangePasswordOpen(true)}
                   className="cursor-pointer"
                 >
-                  <KeyRound className="mr-2 h-4 w-4 text-primary" />
+                  <KeyRound className="mr-2 h-4 w-4 text-muted-foreground" />
                   <span>Alterar Senha</span>
                 </DropdownMenuItem>
+                {isPerfilMaster && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => navigate('/usuarios')}
+                      className="cursor-pointer"
+                    >
+                      <Users className="mr-2 h-4 w-4 text-amber-600" />
+                      <span>Gestão de Usuários</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/configuracoes')}
+                      className="cursor-pointer"
+                    >
+                      <Settings className="mr-2 h-4 w-4 text-muted-foreground" />
+                      <span>Configurações</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleLogout}

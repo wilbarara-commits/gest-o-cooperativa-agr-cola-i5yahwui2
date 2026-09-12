@@ -23,6 +23,9 @@ import CycleHistory from './pages/CycleHistory'
 import Monitoring from './pages/Monitoring'
 import WhatsappCommunication from './pages/WhatsappCommunication'
 import ExcelImport from './pages/ExcelImport'
+import Profile from './pages/Profile'
+import UsersPage from './pages/Users'
+import SettingsPage from './pages/Settings'
 
 const App = () => (
   <AuthProvider>
@@ -43,7 +46,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             >
-              {/* Rotas acessíveis tanto por Administrador quanto Secretária */}
+              {/* Rotas operacionais gerais (MASTER, ADMINISTRADOR, SECRETÁRIA) */}
               <Route path="/" element={<Index />} />
               <Route path="/pedidos" element={<Orders />} />
               <Route path="/rotas" element={<DeliveryRoutes />} />
@@ -55,11 +58,14 @@ const App = () => (
               <Route path="/atestos" element={<Atestos />} />
               <Route path="/relatorios" element={<Reports />} />
 
-              {/* Rotas restritas exclusivamente para Administrador */}
+              {/* Meu Perfil (acessível por qualquer perfil autenticado) */}
+              <Route path="/perfil" element={<Profile />} />
+
+              {/* Rotas administrativas (acessíveis por MASTER e ADMINISTRADOR) */}
               <Route
                 path="/produtos"
                 element={
-                  <ProtectedRoute requiredPerfil="administrador">
+                  <ProtectedRoute requiredRole="ADMINISTRADOR">
                     <Products />
                   </ProtectedRoute>
                 }
@@ -67,7 +73,7 @@ const App = () => (
               <Route
                 path="/escolas"
                 element={
-                  <ProtectedRoute requiredPerfil="administrador">
+                  <ProtectedRoute requiredRole="ADMINISTRADOR">
                     <Schools />
                   </ProtectedRoute>
                 }
@@ -75,7 +81,7 @@ const App = () => (
               <Route
                 path="/contratos"
                 element={
-                  <ProtectedRoute requiredPerfil="administrador">
+                  <ProtectedRoute requiredRole="ADMINISTRADOR">
                     <Contracts />
                   </ProtectedRoute>
                 }
@@ -83,8 +89,26 @@ const App = () => (
               <Route
                 path="/requisitos"
                 element={
-                  <ProtectedRoute requiredPerfil="administrador">
+                  <ProtectedRoute requiredRole="ADMINISTRADOR">
                     <Requirements />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Rotas exclusivas de MASTER (Gestão de Usuários e Configurações) */}
+              <Route
+                path="/usuarios"
+                element={
+                  <ProtectedRoute requiredRole="MASTER">
+                    <UsersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/configuracoes"
+                element={
+                  <ProtectedRoute requiredRole="MASTER">
+                    <SettingsPage />
                   </ProtectedRoute>
                 }
               />

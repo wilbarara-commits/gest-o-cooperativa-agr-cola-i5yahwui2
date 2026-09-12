@@ -172,16 +172,67 @@ const MODULES: ModuleSpec[] = [
       'Exportação Excel (.xlsx) e PDF timbrado com jsPDF.',
     ],
   },
+  {
+    id: '3.14',
+    title: 'Meu Perfil',
+    route: '/perfil',
+    goal: 'Autogestão de dados cadastrais e credenciais do usuário autenticado.',
+    details: [
+      'Edição de foto de identificação (upload de imagem salvo na collection users).',
+      'Manutenção de nome completo, e-mail corporativo e celular / WhatsApp.',
+      'Alteração segura de senha com validação da senha atual e confirmação mínima de 8 caracteres.',
+      'Disponível para todos os perfis autenticados no menu lateral e dropdown superior.',
+    ],
+  },
+  {
+    id: '3.15',
+    title: 'Gestão de Usuários (Exclusivo MASTER)',
+    route: '/usuarios',
+    goal: 'Controle centralizado de operadores, atribuição de perfis e status de contas da cooperativa.',
+    details: [
+      'Listagem de usuários com foto, nome, e-mail, celular, perfil e status.',
+      'Criação de novos usuários com definição de perfil (MASTER, ADMINISTRADOR, SECRETÁRIA) e senha inicial.',
+      'Edição de dados e redefinição de perfil e permissões.',
+      'Ativação/desativação imediata de contas (usuários inativos são impedidos de fazer login).',
+      'Exclusão protegida (não permite que o usuário master logado exclua a si próprio).',
+    ],
+  },
+  {
+    id: '3.16',
+    title: 'Configurações da Cooperativa (Exclusivo MASTER)',
+    route: '/configuracoes',
+    goal: 'Parametrização institucional da cooperativa e controle de ambiente de autenticação.',
+    details: [
+      'Controle de atalhos demo na tela de login: toggle para ocultar ou exibir botões de teste rápido (para produção segura).',
+      'Dados institucionais da cooperativa: Razão Social, Sigla, CNPJ, Município/UF, Telefone e E-mail.',
+      'Integração dos dados da cooperativa em atestos, relatórios e telas do sistema.',
+    ],
+  },
+  {
+    id: '3.17',
+    title: 'Recuperação de Senha (Esqueci minha senha)',
+    route: '/login (Modal)',
+    goal: 'Recuperação autônoma de acesso por e-mail com fluxo nativo do backend.',
+    details: [
+      'Link "Esqueci minha senha" na tela pública de login.',
+      'Envio de e-mail de redefinição via funcionalidade nativa do Skip Cloud / PocketBase (requestPasswordReset).',
+      'Feedback seguro com confirmação visual para o usuário sem exposição indevida de dados.',
+    ],
+  },
 ]
 
 const PROFILES = [
   [
-    'Administrador',
-    'Acesso total. Gerencia produtos, preços, contratos, rotas, escolas, relatórios, documento de requisitos e visualiza todos os dados.',
+    'MASTER',
+    'Poderes totais e irrestritos. Gerencia usuários (criação, edição, desativação, definição de perfil), acessa "Configurações da Cooperativa", produtos, contratos, escolas, rotas, relatórios e todos os módulos operacionais.',
   ],
   [
-    'Secretária',
-    'Acesso operacional e contábil. Focado em lançar pedidos, consultar rotas, emitir atestos e gerar relatórios contábeis de faturamento/entregas (sem acesso a Produtos, Contratos, Escolas e Requisitos).',
+    'ADMINISTRADOR',
+    'Acesso operacional e administrativo completo. Gerencia produtos, preços, contratos, escolas, rotas, relatórios contábeis e documento de requisitos. Não tem acesso à gestão de usuários nem a configurações institucionais master.',
+  ],
+  [
+    'SECRETÁRIA',
+    'Acesso restrito à operação diária. Lançamento e validação de pedidos, importação Excel de secretarias, consolidação de demanda, histórico de ciclos, rotas de entrega, comunicação WhatsApp e atestos de entrega (sem acesso a Produtos, Contratos, Escolas, Usuários e Configurações).',
   ],
 ]
 
@@ -205,9 +256,11 @@ const STACK = [
 ]
 
 const DATA_MODEL = [
+  'users (id, email, nome/name, celular, foto [file], perfil [MASTER/ADMINISTRADOR/SECRETARIA], ativo [bool])',
+  'configuracoes (id, nome_cooperativa, sigla, cnpj, telefone, email, cidade_uf, exibir_atalhos_demo [bool])',
   'ciclos (id, nome, data_inicio, data_fim, status [coletando/correcao/fechado], snapshot [json])',
   'produtos (id, nome, categoria, unidade, estoque, preco_unitario, disponibilidade [normal/escassez/abundancia])',
-  'escolas (id, nome, endereco, telefone, email, tipo [CMEI/CRECHE/INTEGRAL/FUNDAMENTAL], rota) [Cadastro Mestre Global]',
+  'escolas (id, nome, endereco, telefone, email, tipo [CMEI/CRECHE/INTEGRAL/FUNDAMENTAL], rota, alunos) [Cadastro Mestre Global]',
   'contratos (id, numero, tipo, modalidade_pedido [individualizado/centralizado], valor_total, status)',
   'contrato_escolas (id, contrato_id → contratos, escola_id → escolas, rota_id → rotas) [Vínculos N:N]',
   'rotas (id, contrato_id → contratos, nome, ordem)',
@@ -235,14 +288,19 @@ function buildPrintHtml(): string {
       <thead>${rows(['Perfil', 'Descrição', 'Módulos Permitidos'], 'th')}</thead>
       <tbody>
         ${rows([
-          'Administrador',
-          'Acesso total ao sistema, catálogo de produtos e configurações.',
-          'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Relatórios, Requisitos',
+          'MASTER',
+          'Poderes totais e irrestritos. Gerenciamento de usuários, parametrizações institucionais da cooperativa e controle de produção.',
+          'Todos os módulos do sistema (Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Consolidação, Importação, Monitoramento, WhatsApp, Histórico, Atestos, Relatórios, Requisitos, Meu Perfil, Usuários e Configurações).',
         ])}
         ${rows([
-          'Secretária',
-          'Acesso operacional e contábil.',
-          'Dashboard, Pedidos, Rotas, Atestos, Relatórios',
+          'ADMINISTRADOR',
+          'Acesso operacional e administrativo completo ao ecossistema escolar e produtos.',
+          'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Consolidação, Importação, Monitoramento, WhatsApp, Histórico, Atestos, Relatórios, Requisitos e Meu Perfil.',
+        ])}
+        ${rows([
+          'SECRETÁRIA',
+          'Acesso focado na rotina operacional diária e lançamentos.',
+          'Dashboard, Pedidos, Rotas, Consolidação, Importação, Monitoramento, WhatsApp, Histórico de Ciclos, Atestos, Relatórios e Meu Perfil.',
         ])}
       </tbody>
     </table>`
@@ -512,26 +570,32 @@ export default function Requirements() {
       </p>
 
       {/* 2. Perfis de Acesso */}
-      <SectionTitle>2. Perfis de Acesso</SectionTitle>
+      <SectionTitle>2. Perfis de Acesso e Matriz de Permissões</SectionTitle>
       <Table
-        headers={['Perfil', 'Descrição', 'Permissões']}
+        headers={['Perfil', 'Descrição', 'Permissões e Módulos']}
         rows={[
           [
-            'Administrador',
-            'Acesso total e gestão completa do sistema.',
-            'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Atestos, Relatórios, Requisitos',
+            'MASTER',
+            'Poderes totais e irrestritos no sistema. Gerenciamento de usuários, configurações institucionais da cooperativa e controle de produção.',
+            'Acesso irrestrito a todos os módulos: Usuários, Configurações, Meu Perfil, Produtos, Escolas, Contratos, Pedidos, Rotas, Importação Excel, Consolidação, Monitoramento, Comunicação WhatsApp, Histórico de Ciclos, Atestos, Relatórios e Requisitos.',
           ],
           [
-            'Secretária',
-            'Acesso restrito à operação diária e relatórios.',
-            'Dashboard, Pedidos, Rotas, Atestos, Relatórios (sem acesso a Produtos, Contratos, Escolas e Requisitos)',
+            'ADMINISTRADOR',
+            'Gestão administrativa e operacional do catálogo e parcerias.',
+            'Dashboard, Produtos, Escolas, Contratos, Pedidos, Rotas, Importação Excel, Consolidação, Monitoramento, Comunicação WhatsApp, Histórico de Ciclos, Atestos, Relatórios, Requisitos e Meu Perfil (sem acesso a Usuários e Configurações).',
+          ],
+          [
+            'SECRETÁRIA',
+            'Acesso restrito à operação diária escolar e logística.',
+            'Dashboard, Pedidos, Rotas, Importação Excel, Consolidação, Monitoramento, Comunicação WhatsApp, Histórico de Ciclos, Atestos, Relatórios e Meu Perfil.',
           ],
         ]}
       />
       <p className="text-sm text-muted-foreground italic">
-        <strong className="not-italic text-primary font-medium">Status:</strong> Autenticação real
-        ativa e integrada ao PocketBase no Skip Cloud. Sessão persistida, route guards aplicados e
-        perfis com permissões separadas.
+        <strong className="not-italic text-primary font-medium">Status:</strong> Autenticação nativa
+        Skip Cloud (PocketBase v0.36) ativa com três perfis (MASTER, ADMINISTRADOR, SECRETÁRIA),
+        recuperação de senha por e-mail, tela Meu Perfil com upload de foto e controle de
+        visibilidade de atalhos demo pelo Master.
       </p>
 
       {/* 3. Módulos */}

@@ -254,15 +254,31 @@ export interface Atesto {
   signatureFile?: string
 }
 
-export type UserPerfil = 'administrador' | 'secretaria'
+export type UserPerfil = 'MASTER' | 'ADMINISTRADOR' | 'SECRETARIA' | 'administrador' | 'secretaria'
 
 export interface UserRecord {
   id: string
   email: string
   nome?: string
   name?: string
-  perfil: UserPerfil
+  celular?: string
+  foto?: string
   avatar?: string
+  perfil: UserPerfil
+  ativo?: boolean
+  created?: string
+  updated?: string
+}
+
+export interface ConfiguracoesRecord {
+  id: string
+  nome_cooperativa: string
+  sigla?: string
+  cnpj?: string
+  telefone?: string
+  email?: string
+  cidade_uf?: string
+  exibir_atalhos_demo?: boolean
   created?: string
   updated?: string
 }

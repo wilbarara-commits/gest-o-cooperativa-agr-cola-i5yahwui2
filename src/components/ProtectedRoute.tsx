@@ -6,18 +6,34 @@ import { toast } from 'sonner'
 
 interface ProtectedRouteProps {
   children: React.ReactElement
-  requiredPerfil?: 'administrador'
+  requiredRole?: 'MASTER' | 'ADMINISTRADOR'
+  requiredPerfil?: 'administrador' | 'MASTER' | 'ADMINISTRADOR'
 }
 
-export default function ProtectedRoute({ children, requiredPerfil }: ProtectedRouteProps) {
-  const { user, isAuthenticated, isLoading, hasAccessToRoute } = useAuth()
+export default function ProtectedRoute({
+  children,
+  requiredRole,
+  requiredPerfil,
+}: ProtectedRouteProps) {
+  const { user, isAuthenticated, isLoading, isMaster, isAdmin, hasAccessToRoute } = useAuth()
   const location = useLocation()
 
+  const roleToCheck = requiredRole || (requiredPerfil as any)
+
+  const isAllowedRole = () => {
+    if (!roleToCheck) return true
+    if (roleToCheck === 'MASTER') return isMaster
+    if (roleToCheck === 'ADMINISTRADOR' || roleToCheck === 'administrador') {
+      return isMaster || isAdmin
+    }
+    return false
+  }
+
   useEffect(() => {
-    if (!isLoading && isAuthenticated && requiredPerfil && user?.perfil !== requiredPerfil) {
+    if (!isLoading && isAuthenticated && !isAllowedRole()) {
       toast.error('Acesso não permitido. Seu perfil não possui permissão para acessar esta área.')
     }
-  }, [isLoading, isAuthenticated, requiredPerfil, user])
+  }, [isLoading, isAuthenticated, roleToCheck, user])
 
   if (isLoading) {
     return (
@@ -33,8 +49,8 @@ export default function ProtectedRoute({ children, requiredPerfil }: ProtectedRo
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
-  // Verifica se o perfil tem permissão para a rota atual ou se a rota exige 'administrador'
-  if (requiredPerfil && user?.perfil !== requiredPerfil) {
+  // Verifica se o perfil tem permissão para a rota atual ou se a rota exige perfil específico
+  if (!isAllowedRole()) {
     return <Navigate to="/" replace />
   }
 

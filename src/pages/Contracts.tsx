@@ -74,13 +74,11 @@ interface ContractItemForm {
   id?: string
   productId: string
   price: number
-  cotaAnual: number
 }
 
 interface ContractSchoolForm {
   escolaId: string
   rotaId: string
-  cota?: number
 }
 
 export default function Contracts() {
@@ -121,7 +119,6 @@ export default function Contracts() {
   const [quickSchoolEmail, setQuickSchoolEmail] = useState('')
   const [quickSchoolTipo, setQuickSchoolTipo] = useState('Municipal')
   const [quickSchoolRota, setQuickSchoolRota] = useState('')
-  const [quickSchoolCota, setQuickSchoolCota] = useState('')
   const [isCreatingQuickSchool, setIsCreatingQuickSchool] = useState(false)
 
   // Gestão de Rotas do Contrato
@@ -153,7 +150,6 @@ export default function Contracts() {
     const initialItems: ContractItemForm[] = products.slice(0, 5).map((p) => ({
       productId: p.id,
       price: p.price,
-      cotaAnual: 500,
     }))
     setContractItems(initialItems)
     setDialogOpen(true)
@@ -172,7 +168,6 @@ export default function Contracts() {
       contract.escolas.map((e) => ({
         escolaId: e.escolaId,
         rotaId: e.rotaId || '',
-        cota: e.cota,
       })),
     )
     setSchoolSearchQuery('')
@@ -198,7 +193,6 @@ export default function Contracts() {
           id: it.id,
           productId: it.produto_id,
           price: Number(it.preco) || 0,
-          cotaAnual: Number(it.cota_anual) || 0,
         })),
       )
     } catch (err) {
@@ -282,12 +276,6 @@ export default function Contracts() {
     )
   }
 
-  const handleSchoolCotaChange = (schoolId: string, cotaValue: number) => {
-    setContractSchoolsForm((prev) =>
-      prev.map((s) => (s.escolaId === schoolId ? { ...s, cota: cotaValue } : s)),
-    )
-  }
-
   // Criar escola no cadastro mestre direto do modal de contrato com normalização e checagem de duplicidade
   const handleQuickCreateSchool = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -326,17 +314,16 @@ export default function Contracts() {
         await refreshData()
       }
 
-      // 2. Vincular ao formulário do contrato com a rota e cota especificadas
+      // 2. Vincular ao formulário do contrato com a rota especificada
       const assignedRota = quickSchoolRota.trim() || contractRotas[0]?.nome || ''
-      const assignedCota = parseFloat(quickSchoolCota) || undefined
 
       setContractSchoolsForm((prev) => {
         if (prev.some((s) => s.escolaId === targetSchoolId)) {
           return prev.map((s) =>
-            s.escolaId === targetSchoolId ? { ...s, rotaId: assignedRota, cota: assignedCota } : s,
+            s.escolaId === targetSchoolId ? { ...s, rotaId: assignedRota } : s,
           )
         }
-        return [...prev, { escolaId: targetSchoolId, rotaId: assignedRota, cota: assignedCota }]
+        return [...prev, { escolaId: targetSchoolId, rotaId: assignedRota }]
       })
 
       // Resetar form rápido
@@ -345,7 +332,6 @@ export default function Contracts() {
       setQuickSchoolAddress('')
       setQuickSchoolContact('')
       setQuickSchoolEmail('')
-      setQuickSchoolCota('')
     } catch (err: any) {
       console.error('Erro ao cadastrar e vincular escola:', err)
       toast.error('Falha ao registrar escola no cadastro mestre.')
@@ -362,7 +348,6 @@ export default function Contracts() {
       {
         productId: defaultProduct?.id || '',
         price: defaultProduct?.price || 0,
-        cotaAnual: 500,
       },
     ])
   }
@@ -388,12 +373,6 @@ export default function Contracts() {
   const handleItemPriceChange = (index: number, newPrice: number) => {
     setContractItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, price: newPrice } : item)),
-    )
-  }
-
-  const handleItemCotaChange = (index: number, newCota: number) => {
-    setContractItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, cotaAnual: newCota } : item)),
     )
   }
 
@@ -478,7 +457,7 @@ export default function Contracts() {
           })
         }
 
-        // 3. Sincronizar itens e cota_anual
+        // 3. Sincronizar itens e preços acordados
         const validItems = contractItems.filter((i) => i.productId && i.price > 0)
         await contratosService.syncItems(
           contractId,
@@ -486,7 +465,6 @@ export default function Contracts() {
             id: it.id,
             produto_id: it.productId,
             preco: it.price,
-            cota_anual: it.cotaAnual || 0,
           })),
         )
       }
@@ -561,24 +539,19 @@ export default function Contracts() {
       // Detalhamento por produto acordado no contrato
       const itensDetalhados = viewingItems.map((ci) => {
         const prod = products.find((p) => p.id === ci.produto_id)
-        const cotaAnual = Number(ci.cota_anual) || 0
-        const cotaPorEscola =
-          reportContract.escolas.length > 0
-            ? Math.round((cotaAnual / reportContract.escolas.length) * 100) / 100
-            : cotaAnual
 
         const consumo = produtosConsumo[ci.produto_id] || {
           realizadoQtd: 0,
           realizadoValor: 0,
         }
-        const pct = cotaPorEscola > 0 ? (consumo.realizadoQtd / cotaPorEscola) * 100 : 0
+
+        const pct = schRealizadoTotal > 0 ? (consumo.realizadoValor / schRealizadoTotal) * 100 : 0
 
         return {
           produtoId: ci.produto_id,
           produtoNome: ci.expand?.produto_id?.nome || prod?.name || 'Produto',
           unidade: ci.expand?.produto_id?.unidade || prod?.unit || 'Kg',
           preco: Number(ci.preco) || prod?.price || 0,
-          cotaAnual: cotaPorEscola,
           realizadoQtd: consumo.realizadoQtd,
           realizadoValor: consumo.realizadoValor,
           percentExecucao: Math.min(100, pct),
@@ -608,8 +581,8 @@ export default function Contracts() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Contratos & Escolas Participantes</h1>
           <p className="text-muted-foreground">
-            Gestão N:N de escolas participantes, rotas logísticas, cotas anuais e modalidades de
-            pedido.
+            Gestão N:N de escolas participantes, rotas logísticas, produtos contratados e
+            modalidades de pedido.
           </p>
         </div>
         {isAdmin && (
@@ -796,8 +769,8 @@ export default function Contracts() {
                 : 'Cadastrar Novo Contrato'}
             </DialogTitle>
             <DialogDescription>
-              Configure os dados cadastrais, as rotas de entrega, as escolas participantes e a cota
-              anual de cada produto.
+              Configure os dados cadastrais, as rotas de entrega, as escolas participantes e a
+              tabela de produtos com preços acordados.
             </DialogDescription>
           </DialogHeader>
 
@@ -807,7 +780,7 @@ export default function Contracts() {
                 <TabsTrigger value="geral">Dados Gerais</TabsTrigger>
                 <TabsTrigger value="rotas">Rotas ({contractRotas.length})</TabsTrigger>
                 <TabsTrigger value="escolas">Escolas ({contractSchoolsForm.length})</TabsTrigger>
-                <TabsTrigger value="produtos">Itens & Cotas ({contractItems.length})</TabsTrigger>
+                <TabsTrigger value="produtos">Itens & Preços ({contractItems.length})</TabsTrigger>
               </TabsList>
 
               {/* Aba 1: Dados Gerais */}
@@ -947,7 +920,7 @@ export default function Contracts() {
                 </div>
               </TabsContent>
 
-              {/* Aba 3: Escolas Participantes (Cadastro Mestre Global + Vínculo com Rota e Cota) */}
+              {/* Aba 3: Escolas Participantes (Cadastro Mestre Global + Vínculo com Rota) */}
               <TabsContent value="escolas" className="space-y-3 pt-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
                   <div>
@@ -956,7 +929,7 @@ export default function Contracts() {
                       Global)
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Busque no cadastro mestre global para vincular com rota e cota, ou cadastre
+                      Busque no cadastro mestre global para vincular à rota logística, ou cadastre
                       uma nova escola sem duplicar.
                     </p>
                   </div>
@@ -1019,7 +992,7 @@ export default function Contracts() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <Label htmlFor="qk-rota" className="text-[11px]">
                           Rota no Contrato
@@ -1039,20 +1012,6 @@ export default function Contracts() {
                             ))}
                           </SelectContent>
                         </Select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label htmlFor="qk-cota" className="text-[11px]">
-                          Cota / Alunos (opcional)
-                        </Label>
-                        <Input
-                          id="qk-cota"
-                          type="number"
-                          placeholder="Ex: 250"
-                          className="h-8 text-xs"
-                          value={quickSchoolCota}
-                          onChange={(e) => setQuickSchoolCota(e.target.value)}
-                        />
                       </div>
 
                       <div className="space-y-1">
@@ -1217,7 +1176,7 @@ export default function Contracts() {
 
                           {isSelected && (
                             <div className="flex items-center gap-2 shrink-0 pt-1 sm:pt-0">
-                              <div className="w-36">
+                              <div className="w-44">
                                 <Label className="text-[9px] text-muted-foreground block mb-0.5">
                                   Rota Logística
                                 </Label>
@@ -1236,21 +1195,6 @@ export default function Contracts() {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                              </div>
-
-                              <div className="w-24">
-                                <Label className="text-[9px] text-muted-foreground block mb-0.5">
-                                  Cota / Alunos
-                                </Label>
-                                <Input
-                                  type="number"
-                                  placeholder="Qtd"
-                                  className="h-7 text-xs"
-                                  value={assignedLink?.cota || ''}
-                                  onChange={(e) =>
-                                    handleSchoolCotaChange(sch.id, parseFloat(e.target.value) || 0)
-                                  }
-                                />
                               </div>
 
                               <Button
@@ -1278,13 +1222,15 @@ export default function Contracts() {
                 </div>
               </TabsContent>
 
-              {/* Aba 4: Produtos, Preços e Cotas Anuais */}
+              {/* Aba 4: Produtos e Preços Acordados */}
               <TabsContent value="produtos" className="space-y-3 pt-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label className="text-sm font-semibold">Tabela de Produtos & Cota Anual</Label>
+                    <Label className="text-sm font-semibold">
+                      Tabela de Produtos & Preços Acordados
+                    </Label>
                     <p className="text-xs text-muted-foreground">
-                      Preço acordado e cota anual em Kg/Un para acompanhamento de execução.
+                      Lista de produtos e seus respectivos preços unitários fixados neste contrato.
                     </p>
                   </div>
                   <Button
@@ -1302,9 +1248,12 @@ export default function Contracts() {
                   {contractItems.map((item, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-2 p-2 rounded-lg border bg-muted/20 text-xs"
+                      className="flex items-center gap-3 p-2 rounded-lg border bg-muted/20 text-xs"
                     >
                       <div className="flex-1 min-w-0">
+                        <Label className="text-[10px] text-muted-foreground mb-1 block">
+                          Produto
+                        </Label>
                         <Select
                           value={item.productId}
                           onValueChange={(val) => handleItemProductChange(idx, val)}
@@ -1322,31 +1271,18 @@ export default function Contracts() {
                         </Select>
                       </div>
 
-                      <div className="w-24 shrink-0">
-                        <Label className="text-[10px] text-muted-foreground">Preço (R$)</Label>
+                      <div className="w-36 shrink-0">
+                        <Label className="text-[10px] text-muted-foreground mb-1 block">
+                          Preço Acordado (R$)
+                        </Label>
                         <Input
                           type="number"
                           step="0.01"
                           min="0"
-                          className="h-7 text-xs"
+                          className="h-8 text-xs"
                           value={item.price || ''}
                           onChange={(e) =>
                             handleItemPriceChange(idx, parseFloat(e.target.value) || 0)
-                          }
-                        />
-                      </div>
-
-                      <div className="w-28 shrink-0">
-                        <Label className="text-[10px] text-muted-foreground">Cota Anual</Label>
-                        <Input
-                          type="number"
-                          step="1"
-                          min="0"
-                          placeholder="Qtd anual"
-                          className="h-7 text-xs"
-                          value={item.cotaAnual || ''}
-                          onChange={(e) =>
-                            handleItemCotaChange(idx, parseFloat(e.target.value) || 0)
                           }
                         />
                       </div>
@@ -1355,10 +1291,10 @@ export default function Contracts() {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-destructive shrink-0 mt-3.5"
+                        className="h-8 w-8 text-destructive shrink-0 mt-4"
                         onClick={() => handleRemoveItem(idx)}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   ))}
@@ -1400,7 +1336,8 @@ export default function Contracts() {
               {reportContract?.numero}
             </DialogTitle>
             <DialogDescription>
-              Acompanhamento de cotas, valores e percentual de entrega por escola participante.
+              Acompanhamento de entregas, valores realizados e produtos fornecidos por escola
+              participante.
             </DialogDescription>
           </DialogHeader>
 
@@ -1473,10 +1410,9 @@ export default function Contracts() {
                         <TableHeader>
                           <TableRow className="text-xs">
                             <TableHead>Produto</TableHead>
-                            <TableHead className="text-right">Cota Anual</TableHead>
-                            <TableHead className="text-right">Realizado</TableHead>
+                            <TableHead className="text-right">Preço Unitário</TableHead>
+                            <TableHead className="text-right">Quantidade Realizada</TableHead>
                             <TableHead className="text-right">Valor Realizado</TableHead>
-                            <TableHead className="w-28 text-right">% Execução</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1484,21 +1420,13 @@ export default function Contracts() {
                             <TableRow key={it.produtoId} className="text-xs">
                               <TableCell className="font-medium">{it.produtoNome}</TableCell>
                               <TableCell className="text-right font-mono">
-                                {it.cotaAnual} {it.unidade}
+                                R$ {it.preco.toFixed(2)}
                               </TableCell>
                               <TableCell className="text-right font-mono text-primary font-semibold">
                                 {it.realizadoQtd} {it.unidade}
                               </TableCell>
-                              <TableCell className="text-right font-mono">
+                              <TableCell className="text-right font-mono font-medium">
                                 R$ {it.realizadoValor.toFixed(2)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <Progress value={it.percentExecucao} className="h-1.5 w-16" />
-                                  <span className="font-mono text-[11px]">
-                                    {it.percentExecucao.toFixed(0)}%
-                                  </span>
-                                </div>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -1594,9 +1522,7 @@ export default function Contracts() {
                       className="flex items-center justify-between p-2 rounded bg-muted/20 border"
                     >
                       <span>{it.expand?.produto_id?.nome || 'Produto'}</span>
-                      <span className="font-mono">
-                        R$ {Number(it.preco).toFixed(2)} • Cota: {it.cota_anual || 0}
-                      </span>
+                      <span className="font-mono">R$ {Number(it.preco).toFixed(2)}</span>
                     </div>
                   ))}
                 </div>

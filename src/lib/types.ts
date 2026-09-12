@@ -81,7 +81,6 @@ export interface ContratoItemRecord {
   contrato_id: string
   produto_id: string
   preco: number
-  cota_anual?: number
   expand?: {
     produto_id?: ProdutoRecord
   }
@@ -207,7 +206,6 @@ export interface ContractSchoolLink {
   contratoId: string
   escolaId: string
   rotaId?: string
-  cota?: number
   escolaNome?: string
   escolaEndereco?: string
   escolaTelefone?: string

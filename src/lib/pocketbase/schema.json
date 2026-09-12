@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T17:16:24.210Z",
+  "generatedAt": "2026-09-12T17:27:23.698Z",
   "collections": [
     {
       "name": "users",
@@ -313,12 +313,6 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
-        },
-        {
-          "name": "cota_anual",
-          "type": "number",
-          "required": false,
-          "system": false
         }
       ],
       "indexes": ["CREATE INDEX idx_contrato_itens_contrato ON contrato_itens (contrato_id)"]

@@ -88,7 +88,6 @@ export default function ExcelImport() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [pendingLinkOrder, setPendingLinkOrder] = useState<ParsedSchoolOrder | null>(null)
   const [linkRotaNome, setLinkRotaNome] = useState('')
-  const [linkCota, setLinkCota] = useState('')
   const [isLinking, setIsLinking] = useState(false)
 
   // Diálogo para resolver pendência "Cadastrar escola" (não cria automaticamente)
@@ -228,7 +227,6 @@ export default function ExcelImport() {
   const handleOpenLinkDialog = (order: ParsedSchoolOrder) => {
     setPendingLinkOrder(order)
     setLinkRotaNome(order.prefilledLink?.rotaSugerida || order.routeRaw)
-    setLinkCota('')
     setLinkDialogOpen(true)
   }
 
@@ -946,20 +944,6 @@ export default function ExcelImport() {
                   Pré-preenchida automaticamente com base na aba da planilha (
                   {pendingLinkOrder.routeRaw}).
                 </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="link-cota" className="text-xs">
-                  Cota Anual / Nº Alunos (Opcional)
-                </Label>
-                <Input
-                  id="link-cota"
-                  type="number"
-                  value={linkCota}
-                  onChange={(e) => setLinkCota(e.target.value)}
-                  placeholder="Ex: 150"
-                  className="h-8 text-xs"
-                />
               </div>
             </div>
           )}

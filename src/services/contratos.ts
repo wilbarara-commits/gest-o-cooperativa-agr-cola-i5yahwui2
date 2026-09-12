@@ -72,7 +72,7 @@ export const contratosService = {
 
   async syncItems(
     contratoId: string,
-    items: Array<{ id?: string; produto_id: string; preco: number; cota_anual?: number }>,
+    items: Array<{ id?: string; produto_id: string; preco: number }>,
   ): Promise<void> {
     const existingItems = await pb.collection('contrato_itens').getFullList<ContratoItemRecord>({
       filter: `contrato_id = "${contratoId}"`,
@@ -85,15 +85,10 @@ export const contratosService = {
       if (item.id && existingMap.has(item.id)) {
         keptItemIds.add(item.id)
         const current = existingMap.get(item.id)!
-        if (
-          current.produto_id !== item.produto_id ||
-          current.preco !== item.preco ||
-          current.cota_anual !== item.cota_anual
-        ) {
+        if (current.produto_id !== item.produto_id || current.preco !== item.preco) {
           await pb.collection('contrato_itens').update(item.id, {
             produto_id: item.produto_id,
             preco: item.preco,
-            cota_anual: item.cota_anual || 0,
           })
         }
       } else {
@@ -101,7 +96,6 @@ export const contratosService = {
           contrato_id: contratoId,
           produto_id: item.produto_id,
           preco: item.preco,
-          cota_anual: item.cota_anual || 0,
         })
         keptItemIds.add(created.id)
       }

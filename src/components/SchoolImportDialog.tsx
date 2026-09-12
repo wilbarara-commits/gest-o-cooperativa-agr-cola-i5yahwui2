@@ -18,15 +18,20 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
-  Filter,
   Check,
   RefreshCw,
+  ArrowRight,
+  Sparkles,
+  Settings2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Label } from '@/components/ui/label'
 import {
   parseSchoolsFile,
   type CsvParseResult,
   type ParsedCsvSchoolRow,
+  type ExistingSchoolData,
 } from '@/lib/schoolCsvImporter'
 import { escolasService } from '@/services/escolas'
 import type { School } from '@/lib/types'
@@ -50,9 +55,13 @@ export function SchoolImportDialog({
   const [isSaving, setIsSaving] = useState(false)
   const [saveProgress, setSaveProgress] = useState(0)
   const [parseResult, setParseResult] = useState<CsvParseResult | null>(null)
-  const [filterTab, setFilterTab] = useState<'all' | 'valid' | 'duplicate' | 'error'>('all')
+  const [filterTab, setFilterTab] = useState<
+    'all' | 'valid' | 'update' | 'duplicate_file' | 'error'
+  >('all')
+  const [conflictMode, setConflictMode] = useState<'merge' | 'overwrite'>('merge')
   const [importSummary, setImportSummary] = useState<{
     created: number
+    updated: number
     duplicatesIgnored: number
     errors: number
   } | null>(null)
@@ -64,14 +73,27 @@ export function SchoolImportDialog({
     setImportSummary(null)
     setIsParsing(true)
     try {
-      const existing = schools.map((s) => ({ id: s.id, nome: s.name }))
+      const existing: ExistingSchoolData[] = schools.map((s) => ({
+        id: s.id,
+        nome: s.name,
+        tipo: s.tipo,
+        rota: s.route,
+        alunos: s.alunos,
+        endereco: s.address,
+        telefone: s.contact,
+        email: s.email,
+      }))
       const result = await parseSchoolsFile(selectedFile, existing)
       setParseResult(result)
-      if (result.validRows.length > 0) {
-        toast.info(`${result.validRows.length} nova(s) escola(s) detectada(s) para importação.`)
+
+      const totalProcessable = result.validRows.length + result.updateRows.length
+      if (totalProcessable > 0) {
+        toast.info(
+          `${result.validRows.length} nova(s) e ${result.updateRows.length} existente(s) para atualizar.`,
+        )
       } else {
         toast.warning(
-          'Nenhuma escola nova detectada. Todas as linhas já existem no cadastro ou contêm erros.',
+          'Nenhuma escola elegível detectada. Verifique se as linhas contêm dados válidos.',
         )
       }
     } catch (err: any) {
@@ -95,63 +117,82 @@ export function SchoolImportDialog({
     setParseResult(null)
     setImportSummary(null)
     setSaveProgress(0)
+    setConflictMode('merge')
+    setFilterTab('all')
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
   }
 
   const handleConfirmImport = async () => {
-    if (!parseResult || parseResult.validRows.length === 0) return
+    if (!parseResult) return
+    const processableRows = parseResult.allRows.filter(
+      (r) => r.status === 'valid' || r.status === 'update',
+    )
+    if (processableRows.length === 0) return
 
     setIsSaving(true)
     setSaveProgress(0)
 
     try {
-      const payload = parseResult.validRows.map((r) => ({
+      const payload = processableRows.map((r) => ({
+        action: r.status === 'update' ? ('update' as const) : ('create' as const),
+        id: r.existingSchoolId,
         nome: r.nome,
         tipo: r.tipo,
         rota: r.rota,
         alunos: r.alunos,
-        endereco: '',
-        telefone: '',
+        endereco: r.endereco,
+        telefone: r.telefone,
+        email: r.email,
+        presentColumns: r.presentColumns,
       }))
 
-      const { created, errors } = await escolasService.createBatch(payload, (processed, total) => {
-        setSaveProgress(Math.round((processed / total) * 100))
-      })
+      const { created, updated, errors } = await escolasService.importBatch(
+        payload,
+        conflictMode,
+        (processed, total) => {
+          setSaveProgress(Math.round((processed / total) * 100))
+        },
+      )
 
-      const totalDuplicates = parseResult.duplicateMasterCount + parseResult.duplicateFileCount
+      const totalDuplicates = parseResult.duplicateFileCount
       const totalErrors = errors.length + parseResult.errorCount
 
       setImportSummary({
         created,
+        updated,
         duplicatesIgnored: totalDuplicates,
         errors: totalErrors,
       })
 
-      if (created > 0) {
+      const totalSuccess = created + updated
+      if (totalSuccess > 0) {
         toast.success(
-          `Importação concluída: ${created} escola(s) cadastrada(s) com sucesso no cadastro mestre!`,
+          `Importação concluída: ${created} criada(s), ${updated} atualizada(s) no cadastro mestre!`,
         )
         await onSuccess()
       } else {
-        toast.error('Nenhuma escola pôde ser gravada.')
+        toast.error('Nenhuma escola pôde ser gravada ou atualizada.')
       }
     } catch (err: any) {
-      console.error('Erro durante a gravação em lote:', err)
-      toast.error('Ocorreu um erro ao gravar as escolas no banco.')
+      console.error('Erro durante a gravação/atualização em lote:', err)
+      toast.error('Ocorreu um erro ao gravar as alterações no banco.')
     } finally {
       setIsSaving(false)
     }
   }
 
+  // Total de itens a processar (novas + atualizações)
+  const processableCount =
+    (parseResult?.validRows.length || 0) + (parseResult?.updateRows.length || 0)
+
   // Filtragem dos itens no preview
   const displayRows =
     parseResult?.allRows.filter((row) => {
       if (filterTab === 'valid') return row.status === 'valid'
-      if (filterTab === 'duplicate') {
-        return row.status === 'duplicate_master' || row.status === 'duplicate_file'
-      }
+      if (filterTab === 'update') return row.status === 'update'
+      if (filterTab === 'duplicate_file') return row.status === 'duplicate_file'
       if (filterTab === 'error') return row.status === 'error'
       return true
     }) || []
@@ -241,20 +282,26 @@ export function SchoolImportDialog({
               <div>
                 <h3 className="font-semibold text-lg">Processamento Concluído</h3>
                 <p className="text-sm text-muted-foreground">
-                  O cadastro mestre de escolas foi atualizado com sucesso.
+                  O cadastro mestre de escolas foi processado com sucesso.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
               <div className="bg-card p-3 rounded-lg border border-border">
-                <span className="text-xs text-muted-foreground">Criadas com Sucesso</span>
+                <span className="text-xs text-muted-foreground">Novas Criadas</span>
                 <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                   {importSummary.created}
                 </p>
               </div>
               <div className="bg-card p-3 rounded-lg border border-border">
-                <span className="text-xs text-muted-foreground">Ignoradas (Duplicadas)</span>
+                <span className="text-xs text-muted-foreground">Atualizadas (Upsert)</span>
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  {importSummary.updated}
+                </p>
+              </div>
+              <div className="bg-card p-3 rounded-lg border border-border">
+                <span className="text-xs text-muted-foreground">Duplicadas no Arquivo</span>
                 <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
                   {importSummary.duplicatesIgnored}
                 </p>
@@ -270,11 +317,59 @@ export function SchoolImportDialog({
         {/* PREVIEW DA IMPORTAÇÃO */}
         {parseResult && !importSummary && (
           <div className="flex-1 min-h-0 flex flex-col space-y-3">
+            {/* Opção de resolução de conflito para escolas existentes */}
+            {parseResult.updateRows.length > 0 && (
+              <div className="p-3 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 rounded-lg space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-blue-900 dark:text-blue-300">
+                  <Settings2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span>
+                    Regra de Atualização para {parseResult.updateRows.length} escola(s) já
+                    existente(s):
+                  </span>
+                </div>
+                <RadioGroup
+                  value={conflictMode}
+                  onValueChange={(val) => setConflictMode(val as 'merge' | 'overwrite')}
+                  className="space-y-1.5 text-xs"
+                >
+                  <div className="flex items-start gap-2 cursor-pointer">
+                    <RadioGroupItem value="merge" id="mode-merge" className="mt-0.5" />
+                    <Label
+                      htmlFor="mode-merge"
+                      className="font-normal cursor-pointer leading-tight"
+                    >
+                      <strong className="text-foreground font-medium">
+                        Atualizar campos preenchidos no arquivo
+                      </strong>{' '}
+                      <span className="text-muted-foreground">
+                        (recomendado: mantém os valores já salvos quando a coluna estiver vazia no
+                        arquivo)
+                      </span>
+                    </Label>
+                  </div>
+                  <div className="flex items-start gap-2 cursor-pointer">
+                    <RadioGroupItem value="overwrite" id="mode-overwrite" className="mt-0.5" />
+                    <Label
+                      htmlFor="mode-overwrite"
+                      className="font-normal cursor-pointer leading-tight"
+                    >
+                      <strong className="text-foreground font-medium">
+                        Sobrescrever todos os campos com os valores do arquivo
+                      </strong>{' '}
+                      <span className="text-muted-foreground">
+                        (limpa dados existentes se o campo vier vazio na coluna correspondente)
+                      </span>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            )}
+
             {/* Header com métricas e filtros */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg text-xs">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="h-4 w-4 text-primary" />
-                <span className="font-medium truncate max-w-[220px]">{parseResult.fileName}</span>
+                <span className="font-medium truncate max-w-[200px]">{parseResult.fileName}</span>
                 <Badge variant="outline" className="text-[11px]">
                   {parseResult.totalRows} linhas
                 </Badge>
@@ -296,17 +391,28 @@ export function SchoolImportDialog({
                   onClick={() => setFilterTab('valid')}
                 >
                   <Check className="h-3 w-3 mr-1" />
-                  A Importar ({parseResult.validRows.length})
+                  Novas ({parseResult.validRows.length})
                 </Button>
                 <Button
                   size="sm"
-                  variant={filterTab === 'duplicate' ? 'default' : 'ghost'}
-                  className="h-7 text-xs px-2.5 text-amber-600 dark:text-amber-400"
-                  onClick={() => setFilterTab('duplicate')}
+                  variant={filterTab === 'update' ? 'default' : 'ghost'}
+                  className="h-7 text-xs px-2.5 text-blue-600 dark:text-blue-400"
+                  onClick={() => setFilterTab('update')}
                 >
-                  <Filter className="h-3 w-3 mr-1" />
-                  Duplicadas ({parseResult.duplicateMasterCount + parseResult.duplicateFileCount})
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Atualizações ({parseResult.updateRows.length})
                 </Button>
+                {parseResult.duplicateFileCount > 0 && (
+                  <Button
+                    size="sm"
+                    variant={filterTab === 'duplicate_file' ? 'default' : 'ghost'}
+                    className="h-7 text-xs px-2.5 text-amber-600 dark:text-amber-400"
+                    onClick={() => setFilterTab('duplicate_file')}
+                  >
+                    <AlertCircle className="h-3 w-3 mr-1" />
+                    Duplicadas no arquivo ({parseResult.duplicateFileCount})
+                  </Button>
+                )}
                 {parseResult.errorCount > 0 && (
                   <Button
                     size="sm"
@@ -336,7 +442,7 @@ export function SchoolImportDialog({
                 <div className="flex justify-between text-xs">
                   <span className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                    Gravando escolas no banco de dados...
+                    Gravando e atualizando escolas no banco de dados...
                   </span>
                   <span className="font-semibold">{saveProgress}%</span>
                 </div>
@@ -350,19 +456,19 @@ export function SchoolImportDialog({
                 <thead className="bg-muted/70 text-muted-foreground uppercase sticky top-0 z-10 border-b">
                   <tr>
                     <th className="py-2 px-3 w-12">#</th>
-                    <th className="py-2 px-3">Escola (Mapeada)</th>
+                    <th className="py-2 px-3">Escola</th>
                     <th className="py-2 px-3">Tipo Normalizado</th>
                     <th className="py-2 px-3">Rota</th>
                     <th className="py-2 px-3">Alunos</th>
-                    <th className="py-2 px-3">Status de Validação</th>
+                    <th className="py-2 px-3">Ação / Alterações Previstas</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {displayRows.map((row: ParsedCsvSchoolRow) => {
                     const isError = row.status === 'error'
-                    const isDuplicate =
-                      row.status === 'duplicate_master' || row.status === 'duplicate_file'
+                    const isDuplicateFile = row.status === 'duplicate_file'
                     const isValid = row.status === 'valid'
+                    const isUpdate = row.status === 'update'
 
                     return (
                       <tr
@@ -370,9 +476,11 @@ export function SchoolImportDialog({
                         className={
                           isError
                             ? 'bg-destructive/10'
-                            : isDuplicate
+                            : isDuplicateFile
                               ? 'bg-amber-500/10'
-                              : 'hover:bg-muted/40'
+                              : isUpdate
+                                ? 'bg-blue-500/5 hover:bg-blue-500/10'
+                                : 'hover:bg-muted/40'
                         }
                       >
                         <td className="py-2 px-3 text-muted-foreground font-mono">{row.index}</td>
@@ -382,6 +490,13 @@ export function SchoolImportDialog({
                               [Nome Vazio] (bruto: "{row.rawNome}")
                             </span>
                           )}
+                          {isUpdate &&
+                            row.existingSchoolName &&
+                            row.existingSchoolName !== row.nome && (
+                              <span className="text-[10px] text-muted-foreground block">
+                                Mestre: "{row.existingSchoolName}"
+                              </span>
+                            )}
                         </td>
                         <td className="py-2 px-3">
                           {row.tipo ? (
@@ -411,18 +526,43 @@ export function SchoolImportDialog({
                           {isValid && (
                             <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                               <CheckCircle2 className="h-3.5 w-3.5" />
-                              Pronta para gravar
+                              Nova (Criar)
                             </span>
                           )}
-                          {row.status === 'duplicate_master' && (
-                            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate max-w-[200px]" title={row.statusReason}>
-                                Já cadastrada (será ignorada)
+
+                          {isUpdate && (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
+                                <RefreshCw className="h-3 w-3 shrink-0" />
+                                Atualizar Existente
                               </span>
-                            </span>
+                              {row.fieldChanges && row.fieldChanges.length > 0 ? (
+                                <div className="flex flex-wrap gap-1 pt-0.5">
+                                  {row.fieldChanges.map((ch, cIdx) => (
+                                    <span
+                                      key={cIdx}
+                                      className="inline-flex items-center gap-1 bg-blue-100/70 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded text-[10px]"
+                                    >
+                                      <strong>{ch.label}:</strong>
+                                      <span className="line-through text-muted-foreground">
+                                        {ch.oldValue}
+                                      </span>
+                                      <ArrowRight className="h-2.5 w-2.5" />
+                                      <span className="font-semibold text-blue-700 dark:text-blue-300">
+                                        {ch.newValue}
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground block">
+                                  Dados idênticos aos cadastrados
+                                </span>
+                              )}
+                            </div>
                           )}
-                          {row.status === 'duplicate_file' && (
+
+                          {isDuplicateFile && (
                             <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                               <span className="truncate max-w-[200px]" title={row.statusReason}>
@@ -430,6 +570,7 @@ export function SchoolImportDialog({
                               </span>
                             </span>
                           )}
+
                           {isError && (
                             <span className="inline-flex items-center gap-1 text-destructive font-medium">
                               <XCircle className="h-3.5 w-3.5 shrink-0" />
@@ -481,16 +622,20 @@ export function SchoolImportDialog({
                 <Button
                   type="button"
                   onClick={handleConfirmImport}
-                  disabled={isSaving || parseResult.validRows.length === 0}
-                  className="bg-primary text-primary-foreground"
+                  disabled={isSaving || processableCount === 0}
+                  className="bg-primary text-primary-foreground gap-1.5"
                 >
                   {isSaving ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Gravando...
+                      Gravando e Atualizando...
                     </>
                   ) : (
-                    `Confirmar e Gravar ${parseResult.validRows.length} Escola(s)`
+                    <>
+                      <Sparkles className="h-4 w-4" />
+                      Confirmar ({parseResult.validRows.length} nova(s) +{' '}
+                      {parseResult.updateRows.length} atualização(ões))
+                    </>
                   )}
                 </Button>
               )}

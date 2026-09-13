@@ -98,10 +98,14 @@ export interface PedidoRecord {
   validacao?: PedidoValidacao
   data_prevista: string
   status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
+  entregue_em?: string
+  entregue_por?: string
+  cancelamento_motivo?: string
   expand?: {
     escola_id?: EscolaRecord
     ciclo_id?: CicloRecord
     rota_id?: RotaRecord
+    entregue_por?: UserRecord
   }
   created?: string
   updated?: string
@@ -239,6 +243,10 @@ export interface Order {
   validacao: PedidoValidacao
   date: string
   status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
+  entregue_em?: string
+  entregue_por?: string
+  entreguePorNome?: string
+  cancelamento_motivo?: string
   total: number
   items: OrderItem[]
 }

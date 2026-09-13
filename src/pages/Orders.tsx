@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react'
 import { useApp } from '@/context/app-context'
+import { useAuth } from '@/context/auth-context'
 import type { Order } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableBody,
@@ -23,6 +25,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Select,
   SelectContent,
@@ -45,11 +55,29 @@ import {
   Layers,
   Sparkles,
   Info,
+  MoreVertical,
+  Truck,
+  XCircle,
+  Play,
+  UserCheck,
+  Check,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function Orders() {
-  const { products, schools, orders, contracts, activeCiclo, addOrder, isLoading } = useApp()
+  const {
+    products,
+    schools,
+    orders,
+    contracts,
+    activeCiclo,
+    addOrder,
+    updateOrderStatus,
+    confirmarEntregaPedido,
+    cancelarPedido,
+    isLoading,
+  } = useApp()
+  const { user } = useAuth()
 
   const [open, setOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -71,6 +99,17 @@ export default function Orders() {
   // Detalhes do pedido selecionado
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+
+  // Diálogo de cancelamento com motivo obrigatório
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
+  const [orderToCancel, setOrderToCancel] = useState<Order | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [isCanceling, setIsCanceling] = useState(false)
+
+  // Diálogo de confirmação de entrega
+  const [deliverDialogOpen, setDeliverDialogOpen] = useState(false)
+  const [orderToDeliver, setOrderToDeliver] = useState<Order | null>(null)
+  const [isDelivering, setIsDelivering] = useState(false)
 
   // Filtrar contratos com modalidade individualizada para lançamento via WhatsApp
   const individualContracts = useMemo(
@@ -228,13 +267,72 @@ export default function Orders() {
   const getStatusBadge = (status: Order['status']) => {
     switch (status) {
       case 'Entregue':
-        return <Badge className="bg-emerald-600">Entregue</Badge>
+        return <Badge className="bg-emerald-600 text-white font-medium">Entregue</Badge>
       case 'Pendente':
         return <Badge variant="secondary">Pendente</Badge>
       case 'Em Rota':
-        return <Badge className="bg-amber-600">Em Rota</Badge>
+        return <Badge className="bg-amber-600 text-white font-medium">Em Rota</Badge>
       default:
         return <Badge variant="destructive">Cancelado</Badge>
+    }
+  }
+
+  // Ações de evolução de status
+  const handleAvancarParaEmRota = async (order: Order) => {
+    if (order.status !== 'Pendente') {
+      toast.warning('Apenas pedidos Pendentes podem avançar para "Em Rota".')
+      return
+    }
+    await updateOrderStatus(order.id, 'Em Rota')
+  }
+
+  const handleOpenConfirmDelivery = (order: Order) => {
+    setOrderToDeliver(order)
+    setDeliverDialogOpen(true)
+  }
+
+  const handleExecuteDelivery = async () => {
+    if (!orderToDeliver) return
+    setIsDelivering(true)
+    try {
+      const ok = await confirmarEntregaPedido(orderToDeliver.id, user?.id)
+      if (ok) {
+        setDeliverDialogOpen(false)
+        setOrderToDeliver(null)
+      }
+    } finally {
+      setIsDelivering(false)
+    }
+  }
+
+  const handleOpenCancelDialog = (order: Order) => {
+    if (order.status !== 'Pendente') {
+      toast.error(
+        'Cancelamento é permitido apenas enquanto o pedido estiver com status "Pendente".',
+      )
+      return
+    }
+    setOrderToCancel(order)
+    setCancelReason('')
+    setCancelDialogOpen(true)
+  }
+
+  const handleExecuteCancel = async () => {
+    if (!orderToCancel) return
+    if (!cancelReason.trim()) {
+      toast.error('Informe obrigatoriamente o motivo do cancelamento.')
+      return
+    }
+    setIsCanceling(true)
+    try {
+      const ok = await cancelarPedido(orderToCancel.id, cancelReason.trim())
+      if (ok) {
+        setCancelDialogOpen(false)
+        setOrderToCancel(null)
+        setCancelReason('')
+      }
+    } finally {
+      setIsCanceling(false)
     }
   }
 
@@ -576,18 +674,89 @@ export default function Orders() {
                         })}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0"
-                          title="Ver detalhes do pedido"
-                          onClick={() => {
-                            setViewingOrder(order)
-                            setDetailsOpen(true)
-                          }}
-                        >
-                          <Info className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            title="Ver detalhes do pedido"
+                            onClick={() => {
+                              setViewingOrder(order)
+                              setDetailsOpen(true)
+                            }}
+                          >
+                            <Info className="h-4 w-4" />
+                          </Button>
+
+                          {/* Menu de Ações de Transição de Status */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 w-7 p-0"
+                                title="Ações do pedido"
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48 text-xs">
+                              <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                                Status: {order.status}
+                              </DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+
+                              {/* Se Pendente: pode avançar para Em Rota, Entregue ou Cancelar */}
+                              {order.status === 'Pendente' && (
+                                <>
+                                  <DropdownMenuItem
+                                    className="gap-2 cursor-pointer text-amber-700 dark:text-amber-400"
+                                    onClick={() => handleAvancarParaEmRota(order)}
+                                  >
+                                    <Truck className="h-3.5 w-3.5" /> Avançar para Em Rota
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="gap-2 cursor-pointer text-emerald-700 dark:text-emerald-400"
+                                    onClick={() => handleOpenConfirmDelivery(order)}
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar Entrega
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                                    onClick={() => handleOpenCancelDialog(order)}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" /> Cancelar Pedido
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+
+                              {/* Se Em Rota: pode avançar para Entregue */}
+                              {order.status === 'Em Rota' && (
+                                <DropdownMenuItem
+                                  className="gap-2 cursor-pointer text-emerald-700 dark:text-emerald-400"
+                                  onClick={() => handleOpenConfirmDelivery(order)}
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar Entrega
+                                </DropdownMenuItem>
+                              )}
+
+                              {/* Se Entregue: finalizado */}
+                              {order.status === 'Entregue' && (
+                                <div className="px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-medium">
+                                  <Check className="h-3.5 w-3.5" /> Pedido Concluído
+                                </div>
+                              )}
+
+                              {/* Se Cancelado: bloqueado, não pode voltar */}
+                              {order.status === 'Cancelado' && (
+                                <div className="px-2 py-1.5 text-[11px] text-destructive flex items-center gap-1.5 font-medium">
+                                  <XCircle className="h-3.5 w-3.5" /> Cancelado (sem retorno)
+                                </div>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -609,20 +778,56 @@ export default function Orders() {
               {viewingOrder?.schoolName} • Origem: {viewingOrder?.origem}
             </DialogDescription>
           </DialogHeader>
-
           {viewingOrder && (
             <div className="space-y-4 pt-2 text-xs">
-              <div className="p-3 rounded border bg-muted/20 space-y-1">
-                <div className="flex justify-between">
+              <div className="p-3 rounded border bg-muted/20 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Status Atual:</span>
+                  <span>{getStatusBadge(viewingOrder.status)}</span>
+                </div>
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Status da Validação:</span>
                   <span>{getValidacaoBadge(viewingOrder.validacao)}</span>
                 </div>
                 {viewingOrder.validacao?.motivo && (
-                  <p className="text-[11px] text-muted-foreground pt-1">
+                  <p className="text-[11px] text-muted-foreground pt-1 border-t">
                     👉 {viewingOrder.validacao.motivo}
                   </p>
                 )}
               </div>
+
+              {/* Informações de Entrega se entregue */}
+              {viewingOrder.status === 'Entregue' && (
+                <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 space-y-1 text-emerald-900 dark:text-emerald-200">
+                  <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" /> Dados da Entrega Confirmada
+                  </div>
+                  {viewingOrder.entregue_em && (
+                    <p className="text-[11px]">
+                      <strong>Data/Hora:</strong>{' '}
+                      {new Date(viewingOrder.entregue_em).toLocaleString('pt-BR')}
+                    </p>
+                  )}
+                  {viewingOrder.entreguePorNome && (
+                    <p className="text-[11px]">
+                      <strong>Confirmado por:</strong> {viewingOrder.entreguePorNome}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Motivo de Cancelamento se cancelado */}
+              {viewingOrder.status === 'Cancelado' && (
+                <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/10 space-y-1 text-destructive">
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <XCircle className="h-4 w-4" /> Pedido Cancelado (Bloqueado)
+                  </div>
+                  <p className="text-[11px] text-foreground">
+                    <strong>Motivo:</strong>{' '}
+                    {viewingOrder.cancelamento_motivo || 'Motivo não informado.'}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <h4 className="font-semibold text-xs mb-2">Itens Solicitados:</h4>
@@ -644,7 +849,157 @@ export default function Orders() {
                 <span className="text-primary font-mono">R$ {viewingOrder.total.toFixed(2)}</span>
               </div>
             </div>
+          )}{' '}
+        </DialogContent>
+      </Dialog>
+      {/* Modal de Cancelamento de Pedido com Motivo Obrigatório */}
+      <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <XCircle className="h-5 w-5" /> Cancelar Pedido {orderToCancel?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Atenção: O cancelamento só é permitido na fase <strong>Pendente</strong> e{' '}
+              <strong>não poderá ser revertido</strong>. O motivo é obrigatório para auditoria.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs">
+            <div className="p-2.5 rounded bg-muted/30 border">
+              <p>
+                <strong>Escola:</strong> {orderToCancel?.schoolName}
+              </p>
+              <p>
+                <strong>Valor:</strong> R$ {orderToCancel?.total.toFixed(2)}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="cancel-motivo" className="text-xs font-semibold">
+                Motivo do Cancelamento <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="cancel-motivo"
+                placeholder="Descreva detalhadamente o motivo do cancelamento deste pedido..."
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="text-xs"
+                required
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isCanceling}
+              onClick={() => setCancelDialogOpen(false)}
+            >
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isCanceling || !cancelReason.trim()}
+              onClick={handleExecuteCancel}
+            >
+              {isCanceling ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cancelando...
+                </>
+              ) : (
+                'Confirmar Cancelamento'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Confirmação Direta de Entrega (Baixa de Estoque + Registro) */}
+      <Dialog open={deliverDialogOpen} onOpenChange={setDeliverDialogOpen}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" /> Confirmar Entrega do Pedido
+            </DialogTitle>
+            <DialogDescription>
+              O status mudará para <strong>Entregue</strong>, liberando a emissão de Atesto e
+              realizando a baixa de estoque dos itens.
+            </DialogDescription>
+          </DialogHeader>
+
+          {orderToDeliver && (
+            <div className="space-y-3 py-2 text-xs">
+              <div className="p-3 rounded-lg bg-muted/30 border space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Pedido:</span>
+                  <span className="font-bold text-primary">{orderToDeliver.numero}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Instituição:</span>
+                  <span className="font-medium">{orderToDeliver.schoolName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Valor Total:</span>
+                  <span className="font-mono font-bold text-foreground">
+                    R$ {orderToDeliver.total.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <UserCheck className="h-3.5 w-3.5 text-primary" /> Confirmado por:
+                  </span>
+                  <span className="font-semibold text-foreground">
+                    {user?.name || user?.email || 'Usuário Atual'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <p className="font-semibold mb-1 text-muted-foreground">
+                  Itens com baixa no estoque:
+                </p>
+                <div className="rounded border divide-y max-h-[160px] overflow-y-auto">
+                  {orderToDeliver.items.map((it, idx) => (
+                    <div key={idx} className="flex justify-between p-2">
+                      <span>{it.name}</span>
+                      <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
+                        -{it.quantity} un
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDelivering}
+              onClick={() => setDeliverDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={isDelivering}
+              onClick={handleExecuteDelivery}
+            >
+              {isDelivering ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Concluindo...
+                </>
+              ) : (
+                'Confirmar Entrega'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

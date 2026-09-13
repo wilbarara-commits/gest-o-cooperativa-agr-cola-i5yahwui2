@@ -65,28 +65,41 @@ export default function Atestos() {
         </div>
       </div>
 
-      {pendingOrders.length > 0 && (
-        <Card className="border-secondary/50 bg-secondary/5 shadow-sm">
+      {pendingOrders.length > 0 ? (
+        <Card className="border-emerald-500/30 bg-emerald-50/20 dark:bg-emerald-950/10 shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <FileCheck className="h-5 w-5 text-secondary" /> Pedidos Prontos para Atesto
+            <CardTitle className="text-lg flex items-center gap-2 text-emerald-800 dark:text-emerald-400">
+              <FileCheck className="h-5 w-5 text-emerald-600" /> Pedidos Entregues Aguardando
+              Emissão de Atesto
             </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Regra de negócio: Apenas pedidos com status <strong>"Entregue"</strong> e sem atesto
+              emitido são listados aqui.
+            </p>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3">
               {pendingOrders.map((order) => (
                 <div
                   key={order.id}
-                  className="flex items-center justify-between bg-card p-3 rounded-md border flex-1 min-w-[300px]"
+                  className="flex items-center justify-between bg-card p-3 rounded-md border flex-1 min-w-[300px] shadow-xs"
                 >
                   <div>
-                    <p className="font-medium text-sm">{order.schoolName}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm">{order.schoolName}</p>
+                      <Badge className="bg-emerald-600 text-[10px] h-4">Entregue</Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground">
-                      Pedido {order.numero || order.id} • R$ {order.total.toFixed(2)}
+                      Pedido{' '}
+                      <span className="font-bold text-foreground">{order.numero || order.id}</span>
+                      {order.entregue_em &&
+                        ` • Entregue em ${new Date(order.entregue_em).toLocaleDateString('pt-BR')}`}{' '}
+                      • R$ {order.total.toFixed(2)}
                     </p>
                   </div>
                   <Button
                     size="sm"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
                     onClick={() => handleGenerate(order.id)}
                     disabled={generatingId === order.id}
                   >
@@ -101,6 +114,14 @@ export default function Atestos() {
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-dashed bg-muted/20">
+          <CardContent className="py-6 text-center text-xs text-muted-foreground">
+            Nenhum pedido entregue aguardando emissão de atesto no momento. Para emitir um atesto,
+            confirme primeiro a entrega do pedido na tela de <strong>Pedidos</strong> ou{' '}
+            <strong>Rotas de Entrega</strong>.
           </CardContent>
         </Card>
       )}

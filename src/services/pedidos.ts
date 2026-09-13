@@ -4,7 +4,7 @@ import type { PedidoRecord, PedidoItemRecord, PedidoValidacao } from '@/lib/type
 export const pedidosService = {
   async getAll(): Promise<PedidoRecord[]> {
     return await pb.collection('pedidos').getFullList<PedidoRecord>({
-      expand: 'escola_id,ciclo_id,rota_id',
+      expand: 'escola_id,ciclo_id,rota_id,entregue_por',
       sort: '-data_prevista',
     })
   },
@@ -60,8 +60,26 @@ export const pedidosService = {
     return pedido
   },
 
-  async updateStatus(id: string, status: PedidoRecord['status']): Promise<PedidoRecord> {
-    return await pb.collection('pedidos').update<PedidoRecord>(id, { status })
+  async updateStatus(
+    id: string,
+    status: PedidoRecord['status'],
+    options?: {
+      entregue_em?: string
+      entregue_por?: string
+      cancelamento_motivo?: string
+    },
+  ): Promise<PedidoRecord> {
+    const payload: Partial<PedidoRecord> = { status }
+    if (options?.entregue_em !== undefined) {
+      payload.entregue_em = options.entregue_em
+    }
+    if (options?.entregue_por !== undefined) {
+      payload.entregue_por = options.entregue_por
+    }
+    if (options?.cancelamento_motivo !== undefined) {
+      payload.cancelamento_motivo = options.cancelamento_motivo
+    }
+    return await pb.collection('pedidos').update<PedidoRecord>(id, payload)
   },
 
   async updateValidacao(id: string, validacao: PedidoValidacao): Promise<PedidoRecord> {

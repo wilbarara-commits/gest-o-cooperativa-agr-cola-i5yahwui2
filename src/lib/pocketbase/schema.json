@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T22:11:11.465Z",
+  "generatedAt": "2026-09-13T03:10:45.724Z",
   "collections": [
     {
       "name": "users",
@@ -398,6 +398,25 @@
         {
           "name": "validacao",
           "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "entregue_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "entregue_por",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "cancelamento_motivo",
+          "type": "text",
           "required": false,
           "system": false
         }

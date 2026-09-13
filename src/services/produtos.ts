@@ -66,6 +66,14 @@ export const produtosService = {
     return await pb.collection('produtos').update<ProdutoRecord>(id, data)
   },
 
+  async decrementarEstoque(produtoId: string, quantidade: number): Promise<ProdutoRecord> {
+    const atual = await pb.collection('produtos').getOne<ProdutoRecord>(produtoId)
+    const novoEstoque = Math.max(0, (Number(atual.estoque) || 0) - quantidade)
+    return await pb.collection('produtos').update<ProdutoRecord>(produtoId, {
+      estoque: novoEstoque,
+    })
+  },
+
   async delete(id: string): Promise<boolean> {
     return await pb.collection('produtos').delete(id)
   },

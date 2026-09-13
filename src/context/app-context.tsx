@@ -58,7 +58,17 @@ interface AppState {
   addOrder: (orderData: CreateOrderData) => Promise<boolean>
   generateAtesto: (orderId: string) => Promise<boolean>
   confirmAtesto: (atestoId: string) => Promise<boolean>
-  updateOrderStatus: (id: string, status: Order['status']) => Promise<boolean>
+  updateOrderStatus: (
+    id: string,
+    status: Order['status'],
+    options?: {
+      cancelamento_motivo?: string
+      entregue_em?: string
+      entregue_por?: string
+    },
+  ) => Promise<boolean>
+  confirmarEntregaPedido: (id: string, userId?: string) => Promise<boolean>
+  cancelarPedido: (id: string, motivo: string) => Promise<boolean>
   updateCicloStatus: (
     cicloId: string,
     status: 'coletando' | 'correcao' | 'fechado',
@@ -178,6 +188,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           motivo: 'Registrado no sistema',
         }
 
+        const entreguePorNome =
+          ped.expand?.entregue_por?.nome ||
+          ped.expand?.entregue_por?.name ||
+          ped.expand?.entregue_por?.email ||
+          ''
+
         return {
           id: ped.id,
           numero: ped.numero,
@@ -193,6 +209,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ped.created?.split('T')[0] ||
             new Date().toISOString().split('T')[0],
           status: ped.status,
+          entregue_em: ped.entregue_em,
+          entregue_por: ped.entregue_por,
+          entreguePorNome,
+          cancelamento_motivo: ped.cancelamento_motivo,
           total: Math.round(total * 100) / 100,
           items,
         }
@@ -361,14 +381,135 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const updateOrderStatus = async (id: string, status: Order['status']): Promise<boolean> => {
+  const updateOrderStatus = async (
+    id: string,
+    status: Order['status'],
+    options?: {
+      cancelamento_motivo?: string
+      entregue_em?: string
+      entregue_por?: string
+    },
+  ): Promise<boolean> => {
     try {
-      await pedidosService.updateStatus(id, status)
+      const targetOrder = orders.find((o) => o.id === id)
+      if (!targetOrder) {
+        toast.error('Pedido não encontrado.')
+        return false
+      }
+
+      // Regra: Pedido Cancelado não pode voltar
+      if (targetOrder.status === 'Cancelado') {
+        toast.error('Pedidos cancelados não podem ter seu status alterado.')
+        return false
+      }
+
+      // Se a transição for para Entregue, chamar método especializado com baixa de estoque
+      if (status === 'Entregue') {
+        return await confirmarEntregaPedido(id, options?.entregue_por)
+      }
+
+      // Se a transição for para Cancelado, motivo é obrigatório
+      if (status === 'Cancelado') {
+        const motivo = options?.cancelamento_motivo?.trim()
+        if (!motivo) {
+          toast.error('Motivo do cancelamento é obrigatório.')
+          return false
+        }
+        return await cancelarPedido(id, motivo)
+      }
+
+      // Transição padrão (ex: Pendente -> Em Rota)
+      await pedidosService.updateStatus(id, status, options)
       await loadAllData()
+      toast.success(`Status do pedido atualizado para "${status}".`)
       return true
     } catch (err: any) {
       console.error('Erro ao atualizar status do pedido:', err)
       toast.error('Falha ao atualizar status.')
+      return false
+    }
+  }
+
+  const confirmarEntregaPedido = async (id: string, userId?: string): Promise<boolean> => {
+    try {
+      const targetOrder = orders.find((o) => o.id === id)
+      if (!targetOrder) {
+        toast.error('Pedido não encontrado.')
+        return false
+      }
+
+      if (targetOrder.status === 'Cancelado') {
+        toast.error('Não é possível entregar um pedido cancelado.')
+        return false
+      }
+
+      if (targetOrder.status === 'Entregue') {
+        toast.info('Este pedido já foi confirmado como entregue anteriormente.')
+        return true
+      }
+
+      const nowIso = new Date().toISOString()
+
+      // 1. Atualizar pedido para Entregue registrando entregue_em e entregue_por
+      await pedidosService.updateStatus(id, 'Entregue', {
+        entregue_em: nowIso,
+        entregue_por: userId || undefined,
+      })
+
+      // 2. Dar baixa no estoque dos produtos do pedido (idempotente: só executa quando não estava Entregue)
+      for (const item of targetOrder.items) {
+        if (item.productId && item.quantity > 0) {
+          try {
+            await produtosService.decrementarEstoque(item.productId, item.quantity)
+          } catch (stkErr) {
+            console.error(`Erro ao baixar estoque do produto ${item.productId}:`, stkErr)
+          }
+        }
+      }
+
+      await loadAllData()
+      toast.success(`Pedido ${targetOrder.numero} entregue com sucesso! Estoque atualizado.`)
+      return true
+    } catch (err: any) {
+      console.error('Erro ao confirmar entrega do pedido:', err)
+      toast.error('Falha ao confirmar entrega do pedido.')
+      return false
+    }
+  }
+
+  const cancelarPedido = async (id: string, motivo: string): Promise<boolean> => {
+    try {
+      const targetOrder = orders.find((o) => o.id === id)
+      if (!targetOrder) {
+        toast.error('Pedido não encontrado.')
+        return false
+      }
+
+      if (targetOrder.status === 'Cancelado') {
+        toast.info('Este pedido já está cancelado.')
+        return true
+      }
+
+      if (targetOrder.status !== 'Pendente') {
+        toast.error('Apenas pedidos com status "Pendente" podem ser cancelados.')
+        return false
+      }
+
+      if (!motivo || !motivo.trim()) {
+        toast.error('Informe obrigatoriamente o motivo do cancelamento.')
+        return false
+      }
+
+      await pedidosService.updateStatus(id, 'Cancelado', {
+        cancelamento_motivo: motivo.trim(),
+      })
+
+      await loadAllData()
+      toast.success(`Pedido ${targetOrder.numero} foi cancelado com sucesso.`)
+      return true
+    } catch (err: any) {
+      console.error('Erro ao cancelar pedido:', err)
+      toast.error('Falha ao cancelar pedido.')
       return false
     }
   }
@@ -471,6 +612,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshData: loadAllData,
         addOrder,
         updateOrderStatus,
+        confirmarEntregaPedido,
+        cancelarPedido,
         updateCicloStatus,
         createCiclo,
         generateAtesto,

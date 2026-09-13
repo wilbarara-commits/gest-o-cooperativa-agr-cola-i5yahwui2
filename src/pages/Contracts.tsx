@@ -509,9 +509,9 @@ export default function Contracts() {
     const totalContratado = reportContract.totalValue
     const participatingSchoolIds = new Set(reportContract.escolas.map((e) => e.escolaId))
 
-    // Pedidos realizados deste contrato
+    // Pedidos realizados deste contrato (apenas pedidos efetivamente Entregues compõem a execução realizada)
     const contractOrders = orders.filter(
-      (o) => participatingSchoolIds.has(o.schoolId) && o.status !== 'Cancelado',
+      (o) => participatingSchoolIds.has(o.schoolId) && o.status === 'Entregue',
     )
     const totalRealizado = contractOrders.reduce((acc, o) => acc + o.total, 0)
     const percentExecucaoGlobal =

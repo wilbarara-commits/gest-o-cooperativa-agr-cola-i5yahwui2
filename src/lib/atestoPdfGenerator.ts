@@ -58,21 +58,54 @@ export function formatExtendDateBR(cidadeUf: string, dateInput?: Date | string):
 }
 
 /**
- * Carrega imagem de uma URL como base64 ou HTMLImageElement para uso no jsPDF
+ * Carrega imagem de uma URL como dataURL (base64) e determina suas dimensões e formato (PNG / JPEG)
  */
-async function loadImageDataUrl(url: string): Promise<string | null> {
+interface LoadedImageInfo {
+  dataUrl: string
+  format: 'PNG' | 'JPEG' | 'WEBP'
+  aspectRatio: number // width / height
+}
+
+async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
   if (!url) return null
   try {
     const res = await fetch(url)
     if (!res.ok) return null
     const blob = await res.blob()
-    return new Promise((resolve) => {
+    const mimeType = blob.type.toLowerCase()
+    let format: 'PNG' | 'JPEG' | 'WEBP' = 'PNG'
+    if (mimeType.includes('jpeg') || mimeType.includes('jpg')) {
+      format = 'JPEG'
+    } else if (mimeType.includes('webp')) {
+      format = 'WEBP'
+    }
+
+    const dataUrl = await new Promise<string | null>((resolve) => {
       const reader = new FileReader()
       reader.onloadend = () => resolve(reader.result as string)
       reader.onerror = () => resolve(null)
       reader.readAsDataURL(blob)
     })
-  } catch {
+
+    if (!dataUrl) return null
+
+    // Calcular proporção real da imagem para não distorcer o logotipo
+    const aspectRatio = await new Promise<number>((resolve) => {
+      const img = new window.Image()
+      img.onload = () => {
+        if (img.naturalWidth && img.naturalHeight) {
+          resolve(img.naturalWidth / img.naturalHeight)
+        } else {
+          resolve(1.4) // Proporção padrão retangular aproximada
+        }
+      }
+      img.onerror = () => resolve(1.4)
+      img.src = dataUrl
+    })
+
+    return { dataUrl, format, aspectRatio }
+  } catch (err) {
+    console.warn('Falha ao carregar logotipo para o PDF:', err)
     return null
   }
 }
@@ -92,18 +125,26 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
   const contentWidth = pageWidth - marginX * 2 // 170mm
 
   // 1. CABEÇALHO COM LOGOTIPO OU SÍMBOLO
-  let startY = 16
+  let startY = 14
 
   if (data.logoUrl) {
     try {
-      const dataUrl = await loadImageDataUrl(data.logoUrl)
-      if (dataUrl) {
-        // Logotipo no topo centralizado
-        const imgWidth = 28
-        const imgHeight = 20
+      const imgInfo = await loadImageDataUrl(data.logoUrl)
+      if (imgInfo) {
+        // Logotipo no topo centralizado preservando a proporção de aspecto (máximo 45mm x 22mm)
+        const maxW = 45
+        const maxH = 22
+        let imgWidth = maxW
+        let imgHeight = imgWidth / imgInfo.aspectRatio
+
+        if (imgHeight > maxH) {
+          imgHeight = maxH
+          imgWidth = imgHeight * imgInfo.aspectRatio
+        }
+
         doc.addImage(
-          dataUrl,
-          'JPEG',
+          imgInfo.dataUrl,
+          imgInfo.format,
           (pageWidth - imgWidth) / 2,
           startY,
           imgWidth,
@@ -113,8 +154,9 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
         )
         startY += imgHeight + 4
       }
-    } catch {
-      // continua sem imagem
+    } catch (e) {
+      // continua sem imagem sem travar a geração
+      console.warn('Não foi possível embutir o logotipo no PDF:', e)
     }
   }
 

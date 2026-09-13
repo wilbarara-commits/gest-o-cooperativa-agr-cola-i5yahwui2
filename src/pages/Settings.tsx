@@ -50,10 +50,11 @@ export default function SettingsPage() {
   const [exibirAtalhosDemo, setExibirAtalhosDemo] = useState(true)
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [logoRemoved, setLogoRemoved] = useState<boolean>(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    configuracoesService
+  const loadConfiguracoes = () => {
+    return configuracoesService
       .get()
       .then((data) => {
         if (data) {
@@ -66,7 +67,8 @@ export default function SettingsPage() {
           setCidadeUf(data.cidade_uf || '')
           setExibirAtalhosDemo(data.exibir_atalhos_demo !== false)
           const existingUrl = configuracoesService.getLogoUrl(data)
-          if (existingUrl) setLogoPreview(existingUrl)
+          setLogoPreview(existingUrl || null)
+          setLogoRemoved(false)
         }
         setIsLoading(false)
       })
@@ -75,6 +77,10 @@ export default function SettingsPage() {
         toast.error('Erro ao carregar parâmetros da cooperativa.')
         setIsLoading(false)
       })
+  }
+
+  useEffect(() => {
+    loadConfiguracoes()
   }, [])
 
   const handleSave = async (e: React.FormEvent) => {
@@ -88,6 +94,7 @@ export default function SettingsPage() {
     try {
       let saved: ConfiguracoesRecord
 
+      // Sempre que houver novo arquivo ou remoção explícita de logotipo, ou para manter coerência multipart
       if (logoFile) {
         const formData = new FormData()
         formData.append('nome_cooperativa', nomeCooperativa.trim())
@@ -98,6 +105,18 @@ export default function SettingsPage() {
         formData.append('cidade_uf', cidadeUf.trim())
         formData.append('exibir_atalhos_demo', String(exibirAtalhosDemo))
         formData.append('logotipo', logoFile)
+        saved = await configuracoesService.save(formData, config?.id)
+      } else if (logoRemoved) {
+        // No PocketBase, passar null ou string vazia no campo file remove o arquivo existente
+        const formData = new FormData()
+        formData.append('nome_cooperativa', nomeCooperativa.trim())
+        formData.append('sigla', sigla.trim())
+        formData.append('cnpj', cnpj.trim())
+        formData.append('telefone', telefone.trim())
+        formData.append('email', email.trim())
+        formData.append('cidade_uf', cidadeUf.trim())
+        formData.append('exibir_atalhos_demo', String(exibirAtalhosDemo))
+        formData.append('logotipo', '')
         saved = await configuracoesService.save(formData, config?.id)
       } else {
         saved = await configuracoesService.save(
@@ -116,12 +135,17 @@ export default function SettingsPage() {
 
       setConfig(saved)
       const newUrl = configuracoesService.getLogoUrl(saved)
-      if (newUrl) setLogoPreview(newUrl)
+      setLogoPreview(newUrl || null)
       setLogoFile(null)
-      toast.success('Configurações da cooperativa atualizadas com sucesso!')
+      setLogoRemoved(false)
+      toast.success('Configurações e logotipo da cooperativa salvos com sucesso!')
     } catch (err: any) {
-      console.error('Erro ao salvar configurações:', err)
-      toast.error('Falha ao salvar configurações.')
+      console.error('Erro detalhado ao salvar configurações:', err)
+      const errMsg =
+        err?.data?.message ||
+        err?.message ||
+        'Falha ao salvar configurações. Verifique os dados e permissões.'
+      toast.error(errMsg)
     } finally {
       setIsSaving(false)
     }
@@ -328,6 +352,7 @@ export default function SettingsPage() {
                         onClick={() => {
                           setLogoFile(null)
                           setLogoPreview(null)
+                          setLogoRemoved(true)
                           if (fileInputRef.current) fileInputRef.current.value = ''
                         }}
                       >

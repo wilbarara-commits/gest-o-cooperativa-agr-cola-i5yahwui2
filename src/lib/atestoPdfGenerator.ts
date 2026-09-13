@@ -69,6 +69,59 @@ interface LoadedImageInfo {
 async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
   if (!url) return null
   try {
+    // 1. Tentar carregar a imagem em um elemento HTMLImageElement com timeout
+    const img = new window.Image()
+    img.crossOrigin = 'anonymous'
+
+    const loaded = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        img.onload = null
+        img.onerror = null
+        resolve(false)
+      }, 5000)
+
+      img.onload = () => {
+        clearTimeout(timer)
+        resolve(true)
+      }
+      img.onerror = () => {
+        clearTimeout(timer)
+        resolve(false)
+      }
+      img.src = url
+    })
+
+    if (loaded && img.naturalWidth && img.naturalHeight) {
+      const naturalWidth = img.naturalWidth
+      const naturalHeight = img.naturalHeight
+      const aspectRatio = naturalWidth / naturalHeight
+
+      // Renderizar em um canvas para normalizar para PNG (compatível com jsPDF em todos os navegadores)
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = naturalWidth
+        canvas.height = naturalHeight
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(img, 0, 0)
+          const pngDataUrl = canvas.toDataURL('image/png')
+          if (pngDataUrl && pngDataUrl.startsWith('data:image/png')) {
+            return {
+              dataUrl: pngDataUrl,
+              format: 'PNG',
+              aspectRatio: aspectRatio > 0 ? aspectRatio : 1.4,
+            }
+          }
+        }
+      } catch (canvasErr) {
+        console.warn(
+          'Canvas toDataURL falhou (possível CORS na imagem), tentando fallback fetch:',
+          canvasErr,
+        )
+      }
+    }
+
+    // 2. Fallback: fetch do blob e conversão via FileReader
     const res = await fetch(url)
     if (!res.ok) return null
     const blob = await res.blob()
@@ -89,23 +142,23 @@ async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
 
     if (!dataUrl) return null
 
-    // Calcular proporção real da imagem para não distorcer o logotipo
+    // Calcular proporção real da imagem
     const aspectRatio = await new Promise<number>((resolve) => {
-      const img = new window.Image()
-      img.onload = () => {
-        if (img.naturalWidth && img.naturalHeight) {
-          resolve(img.naturalWidth / img.naturalHeight)
+      const probeImg = new window.Image()
+      probeImg.onload = () => {
+        if (probeImg.naturalWidth && probeImg.naturalHeight) {
+          resolve(probeImg.naturalWidth / probeImg.naturalHeight)
         } else {
-          resolve(1.4) // Proporção padrão retangular aproximada
+          resolve(1.4)
         }
       }
-      img.onerror = () => resolve(1.4)
-      img.src = dataUrl
+      probeImg.onerror = () => resolve(1.4)
+      probeImg.src = dataUrl
     })
 
     return { dataUrl, format, aspectRatio }
   } catch (err) {
-    console.warn('Falha ao carregar logotipo para o PDF:', err)
+    console.warn('Falha silenciosa ao carregar logotipo para o PDF (prosseguindo sem logo):', err)
     return null
   }
 }

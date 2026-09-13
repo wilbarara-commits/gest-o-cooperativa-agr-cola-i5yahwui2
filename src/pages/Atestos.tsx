@@ -146,34 +146,52 @@ export default function Atestos() {
   const handleEmitirAtesto = async () => {
     if (!previewOrderId) return
     const order = orders.find((o) => o.id === previewOrderId)
-    if (!order) return
+    if (!order) {
+      toast.error('Pedido não localizado para emissão.')
+      return
+    }
 
     setIsEmitting(true)
     try {
       const nextNum = `AT-${String(atestos.length + 1).padStart(3, '0')}`
       const docData = prepareDocumentData(order, nextNum)
 
-      // Gerar PDF oficial como Blob
-      const pdfBlob = await generateAtestoBlob(docData)
+      // 1. Gerar PDF oficial como Blob (robusto mesmo se logotipo falhar)
+      let pdfBlob: Blob | undefined
+      try {
+        pdfBlob = await generateAtestoBlob(docData)
+      } catch (pdfErr) {
+        console.warn('Tentativa com logotipo falhou ao gerar Blob, tentando sem logo:', pdfErr)
+        // Fallback garantido: gerar sem logo para não barrar a emissão do atesto oficial
+        pdfBlob = await generateAtestoBlob({ ...docData, logoUrl: undefined })
+      }
 
-      // Gravar no backend no registro do atesto (com arquivo PDF em anexo)
-      const createdRecord = await generateAtesto(order.id, pdfBlob)
+      // 2. Gravar no backend no registro do atesto (com arquivo PDF no campo `arquivo`)
+      const createdRecord = await generateAtesto(order.id, pdfBlob, nextNum)
 
       if (createdRecord) {
         toast.success(
           `Termo de Recebimento (${docData.numeroAtesto}) emitido e gravado com sucesso!`,
         )
         // Disparar download imediato do PDF oficial para conveniência
-        await downloadAtestoPdf(
-          docData,
-          `Termo_Recebimento_${docData.numeroAtesto}_${order.schoolName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-        )
+        try {
+          await downloadAtestoPdf(
+            docData,
+            `Termo_Recebimento_${docData.numeroAtesto}_${order.schoolName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+          )
+        } catch (dlErr) {
+          console.warn('Download automático em navegador falhou:', dlErr)
+        }
+        setPreviewOrderId(null)
       }
-
-      setPreviewOrderId(null)
     } catch (err: any) {
       console.error('Erro ao emitir atesto oficial:', err)
-      toast.error('Falha ao emitir e armazenar atesto oficial.')
+      const detail =
+        err?.data?.message ||
+        err?.response?.message ||
+        err?.message ||
+        'Falha ao emitir e armazenar atesto oficial.'
+      toast.error(`Falha ao emitir atesto: ${detail}`)
     } finally {
       setIsEmitting(false)
     }
@@ -194,16 +212,41 @@ export default function Atestos() {
           atesto.arquivo,
         )
         if (fileUrl) {
-          const a = document.createElement('a')
-          a.href = fileUrl
-          a.download = atesto.arquivo || `Termo_Recebimento_${atesto.numero || atesto.id}.pdf`
-          a.target = '_blank'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          toast.success('Download do PDF armazenado iniciado!')
-          setDownloadingId(null)
-          return
+          try {
+            const resp = await fetch(fileUrl)
+            if (resp.ok) {
+              const dlBlob = await resp.blob()
+              const objectUrl = window.URL.createObjectURL(dlBlob)
+              const a = document.createElement('a')
+              a.href = objectUrl
+              a.download = atesto.arquivo.endsWith('.pdf')
+                ? atesto.arquivo
+                : `${atesto.arquivo}.pdf`
+              document.body.appendChild(a)
+              a.click()
+              document.body.removeChild(a)
+              window.URL.revokeObjectURL(objectUrl)
+              toast.success('Download do PDF armazenado iniciado!')
+              setDownloadingId(null)
+              return
+            }
+          } catch (fetchErr) {
+            console.warn(
+              'Fetch direto do arquivo gravado falhou, tentando fallback link/geração:',
+              fetchErr,
+            )
+            // Se falhar o fetch com blob, abre link direto
+            const a = document.createElement('a')
+            a.href = fileUrl
+            a.download = atesto.arquivo
+            a.target = '_blank'
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            toast.success('Download iniciado via link direto!')
+            setDownloadingId(null)
+            return
+          }
         }
       }
 
@@ -211,7 +254,12 @@ export default function Atestos() {
       const relatedOrder = orders.find((o) => o.id === atesto.orderId)
       if (relatedOrder) {
         const docData = prepareDocumentData(relatedOrder, atesto.numero, atesto.date)
-        const pdfBlob = await generateAtestoBlob(docData)
+        let pdfBlob: Blob
+        try {
+          pdfBlob = await generateAtestoBlob(docData)
+        } catch {
+          pdfBlob = await generateAtestoBlob({ ...docData, logoUrl: undefined })
+        }
 
         // Salvar retroativamente no PocketBase
         try {
@@ -220,8 +268,8 @@ export default function Atestos() {
             pdfBlob,
             `Termo_Recebimento_${atesto.numero || atesto.id}.pdf`,
           )
-        } catch {
-          // ignora se falhar gravação retroativa
+        } catch (upErr) {
+          console.warn('Gravação retroativa do PDF falhou (não impede o download):', upErr)
         }
 
         await downloadAtestoPdf(
@@ -232,9 +280,10 @@ export default function Atestos() {
       } else {
         toast.error('Pedido correspondente não encontrado para gerar o PDF.')
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro no download do atesto:', err)
-      toast.error('Não foi possível gerar o PDF do atesto.')
+      const detail = err?.message || 'Não foi possível gerar o PDF do atesto.'
+      toast.error(`Falha no download: ${detail}`)
     } finally {
       setDownloadingId(null)
     }

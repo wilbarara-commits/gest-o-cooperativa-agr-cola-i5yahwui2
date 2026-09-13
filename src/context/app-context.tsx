@@ -57,7 +57,11 @@ interface AppState {
   error: string | null
   refreshData: () => Promise<void>
   addOrder: (orderData: CreateOrderData) => Promise<boolean>
-  generateAtesto: (orderId: string, pdfBlob?: Blob) => Promise<AtestoRecord | null>
+  generateAtesto: (
+    orderId: string,
+    pdfBlob?: Blob,
+    customNumero?: string,
+  ) => Promise<AtestoRecord | null>
   confirmAtesto: (atestoId: string) => Promise<boolean>
   updateOrderStatus: (
     id: string,
@@ -551,7 +555,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const generateAtesto = async (orderId: string, pdfBlob?: Blob): Promise<AtestoRecord | null> => {
+  const generateAtesto = async (
+    orderId: string,
+    pdfBlob?: Blob,
+    customNumero?: string,
+  ): Promise<AtestoRecord | null> => {
     try {
       const order = orders.find((o) => o.id === orderId)
       if (!order) {
@@ -566,7 +574,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const atestoCount = atestos.length + 1
-      const numero = `AT-${String(atestoCount).padStart(3, '0')}`
+      const numero = customNumero || `AT-${String(atestoCount).padStart(3, '0')}`
       const now = new Date().toISOString()
 
       const created = await atestosService.create({
@@ -581,7 +589,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return created
     } catch (err: any) {
       console.error('Erro ao gerar atesto:', err)
-      toast.error('Falha ao gerar atesto no banco.')
+      const detailMsg =
+        err?.data?.message ||
+        err?.response?.message ||
+        err?.message ||
+        'Falha ao gerar atesto no banco.'
+      toast.error(`Falha ao gerar atesto no banco: ${detailMsg}`)
       return null
     }
   }

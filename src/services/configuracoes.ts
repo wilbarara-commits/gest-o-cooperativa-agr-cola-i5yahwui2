@@ -18,6 +18,7 @@ export const configuracoesService = {
         email: item.email || '',
         cidade_uf: item.cidade_uf || '',
         exibir_atalhos_demo: item.exibir_atalhos_demo !== false,
+        logotipo: item.logotipo || '',
         created: item.created,
         updated: item.updated,
       }
@@ -27,8 +28,13 @@ export const configuracoesService = {
     }
   },
 
+  getLogoUrl(config: ConfiguracoesRecord | null): string {
+    if (!config || !config.logotipo) return ''
+    return pb.files.getURL(config as any, config.logotipo)
+  },
+
   async save(
-    data: Partial<Omit<ConfiguracoesRecord, 'id' | 'created' | 'updated'>>,
+    data: Partial<Omit<ConfiguracoesRecord, 'id' | 'created' | 'updated'>> | FormData,
     existingId?: string,
   ): Promise<ConfiguracoesRecord> {
     if (existingId) {
@@ -42,6 +48,7 @@ export const configuracoesService = {
         email: updated.email || '',
         cidade_uf: updated.cidade_uf || '',
         exibir_atalhos_demo: updated.exibir_atalhos_demo !== false,
+        logotipo: updated.logotipo || '',
         created: updated.created,
         updated: updated.updated,
       }
@@ -58,6 +65,7 @@ export const configuracoesService = {
       email: created.email || '',
       cidade_uf: created.cidade_uf || '',
       exibir_atalhos_demo: created.exibir_atalhos_demo !== false,
+      logotipo: created.logotipo || '',
       created: created.created,
       updated: created.updated,
     }

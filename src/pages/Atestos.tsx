@@ -1,5 +1,6 @@
+import React, { useState, useEffect, useMemo } from 'react'
 import { useApp } from '@/context/app-context'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -13,122 +14,378 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
-import { FileCheck, Printer, Sprout, Loader2, Check } from 'lucide-react'
+import {
+  FileCheck,
+  Printer,
+  Sprout,
+  Loader2,
+  Check,
+  Download,
+  Eye,
+  FileText,
+  AlertCircle,
+  Building2,
+} from 'lucide-react'
 import { toast } from 'sonner'
-import { useState } from 'react'
+import { configuracoesService } from '@/services/configuracoes'
+import { atestosService } from '@/services/atestos'
+import type { ConfiguracoesRecord, Order, Atesto } from '@/lib/types'
+import {
+  createOfficialAtestoPdf,
+  generateAtestoBlob,
+  downloadAtestoPdf,
+  formatQuantityBR,
+  formatExtendDateBR,
+  type AtestoDocumentData,
+} from '@/lib/atestoPdfGenerator'
 
 export default function Atestos() {
-  const { atestos, orders, generateAtesto, confirmAtesto, isLoading } = useApp()
-  const [generatingId, setGeneratingId] = useState<string | null>(null)
+  const { atestos, orders, contracts, contractSchools, generateAtesto, confirmAtesto, isLoading } =
+    useApp()
+  const [config, setConfig] = useState<ConfiguracoesRecord | null>(null)
+  const [isConfigLoading, setIsConfigLoading] = useState(true)
+
+  // Estados de ações
+  const [previewOrderId, setPreviewOrderId] = useState<string | null>(null)
+  const [previewAtestoId, setPreviewAtestoId] = useState<string | null>(null)
+  const [isEmitting, setIsEmitting] = useState(false)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
 
-  // Pedidos entregues sem atesto emitido
-  const pendingOrders = orders.filter(
-    (o) => o.status === 'Entregue' && !atestos.find((a) => a.orderId === o.id),
-  )
+  // Carregar configurações institucionais
+  useEffect(() => {
+    configuracoesService
+      .get()
+      .then((cfg) => {
+        setConfig(cfg)
+        setIsConfigLoading(false)
+      })
+      .catch((err) => {
+        console.error('Erro ao carregar configurações para atestos:', err)
+        setIsConfigLoading(false)
+      })
+  }, [])
 
-  const handleGenerate = async (orderId: string) => {
-    setGeneratingId(orderId)
-    const success = await generateAtesto(orderId)
-    setGeneratingId(null)
-    if (success) {
-      toast.success('Atesto emitido e registrado no banco com sucesso!')
+  // Logo URL resolvida
+  const logoUrl = useMemo(() => {
+    return configuracoesService.getLogoUrl(config)
+  }, [config])
+
+  // Pedidos entregues sem atesto emitido (regra de negócio estrita)
+  const pendingOrders = useMemo(() => {
+    return orders.filter((o) => o.status === 'Entregue' && !atestos.find((a) => a.orderId === o.id))
+  }, [orders, atestos])
+
+  // Localizar contrato e número da chamada pública para uma escola
+  const getNumeroChamadaForSchool = (schoolId: string): string => {
+    // 1. Procurar no vínculo contrato_escolas
+    const link = contractSchools.find((cs) => cs.escola_id === schoolId)
+    if (link) {
+      const contract = contracts.find((c) => c.id === link.contrato_id)
+      if (contract?.numero_chamada?.trim()) {
+        return contract.numero_chamada.trim()
+      }
+      if (contract?.numero) {
+        return contract.numero
+      }
+    }
+    // 2. Se não encontrar vínculo específico, usar o primeiro contrato ativo
+    const activeContract = contracts.find((c) => c.status === 'Ativo')
+    if (activeContract?.numero_chamada?.trim()) {
+      return activeContract.numero_chamada.trim()
+    }
+    return activeContract?.numero || '001/2026'
+  }
+
+  // Prepara os dados canônicos do documento oficial para um Pedido ou Atesto
+  const prepareDocumentData = (
+    order: Order,
+    atestoNumero?: string,
+    dataEmissao?: string,
+  ): AtestoDocumentData => {
+    const numeroChamada = getNumeroChamadaForSchool(order.schoolId)
+    const numeroAtesto = atestoNumero || `AT-${String(atestos.length + 1).padStart(3, '0')}`
+
+    const items =
+      order.items && order.items.length > 0
+        ? order.items.map((i) => ({
+            nome: i.name,
+            quantidade: i.quantity,
+          }))
+        : [
+            {
+              nome: 'Gêneros alimentícios da agricultura familiar conforme nota de entrega',
+              quantidade: 1,
+            },
+          ]
+
+    return {
+      numeroAtesto,
+      numeroChamada,
+      nomeEscola: order.schoolName || 'Unidade Escolar',
+      nomeCooperativa: config?.nome_cooperativa || 'CooperGestão — Cooperativa Agrícola Familiar',
+      siglaCooperativa: config?.sigla || 'COOPGESTÃO',
+      cidadeUf: config?.cidade_uf || 'Região Serrana - RJ',
+      dataEmissao: dataEmissao || new Date(),
+      items,
+      logoUrl: logoUrl || undefined,
     }
   }
 
+  // 1. Abertura do Modal de Emissão com Preview
+  const handleOpenPreview = (orderId: string) => {
+    setPreviewOrderId(orderId)
+  }
+
+  // 2. Executar Emissão de Atesto: Gera PDF, faz upload para o banco no registro do atesto
+  const handleEmitirAtesto = async () => {
+    if (!previewOrderId) return
+    const order = orders.find((o) => o.id === previewOrderId)
+    if (!order) return
+
+    setIsEmitting(true)
+    try {
+      const nextNum = `AT-${String(atestos.length + 1).padStart(3, '0')}`
+      const docData = prepareDocumentData(order, nextNum)
+
+      // Gerar PDF oficial como Blob
+      const pdfBlob = await generateAtestoBlob(docData)
+
+      // Gravar no backend no registro do atesto (com arquivo PDF em anexo)
+      const createdRecord = await generateAtesto(order.id, pdfBlob)
+
+      if (createdRecord) {
+        toast.success(
+          `Termo de Recebimento (${docData.numeroAtesto}) emitido e gravado com sucesso!`,
+        )
+        // Disparar download imediato do PDF oficial para conveniência
+        await downloadAtestoPdf(
+          docData,
+          `Termo_Recebimento_${docData.numeroAtesto}_${order.schoolName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+        )
+      }
+
+      setPreviewOrderId(null)
+    } catch (err: any) {
+      console.error('Erro ao emitir atesto oficial:', err)
+      toast.error('Falha ao emitir e armazenar atesto oficial.')
+    } finally {
+      setIsEmitting(false)
+    }
+  }
+
+  // 3. Download do PDF de um Atesto já emitido
+  const handleDownloadExisting = async (atesto: Atesto) => {
+    setDownloadingId(atesto.id)
+    try {
+      // Se já possui arquivo salvo no PocketBase, baixar diretamente o binário
+      if (atesto.arquivo) {
+        const fileUrl = atestosService.getFileUrl(
+          {
+            id: atesto.id,
+            collectionName: 'atestos',
+            arquivo: atesto.arquivo,
+          },
+          atesto.arquivo,
+        )
+        if (fileUrl) {
+          const a = document.createElement('a')
+          a.href = fileUrl
+          a.download = atesto.arquivo || `Termo_Recebimento_${atesto.numero || atesto.id}.pdf`
+          a.target = '_blank'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          toast.success('Download do PDF armazenado iniciado!')
+          setDownloadingId(null)
+          return
+        }
+      }
+
+      // Caso o registro seja anterior e não tenha o arquivo gravado, sintetizar o PDF oficial e também salvar no registro
+      const relatedOrder = orders.find((o) => o.id === atesto.orderId)
+      if (relatedOrder) {
+        const docData = prepareDocumentData(relatedOrder, atesto.numero, atesto.date)
+        const pdfBlob = await generateAtestoBlob(docData)
+
+        // Salvar retroativamente no PocketBase
+        try {
+          await atestosService.updatePdf(
+            atesto.id,
+            pdfBlob,
+            `Termo_Recebimento_${atesto.numero || atesto.id}.pdf`,
+          )
+        } catch {
+          // ignora se falhar gravação retroativa
+        }
+
+        await downloadAtestoPdf(
+          docData,
+          `Termo_Recebimento_${atesto.numero || atesto.id}_${atesto.schoolName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+        )
+        toast.success('Documento oficial gerado e baixado com sucesso!')
+      } else {
+        toast.error('Pedido correspondente não encontrado para gerar o PDF.')
+      }
+    } catch (err) {
+      console.error('Erro no download do atesto:', err)
+      toast.error('Não foi possível gerar o PDF do atesto.')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  // 4. Confirmar Atesto
   const handleConfirm = async (atestoId: string) => {
     setConfirmingId(atestoId)
     const success = await confirmAtesto(atestoId)
     setConfirmingId(null)
     if (success) {
-      toast.success('Atesto confirmado com sucesso!')
+      toast.success('Termo de Recebimento confirmado com sucesso!')
     }
   }
 
   const handlePrint = () => {
-    toast('Iniciando impressão...', { icon: <Printer className="h-4 w-4" /> })
     window.print()
   }
 
+  // Ordem selecionada para emissão
+  const orderForEmission = useMemo(() => {
+    if (!previewOrderId) return null
+    return orders.find((o) => o.id === previewOrderId) || null
+  }, [previewOrderId, orders])
+
+  // Atesto selecionado para visualização
+  const atestoForView = useMemo(() => {
+    if (!previewAtestoId) return null
+    return atestos.find((a) => a.id === previewAtestoId) || null
+  }, [previewAtestoId, atestos])
+
+  const orderForView = useMemo(() => {
+    if (!atestoForView) return null
+    return orders.find((o) => o.id === atestoForView.orderId) || null
+  }, [atestoForView, orders])
+
   return (
     <div className="space-y-6">
+      {/* Cabeçalho */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Emissão de Atestos</h1>
-          <p className="text-muted-foreground">
-            Gerencie os certificados de recebimento para comprovação e faturamento.
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <FileText className="h-6 w-6 text-primary" />
+            <span>Emissão de Atestos Oficiais</span>
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Gere o <strong>Termo de Recebimento de Aquisição de Gêneros Alimentícios</strong> pronto
+            para impressão e arquivamento em PDF.
           </p>
         </div>
       </div>
 
+      {/* Bloco: Pedidos Entregues Aguardando Emissão */}
       {pendingOrders.length > 0 ? (
         <Card className="border-emerald-500/30 bg-emerald-50/20 dark:bg-emerald-950/10 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2 text-emerald-800 dark:text-emerald-400">
-              <FileCheck className="h-5 w-5 text-emerald-600" /> Pedidos Entregues Aguardando
-              Emissão de Atesto
-            </CardTitle>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-base flex items-center gap-2 text-emerald-800 dark:text-emerald-400">
+                <FileCheck className="h-5 w-5 text-emerald-600" /> Pedidos Entregues Aguardando
+                Emissão de Atesto
+              </CardTitle>
+              <Badge
+                variant="outline"
+                className="text-emerald-700 border-emerald-400 font-semibold"
+              >
+                {pendingOrders.length} pedido(s) elegível(eis)
+              </Badge>
+            </div>
             <p className="text-xs text-muted-foreground">
               Regra de negócio: Apenas pedidos com status <strong>"Entregue"</strong> e sem atesto
-              emitido são listados aqui.
+              vinculado são listados aqui. Clique em <strong>"Visualizar e Emitir"</strong> para
+              revisar o documento oficial em modelo A4 antes de gravar.
             </p>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-3">
-              {pendingOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="flex items-center justify-between bg-card p-3 rounded-md border flex-1 min-w-[300px] shadow-xs"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-sm">{order.schoolName}</p>
-                      <Badge className="bg-emerald-600 text-[10px] h-4">Entregue</Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Pedido{' '}
-                      <span className="font-bold text-foreground">{order.numero || order.id}</span>
-                      {order.entregue_em &&
-                        ` • Entregue em ${new Date(order.entregue_em).toLocaleDateString('pt-BR')}`}{' '}
-                      • R$ {order.total.toFixed(2)}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                    onClick={() => handleGenerate(order.id)}
-                    disabled={generatingId === order.id}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {pendingOrders.map((order) => {
+                const totalKg = order.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
+                const chamada = getNumeroChamadaForSchool(order.schoolId)
+
+                return (
+                  <div
+                    key={order.id}
+                    className="flex flex-col justify-between bg-card p-3.5 rounded-lg border shadow-xs hover:border-emerald-400/50 transition-colors"
                   >
-                    {generatingId === order.id ? (
-                      <>
-                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Gerando...
-                      </>
-                    ) : (
-                      'Gerar Atesto'
-                    )}
-                  </Button>
-                </div>
-              ))}
+                    <div className="space-y-1.5 mb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-sm line-clamp-1">{order.schoolName}</p>
+                        <Badge className="bg-emerald-600 text-[10px] h-4 shrink-0">Entregue</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Pedido:{' '}
+                        <span className="font-semibold text-foreground">
+                          {order.numero || order.id}
+                        </span>
+                        {order.entregue_em && (
+                          <span> • {new Date(order.entregue_em).toLocaleDateString('pt-BR')}</span>
+                        )}
+                      </p>
+                      <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 pt-1 border-t">
+                        <span>
+                          Chamada Pública: <strong>{chamada}</strong>
+                        </span>
+                        <span>
+                          Total de Itens: <strong>{formatQuantityBR(totalKg)} KG</strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    <Button
+                      size="sm"
+                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 text-xs"
+                      onClick={() => handleOpenPreview(order.id)}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Visualizar e Emitir Atesto
+                    </Button>
+                  </div>
+                )
+              })}
             </div>
           </CardContent>
         </Card>
       ) : (
         <Card className="border-dashed bg-muted/20">
-          <CardContent className="py-6 text-center text-xs text-muted-foreground">
-            Nenhum pedido entregue aguardando emissão de atesto no momento. Para emitir um atesto,
-            confirme primeiro a entrega do pedido na tela de <strong>Pedidos</strong> ou{' '}
-            <strong>Rotas de Entrega</strong>.
+          <CardContent className="py-6 text-center text-xs text-muted-foreground flex flex-col items-center justify-center gap-1.5">
+            <Check className="h-5 w-5 text-emerald-600" />
+            <span>Nenhum pedido entregue aguardando emissão de atesto no momento.</span>
+            <span className="text-[11px]">
+              Para emitir um novo atesto, confirme primeiro a entrega do pedido na tela de{' '}
+              <strong>Pedidos</strong> ou <strong>Rotas de Entrega</strong>.
+            </span>
           </CardContent>
         </Card>
       )}
 
+      {/* Histórico de Atestos Emitidos */}
       <Card>
         <CardHeader>
-          <CardTitle>Histórico de Atestos</CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <CardTitle>Histórico de Termos de Recebimento</CardTitle>
+              <CardDescription>
+                Relação completa de atestos emitidos, prontos para download do PDF oficial e
+                conferência.
+              </CardDescription>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Total emitidos: <strong>{atestos.length}</strong>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
@@ -137,39 +394,43 @@ export default function Atestos() {
                 <TableRow>
                   <TableHead>Nº Atesto</TableHead>
                   <TableHead>Ref. Pedido</TableHead>
-                  <TableHead>Instituição</TableHead>
+                  <TableHead>Instituição / Escola</TableHead>
                   <TableHead>Data Emissão</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Ação</TableHead>
+                  <TableHead>Arquivo PDF</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {isLoading || isConfigLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       <div className="flex items-center justify-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
                         Carregando atestos do banco...
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : atestos.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
-                      Nenhum atesto emitido no banco.
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      Nenhum atesto emitido no banco de dados.
                     </TableCell>
                   </TableRow>
                 ) : (
                   atestos.map((atesto) => {
-                    const relatedOrder = orders.find((o) => o.id === atesto.orderId)
                     return (
                       <TableRow key={atesto.id}>
-                        <TableCell className="font-medium">{atesto.numero || atesto.id}</TableCell>
-                        <TableCell className="text-muted-foreground">
+                        <TableCell className="font-semibold text-primary">
+                          {atesto.numero || atesto.id}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-xs">
                           {atesto.orderNumber || atesto.orderId}
                         </TableCell>
-                        <TableCell>{atesto.schoolName}</TableCell>
-                        <TableCell>{new Date(atesto.date).toLocaleDateString('pt-BR')}</TableCell>
+                        <TableCell className="font-medium">{atesto.schoolName}</TableCell>
+                        <TableCell className="text-xs">
+                          {new Date(atesto.date).toLocaleDateString('pt-BR')}
+                        </TableCell>
                         <TableCell>
                           <Badge
                             variant={atesto.status === 'Confirmado' ? 'default' : 'outline'}
@@ -181,6 +442,20 @@ export default function Atestos() {
                           >
                             {atesto.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {atesto.arquivo ? (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-300"
+                            >
+                              PDF Gravado
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                              Gerado ao Baixar
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -197,119 +472,36 @@ export default function Atestos() {
                                 ) : (
                                   <Check className="h-3 w-3 mr-1" />
                                 )}
-                                Confirmar Recebimento
+                                Confirmar
                               </Button>
                             )}
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="ghost" size="sm" className="h-8 text-xs">
-                                  Visualizar
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
-                                <DialogHeader>
-                                  <DialogTitle className="sr-only">
-                                    Atesto de Recebimento
-                                  </DialogTitle>
-                                </DialogHeader>
-                                <div className="p-8 bg-white text-black border shadow-sm mx-auto w-full space-y-6">
-                                  <div className="flex items-center justify-between border-b-2 border-black pb-4">
-                                    <div className="flex items-center gap-3">
-                                      <Sprout className="h-8 w-8 text-black" />
-                                      <div>
-                                        <h2 className="font-bold text-lg uppercase tracking-wider">
-                                          CoopGestão
-                                        </h2>
-                                        <p className="text-xs">Cooperativa Agrícola Familiar</p>
-                                      </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="font-bold text-xl uppercase">Atesto</p>
-                                      <p className="text-sm">Nº {atesto.numero || atesto.id}</p>
-                                    </div>
-                                  </div>
 
-                                  <div className="space-y-2 text-sm">
-                                    <p>
-                                      <strong>Instituição Recebedora:</strong> {atesto.schoolName}
-                                    </p>
-                                    <p>
-                                      <strong>Data de Emissão:</strong>{' '}
-                                      {new Date(atesto.date).toLocaleDateString('pt-BR')}
-                                    </p>
-                                    <p>
-                                      <strong>Ref. Pedido:</strong>{' '}
-                                      {atesto.orderNumber || atesto.orderId}
-                                    </p>
-                                  </div>
+                            {/* Botão Baixar PDF */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs gap-1 border-muted-foreground/30 hover:bg-muted"
+                              onClick={() => handleDownloadExisting(atesto)}
+                              disabled={downloadingId === atesto.id}
+                              title="Baixar Termo de Recebimento em PDF"
+                            >
+                              {downloadingId === atesto.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              ) : (
+                                <Download className="h-3 w-3 mr-1" />
+                              )}
+                              Baixar PDF
+                            </Button>
 
-                                  <div className="border border-black p-4 text-sm space-y-2">
-                                    <p className="font-bold border-b border-black/20 pb-1">
-                                      Produtos Entregues e Conferidos:
-                                    </p>
-                                    {relatedOrder && relatedOrder.items.length > 0 ? (
-                                      <ul className="space-y-1">
-                                        {relatedOrder.items.map((it, idx) => (
-                                          <li key={idx} className="flex justify-between">
-                                            <span>
-                                              • {it.quantity}x {it.name}
-                                            </span>
-                                            <span>R$ {(it.quantity * it.price).toFixed(2)}</span>
-                                          </li>
-                                        ))}
-                                        <li className="pt-2 border-t font-semibold flex justify-between">
-                                          <span>Total do Pedido:</span>
-                                          <span>R$ {relatedOrder.total.toFixed(2)}</span>
-                                        </li>
-                                      </ul>
-                                    ) : (
-                                      <p className="text-gray-600 italic">
-                                        Itens conferidos conforme nota de entrega e contrato
-                                        institucional.
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  <div className="pt-8 text-center space-y-8">
-                                    <p className="text-sm">
-                                      Declaro ter recebido os gêneros alimentícios descritos acima
-                                      em perfeitas condições de conservação e higiene para o consumo
-                                      escolar.
-                                    </p>
-                                    <div className="mx-auto w-64 border-t border-black pt-2">
-                                      <p className="text-xs font-bold uppercase">
-                                        Assinatura do Responsável
-                                      </p>
-                                      <p className="text-[10px] text-gray-600">
-                                        Direção / Nutricionista / CAE
-                                      </p>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="flex items-center justify-between mt-4">
-                                  <div>
-                                    {atesto.status === 'Pendente Assinatura' && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleConfirm(atesto.id)}
-                                        disabled={confirmingId === atesto.id}
-                                      >
-                                        {confirmingId === atesto.id ? (
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                                        ) : (
-                                          <Check className="h-3.5 w-3.5 mr-1.5" />
-                                        )}
-                                        Confirmar Recebimento
-                                      </Button>
-                                    )}
-                                  </div>
-                                  <Button onClick={handlePrint}>
-                                    <Printer className="mr-2 h-4 w-4" /> Imprimir Atesto
-                                  </Button>
-                                </div>
-                              </DialogContent>
-                            </Dialog>
+                            {/* Botão Visualizar Documento */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 text-xs"
+                              onClick={() => setPreviewAtestoId(atesto.id)}
+                            >
+                              <Eye className="h-3.5 w-3.5 mr-1" /> Visualizar
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -321,6 +513,317 @@ export default function Atestos() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ========================================================================= */}
+      {/* MODAL 1: PREVIEW DO DOCUMENTO ANTES DE EMITIR (COM BOTÃO "EMITIR ATESTO") */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={!!previewOrderId}
+        onOpenChange={(open) => {
+          if (!open && !isEmitting) setPreviewOrderId(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-[760px] max-h-[92vh] overflow-y-auto p-0">
+          <DialogHeader className="p-6 pb-2 border-b">
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <span>Preview do Documento Oficial</span>
+                </DialogTitle>
+                <DialogDescription className="text-xs">
+                  Confira a pré-visualização do modelo oficial A4 antes de confirmar a emissão.
+                </DialogDescription>
+              </div>
+              <Badge variant="outline" className="text-emerald-700 border-emerald-400">
+                Pendente Emissão
+              </Badge>
+            </div>
+          </DialogHeader>
+
+          {orderForEmission && (
+            <div className="p-6 space-y-4">
+              {/* Documento A4 Estilizado */}
+              <DocumentoOficialView
+                order={orderForEmission}
+                config={config}
+                logoUrl={logoUrl}
+                numeroChamada={getNumeroChamadaForSchool(orderForEmission.schoolId)}
+                numeroAtesto={`AT-${String(atestos.length + 1).padStart(3, '0')}`}
+                dataEmissao={new Date()}
+              />
+
+              {/* Ações do Modal */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPreviewOrderId(null)}
+                  disabled={isEmitting}
+                >
+                  Cancelar
+                </Button>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePrint}
+                    disabled={isEmitting}
+                    className="gap-1.5"
+                  >
+                    <Printer className="h-4 w-4" /> Imprimir
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 flex-1 sm:flex-none"
+                    onClick={handleEmitirAtesto}
+                    disabled={isEmitting}
+                  >
+                    {isEmitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Emitindo e Gravando PDF...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4" /> Emitir Atesto & Gravar PDF
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* MODAL 2: VISUALIZAÇÃO DE ATESTO JÁ EMITIDO */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={!!previewAtestoId}
+        onOpenChange={(open) => {
+          if (!open) setPreviewAtestoId(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-[760px] max-h-[92vh] overflow-y-auto p-0">
+          <DialogHeader className="p-6 pb-2 border-b">
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <span>Termo de Recebimento Emitido</span>
+                </DialogTitle>
+                <DialogDescription className="text-xs">
+                  {atestoForView?.numero || atestoForView?.id} • Instituição:{' '}
+                  {atestoForView?.schoolName}
+                </DialogDescription>
+              </div>
+              <Badge
+                variant={atestoForView?.status === 'Confirmado' ? 'default' : 'outline'}
+                className={atestoForView?.status === 'Confirmado' ? 'bg-primary' : ''}
+              >
+                {atestoForView?.status}
+              </Badge>
+            </div>
+          </DialogHeader>
+
+          {atestoForView && (
+            <div className="p-6 space-y-4">
+              {orderForView ? (
+                <DocumentoOficialView
+                  order={orderForView}
+                  config={config}
+                  logoUrl={logoUrl}
+                  numeroChamada={getNumeroChamadaForSchool(orderForView.schoolId)}
+                  numeroAtesto={atestoForView.numero}
+                  dataEmissao={atestoForView.date}
+                />
+              ) : (
+                <div className="p-8 text-center text-sm text-muted-foreground border rounded-lg bg-muted/20">
+                  Dados detalhados do pedido indisponíveis para visualização em tela. Utilize o
+                  botão "Baixar PDF" para obter o arquivo oficial.
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t">
+                <div>
+                  {atestoForView.status === 'Pendente Assinatura' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleConfirm(atestoForView.id)}
+                      disabled={confirmingId === atestoForView.id}
+                      className="border-primary/40 text-primary"
+                    >
+                      {confirmingId === atestoForView.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5 mr-1.5" />
+                      )}
+                      Confirmar Recebimento
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5">
+                    <Printer className="h-4 w-4" /> Imprimir
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
+                    onClick={() => handleDownloadExisting(atestoForView)}
+                    disabled={downloadingId === atestoForView.id}
+                  >
+                    {downloadingId === atestoForView.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    Baixar PDF
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+/**
+ * Componente que renderiza a visualização fiel da folha A4 oficial:
+ * MODELO: "TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS"
+ */
+interface DocumentoOficialViewProps {
+  order: Order
+  config: ConfiguracoesRecord | null
+  logoUrl?: string
+  numeroChamada: string
+  numeroAtesto: string
+  dataEmissao: Date | string
+}
+
+function DocumentoOficialView({
+  order,
+  config,
+  logoUrl,
+  numeroChamada,
+  numeroAtesto,
+  dataEmissao,
+}: DocumentoOficialViewProps) {
+  const nomeCoop = config?.nome_cooperativa || 'CooperGestão — Cooperativa Agrícola Familiar'
+  const cidadeUf = config?.cidade_uf || 'Região Serrana - RJ'
+  const nomeEscola = order.schoolName || 'Unidade Escolar'
+
+  const items =
+    order.items && order.items.length > 0
+      ? order.items
+      : [
+          {
+            name: 'Gêneros alimentícios da agricultura familiar',
+            quantity: 1,
+            price: 0,
+            productId: '1',
+          },
+        ]
+
+  const totalQuantidade = items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)
+
+  return (
+    <div className="bg-white text-slate-900 border border-slate-300 shadow-md p-8 sm:p-10 rounded-sm font-sans space-y-6 max-w-[680px] mx-auto text-sm leading-relaxed">
+      {/* Cabeçalho */}
+      <div className="text-center space-y-2 pb-4 border-b border-slate-300">
+        {logoUrl ? (
+          <div className="flex justify-center mb-2">
+            <img
+              src={logoUrl}
+              alt="Logotipo Cooperativa"
+              className="h-14 max-w-[160px] object-contain"
+            />
+          </div>
+        ) : (
+          <div className="flex justify-center mb-1">
+            <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
+              <Sprout className="h-6 w-6" />
+            </div>
+          </div>
+        )}
+        <h2 className="font-bold text-xs uppercase tracking-wider text-slate-700">{nomeCoop}</h2>
+        <h1 className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight leading-snug">
+          TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA-N°{' '}
+          {numeroChamada || 'Nº'}
+        </h1>
+        <p className="text-[11px] text-slate-500 text-right">
+          Atesto Nº: <span className="font-semibold text-slate-800">{numeroAtesto}</span>
+        </p>
+      </div>
+
+      {/* Parágrafo de Atesto */}
+      <div className="text-justify text-[13px] text-slate-800">
+        <p>
+          Atesto que a <strong>{nomeEscola}</strong> recebeu os produtos listados abaixo da{' '}
+          <strong>{nomeCoop}</strong>.
+        </p>
+      </div>
+
+      {/* Tabela de Produtos */}
+      <div className="overflow-hidden border border-slate-400 rounded-xs">
+        <table className="w-full text-xs text-left border-collapse">
+          <thead>
+            <tr className="bg-slate-100 border-b border-slate-400 font-bold text-slate-900">
+              <th className="py-2 px-3">PRODUTOS</th>
+              <th className="py-2 px-3 text-right w-36">QUANTIDADE (KG)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-300">
+            {items.map((it, idx) => (
+              <tr key={idx} className="hover:bg-slate-50/60">
+                <td className="py-1.5 px-3 uppercase text-slate-800 font-medium">{it.name}</td>
+                <td className="py-1.5 px-3 text-right font-mono font-semibold text-slate-900">
+                  {formatQuantityBR(it.quantity)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-slate-100/80 border-t-2 border-slate-400 font-bold text-slate-900">
+              <td className="py-2 px-3 text-slate-900">Total de itens</td>
+              <td className="py-2 px-3 text-right font-mono text-slate-900 text-[13px]">
+                {formatQuantityBR(totalQuantidade)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Texto de Declaração */}
+      <div className="space-y-2 text-[12.5px] text-slate-800 leading-normal text-justify">
+        <p>Nestes termos, os produtos entregues estão de acordo com o contrato assinado.</p>
+        <p>
+          Declaro ainda que os produtos estão de acordo com os padrões de qualidade aceitos por esta
+          instituição, pelos quais concedemos a aceitabilidade, comprometendo-nos a dar a destinação
+          final aos produtos recebidos, conforme estabelecido na aquisição da Agricultura Familiar
+          para Alimentação Escolar.
+        </p>
+      </div>
+
+      {/* Local e Data */}
+      <div className="pt-2 text-[13px] text-slate-900">
+        <p>{formatExtendDateBR(cidadeUf, dataEmissao)}</p>
+      </div>
+
+      {/* Rodapé de Assinatura */}
+      <div className="pt-8 pb-2 text-center space-y-1">
+        <div className="mx-auto w-72 sm:w-80 border-t border-slate-800" />
+        <p className="text-xs font-bold text-slate-900 pt-1">
+          Representante da Unidade Escolar (conferente)
+        </p>
+        <p className="text-[12px] text-slate-700 font-medium">{nomeEscola}</p>
+        <p className="text-[11px] text-slate-600 tracking-wide pt-1">
+          Matrícula ou CPF: ___________________________
+        </p>
+      </div>
     </div>
   )
 }

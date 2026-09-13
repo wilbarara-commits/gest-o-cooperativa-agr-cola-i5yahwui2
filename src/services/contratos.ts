@@ -35,21 +35,21 @@ export const contratosService = {
 
   async create(data: {
     numero: string
+    numero_chamada?: string
     tipo?: string
     modalidade_pedido?: 'individualizado' | 'centralizado'
     valor_total: number
-    status: 'Ativo' | 'Encerrado' | 'Pendente'
+    status?: 'Ativo' | 'Encerrado' | 'Pendente'
   }): Promise<ContratoRecord> {
     return await pb.collection('contratos').create<ContratoRecord>({
       ...data,
-      modalidade_pedido: data.modalidade_pedido || 'individualizado',
+      status: data.status || 'Ativo',
     })
   },
 
   async update(id: string, data: Partial<ContratoRecord>): Promise<ContratoRecord> {
     return await pb.collection('contratos').update<ContratoRecord>(id, data)
   },
-
   async delete(id: string): Promise<boolean> {
     // Delete associated contract items
     const items = await pb.collection('contrato_itens').getFullList<ContratoItemRecord>({

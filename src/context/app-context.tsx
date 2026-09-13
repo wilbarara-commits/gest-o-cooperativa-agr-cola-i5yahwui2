@@ -12,6 +12,7 @@ import type {
   Contract,
   Order,
   Atesto,
+  AtestoRecord,
   CicloRecord,
   RotaRecord,
   ContratoEscolaRecord,
@@ -56,7 +57,7 @@ interface AppState {
   error: string | null
   refreshData: () => Promise<void>
   addOrder: (orderData: CreateOrderData) => Promise<boolean>
-  generateAtesto: (orderId: string) => Promise<boolean>
+  generateAtesto: (orderId: string, pdfBlob?: Blob) => Promise<AtestoRecord | null>
   confirmAtesto: (atestoId: string) => Promise<boolean>
   updateOrderStatus: (
     id: string,
@@ -253,6 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return {
           id: c.id,
           numero: c.numero,
+          numero_chamada: c.numero_chamada || '',
           tipo: c.tipo || 'PNAE',
           modalidade_pedido: c.modalidade_pedido || 'individualizado',
           totalValue,
@@ -279,6 +281,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             a.data_emissao || a.created?.split('T')[0] || new Date().toISOString().split('T')[0],
           status: a.status,
           signatureFile: a.assinatura_file,
+          arquivo: a.arquivo,
         }
       })
       setAtestos(mappedAtestos)
@@ -548,37 +551,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const generateAtesto = async (orderId: string): Promise<boolean> => {
+  const generateAtesto = async (orderId: string, pdfBlob?: Blob): Promise<AtestoRecord | null> => {
     try {
       const order = orders.find((o) => o.id === orderId)
       if (!order) {
         toast.error('Pedido não encontrado.')
-        return false
+        return null
       }
 
       const existing = atestos.find((a) => a.orderId === orderId)
       if (existing) {
         toast.info('Já existe atesto emitido para este pedido.')
-        return false
+        return null
       }
 
       const atestoCount = atestos.length + 1
       const numero = `AT-${String(atestoCount).padStart(3, '0')}`
       const now = new Date().toISOString()
 
-      await atestosService.create({
+      const created = await atestosService.create({
         numero,
         pedido_id: orderId,
         data_emissao: now,
         status: 'Pendente Assinatura',
+        arquivo: pdfBlob,
       })
 
       await loadAllData()
-      return true
+      return created
     } catch (err: any) {
       console.error('Erro ao gerar atesto:', err)
       toast.error('Falha ao gerar atesto no banco.')
-      return false
+      return null
     }
   }
 

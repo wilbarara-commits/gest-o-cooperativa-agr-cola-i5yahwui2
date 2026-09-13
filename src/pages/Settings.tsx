@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Settings,
   Building2,
@@ -11,6 +11,9 @@ import {
   FileText,
   Crown,
   ShieldAlert,
+  Upload,
+  Image,
+  Trash2,
 } from 'lucide-react'
 import { configuracoesService } from '@/services/configuracoes'
 import type { ConfiguracoesRecord } from '@/lib/types'
@@ -45,6 +48,9 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('')
   const [cidadeUf, setCidadeUf] = useState('Região Serrana - RJ')
   const [exibirAtalhosDemo, setExibirAtalhosDemo] = useState(true)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     configuracoesService
@@ -59,6 +65,8 @@ export default function SettingsPage() {
           setEmail(data.email || '')
           setCidadeUf(data.cidade_uf || '')
           setExibirAtalhosDemo(data.exibir_atalhos_demo !== false)
+          const existingUrl = configuracoesService.getLogoUrl(data)
+          if (existingUrl) setLogoPreview(existingUrl)
         }
         setIsLoading(false)
       })
@@ -78,19 +86,38 @@ export default function SettingsPage() {
 
     setIsSaving(true)
     try {
-      const saved = await configuracoesService.save(
-        {
-          nome_cooperativa: nomeCooperativa.trim(),
-          sigla: sigla.trim(),
-          cnpj: cnpj.trim(),
-          telefone: telefone.trim(),
-          email: email.trim(),
-          cidade_uf: cidadeUf.trim(),
-          exibir_atalhos_demo: exibirAtalhosDemo,
-        },
-        config?.id,
-      )
+      let saved: ConfiguracoesRecord
+
+      if (logoFile) {
+        const formData = new FormData()
+        formData.append('nome_cooperativa', nomeCooperativa.trim())
+        formData.append('sigla', sigla.trim())
+        formData.append('cnpj', cnpj.trim())
+        formData.append('telefone', telefone.trim())
+        formData.append('email', email.trim())
+        formData.append('cidade_uf', cidadeUf.trim())
+        formData.append('exibir_atalhos_demo', String(exibirAtalhosDemo))
+        formData.append('logotipo', logoFile)
+        saved = await configuracoesService.save(formData, config?.id)
+      } else {
+        saved = await configuracoesService.save(
+          {
+            nome_cooperativa: nomeCooperativa.trim(),
+            sigla: sigla.trim(),
+            cnpj: cnpj.trim(),
+            telefone: telefone.trim(),
+            email: email.trim(),
+            cidade_uf: cidadeUf.trim(),
+            exibir_atalhos_demo: exibirAtalhosDemo,
+          },
+          config?.id,
+        )
+      }
+
       setConfig(saved)
+      const newUrl = configuracoesService.getLogoUrl(saved)
+      if (newUrl) setLogoPreview(newUrl)
+      setLogoFile(null)
       toast.success('Configurações da cooperativa atualizadas com sucesso!')
     } catch (err: any) {
       console.error('Erro ao salvar configurações:', err)
@@ -239,6 +266,83 @@ export default function SettingsPage() {
             </div>
 
             <Separator className="my-2" />
+
+            {/* Campo de Logotipo */}
+            <div className="space-y-2 pt-1">
+              <Label className="text-sm font-medium">
+                Logotipo da Cooperativa (para Termo de Recebimento e Relatórios)
+              </Label>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-lg bg-muted/20 border">
+                {logoPreview ? (
+                  <div className="relative group border rounded-md p-1 bg-white flex items-center justify-center w-28 h-20 shadow-xs">
+                    <img
+                      src={logoPreview}
+                      alt="Logotipo da Cooperativa"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="border border-dashed rounded-md w-28 h-20 flex flex-col items-center justify-center text-muted-foreground bg-muted/40 text-xs">
+                    <Image className="h-6 w-6 mb-1 opacity-50" />
+                    <span>Sem logo</span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5 flex-1">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        if (file.size > 5 * 1024 * 1024) {
+                          toast.error('Imagem muito grande. Máximo permitido: 5MB.')
+                          return
+                        }
+                        setLogoFile(file)
+                        const reader = new FileReader()
+                        reader.onloadend = () => setLogoPreview(reader.result as string)
+                        reader.readAsDataURL(file)
+                      }
+                    }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs gap-1.5"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      {logoPreview ? 'Alterar Logotipo' : 'Selecionar Imagem'}
+                    </Button>
+                    {logoPreview && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-destructive hover:bg-destructive/10"
+                        onClick={() => {
+                          setLogoFile(null)
+                          setLogoPreview(null)
+                          if (fileInputRef.current) fileInputRef.current.value = ''
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Remover
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Formatos aceitos: PNG, JPG ou WEBP até 5MB. Exibido no cabeçalho do documento
+                    oficial Atesto.
+                  </p>
+                </div>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">

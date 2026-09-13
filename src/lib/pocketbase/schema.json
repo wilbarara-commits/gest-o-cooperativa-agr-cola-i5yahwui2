@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T03:10:45.724Z",
+  "generatedAt": "2026-09-13T04:33:25.255Z",
   "collections": [
     {
       "name": "users",
@@ -271,6 +271,12 @@
           "required": false,
           "system": false,
           "selectValues": ["individualizado", "centralizado"]
+        },
+        {
+          "name": "numero_chamada",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []
@@ -536,6 +542,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "arquivo",
+          "type": "file",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -919,6 +931,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "logotipo",
+          "type": "file",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []

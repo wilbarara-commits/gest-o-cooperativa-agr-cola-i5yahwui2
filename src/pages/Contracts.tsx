@@ -99,6 +99,7 @@ export default function Contracts() {
 
   // Formulário de Contrato
   const [numero, setNumero] = useState('')
+  const [numeroChamada, setNumeroChamada] = useState('')
   const [tipo, setTipo] = useState('PNAE')
   const [modalidade, setModalidade] = useState<'individualizado' | 'centralizado'>(
     'individualizado',
@@ -135,6 +136,7 @@ export default function Contracts() {
   const handleOpenCreate = () => {
     setEditingContract(null)
     setNumero('')
+    setNumeroChamada('')
     setTipo('PNAE')
     setModalidade('individualizado')
     setValorTotal('')
@@ -158,6 +160,7 @@ export default function Contracts() {
   const handleOpenEdit = async (contract: Contract) => {
     setEditingContract(contract)
     setNumero(contract.numero)
+    setNumeroChamada(contract.numero_chamada || '')
     setTipo(contract.tipo || 'PNAE')
     setModalidade(contract.modalidade_pedido || 'individualizado')
     setValorTotal(contract.totalValue.toString())
@@ -397,6 +400,7 @@ export default function Contracts() {
       if (editingContract) {
         await contratosService.update(editingContract.id, {
           numero: trimmedNum,
+          numero_chamada: numeroChamada.trim() || undefined,
           tipo,
           modalidade_pedido: modalidade,
           valor_total: val,
@@ -405,6 +409,7 @@ export default function Contracts() {
       } else {
         const created = await contratosService.create({
           numero: trimmedNum,
+          numero_chamada: numeroChamada.trim() || undefined,
           tipo,
           modalidade_pedido: modalidade,
           valor_total: val,
@@ -785,7 +790,7 @@ export default function Contracts() {
 
               {/* Aba 1: Dados Gerais */}
               <TabsContent value="geral" className="space-y-4 pt-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="c-num">
                       Número / Identificador <span className="text-destructive">*</span>
@@ -797,6 +802,19 @@ export default function Contracts() {
                       onChange={(e) => setNumero(e.target.value)}
                       required
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="c-chamada">Nº da Chamada Pública</Label>
+                    <Input
+                      id="c-chamada"
+                      placeholder="Ex: 001/2026"
+                      value={numeroChamada}
+                      onChange={(e) => setNumeroChamada(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Exibido no Termo de Recebimento oficial (Atesto).
+                    </p>
                   </div>
 
                   <div className="space-y-2">

@@ -48,6 +48,7 @@ export interface RotaRecord {
 export interface ContratoRecord {
   id: string
   numero: string
+  numero_chamada?: string
   tipo?: string
   modalidade_pedido?: 'individualizado' | 'centralizado'
   valor_total: number
@@ -131,10 +132,12 @@ export interface AtestoRecord {
   data_emissao: string
   status: 'Pendente Assinatura' | 'Confirmado' | 'Arquivado'
   assinatura_file?: string
+  arquivo?: string
   expand?: {
     pedido_id?: PedidoRecord & {
       expand?: {
         escola_id?: EscolaRecord
+        rota_id?: RotaRecord
       }
     }
   }
@@ -215,6 +218,7 @@ export interface ContractSchoolLink {
 export interface Contract {
   id: string
   numero: string
+  numero_chamada?: string
   tipo?: string
   modalidade_pedido: 'individualizado' | 'centralizado'
   totalValue: number
@@ -260,6 +264,7 @@ export interface Atesto {
   date: string
   status: 'Pendente Assinatura' | 'Confirmado' | 'Arquivado'
   signatureFile?: string
+  arquivo?: string
 }
 
 export type UserPerfil = 'MASTER' | 'ADMINISTRADOR' | 'SECRETARIA' | 'administrador' | 'secretaria'
@@ -287,6 +292,7 @@ export interface ConfiguracoesRecord {
   email?: string
   cidade_uf?: string
   exibir_atalhos_demo?: boolean
+  logotipo?: string
   created?: string
   updated?: string
 }

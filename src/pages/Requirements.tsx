@@ -159,14 +159,17 @@ const MODULES: ModuleSpec[] = [
   },
   {
     id: '3.12',
-    title: 'Emissão de Atestos',
+    title: 'Emissão de Atestos (Documento Oficial)',
     route: '/atestos',
-    goal: 'Gerar certificados formais de recebimento para comprovação e faturamento institucional.',
+    goal: 'Produzir o documento oficial da cooperativa ("TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS") em formato A4, com pré-visualização, geração de PDF gravado no banco e download posterior.',
     details: [
-      'Regra Estrita de Emissão: só é possível emitir atesto para pedidos que estejam com o status "Entregue".',
-      'Filtro de Pedidos Elegíveis: a tela lista exclusivamente pedidos entregues que ainda não possuam atesto emitido.',
-      'Campos (Atesto): id, numero, pedido_id, data_emissao, status.',
-      'Validação formal em papel timbrado CoopGestão e confirmação direta no sistema com suporte a impressão e exportação.',
+      'Estrutura Oficial do Documento (A4 - 1 página): Cabeçalho com logotipo da cooperativa e título central "TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA-N° {numero_chamada}".',
+      'Parágrafo de Atesto: "Atesto que a {nome_da_escola} recebeu os produtos listados abaixo da {nome_da_cooperativa}".',
+      'Tabela de Produtos: Colunas PRODUTOS e QUANTIDADE (KG), uma linha por produto entregue em formato brasileiro (vírgula decimal), e linha final "Total de itens" com a soma das quantidades.',
+      'Declaração Institucional: "Nestes termos, os produtos entregues estão de acordo com o contrato assinado." seguido do compromisso de destinação final da Agricultura Familiar para Alimentação Escolar.',
+      'Local e Data: "{cidade}, {dia} de {mês} de {ano}." derivado do cadastro de Configurações da cooperativa e data de emissão.',
+      'Rodapé de Assinatura: Linha "Matrícula ou CPF: ___________________________" (em branco para preenchimento manual após a impressão) e identificação "Representante da Unidade Escolar (conferente) {nome_da_escola}".',
+      'Fluxo de Emissão & Armazenamento: Emitido apenas para pedidos Entregues sem atesto vinculado. Apresenta preview do documento oficial, botão "Emitir Atesto" que gera e armazena o binário PDF no registro do atesto (campo arquivo), e botão "Baixar PDF" nos atestos já emitidos.',
     ],
   },
   {
@@ -264,11 +267,11 @@ const STACK = [
 
 const DATA_MODEL = [
   'users (id, email, nome/name, celular, foto [file], perfil [MASTER/ADMINISTRADOR/SECRETARIA], ativo [bool])',
-  'configuracoes (id, nome_cooperativa, sigla, cnpj, telefone, email, cidade_uf, exibir_atalhos_demo [bool])',
+  'configuracoes (id, nome_cooperativa, sigla, cnpj, telefone, email, cidade_uf, exibir_atalhos_demo [bool], logotipo [file])',
   'ciclos (id, nome, data_inicio, data_fim, status [coletando/correcao/fechado], snapshot [json])',
   'produtos (id, nome, categoria, unidade, estoque, preco_unitario, disponibilidade [normal/escassez/abundancia])',
   'escolas (id, nome, endereco, telefone, email, tipo [CMEI/CRECHE/INTEGRAL/FUNDAMENTAL], rota, alunos) [Cadastro Mestre Global]',
-  'contratos (id, numero, tipo, modalidade_pedido [individualizado/centralizado], valor_total, status)',
+  'contratos (id, numero, numero_chamada, tipo, modalidade_pedido [individualizado/centralizado], valor_total, status)',
   'contrato_escolas (id, contrato_id → contratos, escola_id → escolas, rota_id → rotas) [Vínculos N:N]',
   'rotas (id, contrato_id → contratos, nome, ordem)',
   'contrato_itens (id, contrato_id → contratos, produto_id → produtos, preco)',
@@ -276,7 +279,7 @@ const DATA_MODEL = [
   'pedido_itens (id, pedido_id → pedidos, produto_id → produtos, quantidade, preco_unitario)',
   'envios_whatsapp (id, ciclo_id → ciclos, escola_id → escolas, status [pendente/enviado/falha], enviado_em)',
   'importacoes (id, ciclo_id → ciclos, contrato_id → contratos, arquivo, data, usuario_id, linhas_total, linhas_ok, linhas_erro, erros [json])',
-  'atestos (id, numero, pedido_id → pedidos, data_emissao, status)',
+  'atestos (id, numero, pedido_id → pedidos, data_emissao, status, arquivo [file])',
 ]
 
 /* ----------------------------------------------------------------------------

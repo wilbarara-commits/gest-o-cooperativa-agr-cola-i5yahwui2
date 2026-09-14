@@ -69,12 +69,7 @@ import { contratosService } from '@/services/contratos'
 import { rotasService } from '@/services/rotas'
 import { escolasService } from '@/services/escolas'
 import { normalizeName } from '@/lib/excelImporter'
-
-interface ContractItemForm {
-  id?: string
-  productId: string
-  price: number
-}
+import { ContractItemsManager, type ContractItemForm } from '@/components/ContractItemsManager'
 
 interface ContractSchoolForm {
   escolaId: string
@@ -148,12 +143,8 @@ export default function Contracts() {
       { nome: 'ROTA A', ordem: 1 },
       { nome: 'ROTA B', ordem: 2 },
     ])
-    // Pre-populate with first products
-    const initialItems: ContractItemForm[] = products.slice(0, 5).map((p) => ({
-      productId: p.id,
-      price: p.price,
-    }))
-    setContractItems(initialItems)
+    // Novo contrato inicia limpo para seleção objetiva de produtos
+    setContractItems([])
     setDialogOpen(true)
   }
 
@@ -341,42 +332,6 @@ export default function Contracts() {
     } finally {
       setIsCreatingQuickSchool(false)
     }
-  }
-
-  // Itens do contrato
-  const handleAddItem = () => {
-    const defaultProduct = products[0]
-    setContractItems((prev) => [
-      ...prev,
-      {
-        productId: defaultProduct?.id || '',
-        price: defaultProduct?.price || 0,
-      },
-    ])
-  }
-
-  const handleRemoveItem = (index: number) => {
-    setContractItems((prev) => prev.filter((_, i) => i !== index))
-  }
-
-  const handleItemProductChange = (index: number, newProductId: string) => {
-    const prod = products.find((p) => p.id === newProductId)
-    setContractItems((prev) =>
-      prev.map((item, i) => {
-        if (i !== index) return item
-        return {
-          ...item,
-          productId: newProductId,
-          price: item.price > 0 ? item.price : prod?.price || 0,
-        }
-      }),
-    )
-  }
-
-  const handleItemPriceChange = (index: number, newPrice: number) => {
-    setContractItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, price: newPrice } : item)),
-    )
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1242,82 +1197,19 @@ export default function Contracts() {
               </TabsContent>
 
               {/* Aba 4: Produtos e Preços Acordados */}
-              <TabsContent value="produtos" className="space-y-3 pt-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="text-sm font-semibold">
-                      Tabela de Produtos & Preços Acordados
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Lista de produtos e seus respectivos preços unitários fixados neste contrato.
-                    </p>
+              <TabsContent value="produtos" className="pt-2">
+                {isLoadingItems ? (
+                  <div className="py-12 flex flex-col items-center justify-center gap-2 text-muted-foreground text-xs">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    <span>Carregando itens do contrato...</span>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddItem}
-                    className="h-8 text-xs"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar Produto
-                  </Button>
-                </div>
-
-                <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
-                  {contractItems.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-3 p-2 rounded-lg border bg-muted/20 text-xs"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <Label className="text-[10px] text-muted-foreground mb-1 block">
-                          Produto
-                        </Label>
-                        <Select
-                          value={item.productId}
-                          onValueChange={(val) => handleItemProductChange(idx, val)}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Produto" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.name} ({p.unit})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="w-36 shrink-0">
-                        <Label className="text-[10px] text-muted-foreground mb-1 block">
-                          Preço Acordado (R$)
-                        </Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          className="h-8 text-xs"
-                          value={item.price || ''}
-                          onChange={(e) =>
-                            handleItemPriceChange(idx, parseFloat(e.target.value) || 0)
-                          }
-                        />
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive shrink-0 mt-4"
-                        onClick={() => handleRemoveItem(idx)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+                ) : (
+                  <ContractItemsManager
+                    items={contractItems}
+                    onChange={setContractItems}
+                    catalogProducts={products}
+                  />
+                )}
               </TabsContent>
             </Tabs>
 

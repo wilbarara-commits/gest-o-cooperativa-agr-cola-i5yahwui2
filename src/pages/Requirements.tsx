@@ -67,7 +67,7 @@ const MODULES: ModuleSpec[] = [
       'Cadastro Rápido sem Duplicação: Permite cadastrar uma nova escola diretamente dentro do contrato; o sistema normaliza o nome e reutiliza o registro existente no cadastro mestre caso já haja escola correspondente.',
       'Modalidade de Pedido: individualizado (cada escola faz seu pedido via WhatsApp/manual) ou centralizado (pedidos consolidados via importação de planilha Excel da secretaria).',
       'Rotas por Contrato: subconjuntos de escolas participantes geridas pela logística (ex.: ROTA A, ROTA B).',
-      'Produtos Acordados sem Cota: No contrato anual não há cota por produto; a collection contrato_itens lista os produtos acordados com seus respectivos preços unitários fixados.',
+      'Produtos Acordados sem Cota & Edição Simplificada em Lote: No contrato anual não há cota por produto. A associação de produtos e preços conta com seleção em lote com checkboxes a partir do catálogo (com busca em tempo real), pré-preenchimento automático do preço unitário cadastrado no produto, tabela com edição de preços inline direto na célula com destaque visual quando o valor difere do catálogo (com atalho para restaurar), remoção com confirmação e importação rápida via colar em massa ("produto;preço" ou planilha tabulada) com tolerância de matching.',
       'Relatório de Execução do Contrato: cards globais de Total Contratado, Total Realizado e % Execução, com detalhamento de entregas por escola participante (quantidades realizadas, preços unitários e valores realizados).',
     ],
   },

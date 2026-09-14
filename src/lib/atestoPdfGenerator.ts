@@ -67,9 +67,60 @@ interface LoadedImageInfo {
 }
 
 async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
-  if (!url) return null
+  if (!url || typeof window === 'undefined') return null
   try {
-    // 1. Tentar carregar a imagem em um elemento HTMLImageElement com timeout
+    // 1. Tentar primeiro fetch com timeout rápido (2,5s) para pegar Blob diretamente e evitar problemas de canvas tainted por CORS
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const fetchTimer = controller ? setTimeout(() => controller.abort(), 2500) : null
+
+    try {
+      const res = await fetch(url, { signal: controller?.signal })
+      if (fetchTimer) clearTimeout(fetchTimer)
+      if (res.ok) {
+        const blob = await res.blob()
+        const mimeType = blob.type.toLowerCase()
+        let format: 'PNG' | 'JPEG' | 'WEBP' = 'PNG'
+        if (mimeType.includes('jpeg') || mimeType.includes('jpg')) {
+          format = 'JPEG'
+        } else if (mimeType.includes('webp')) {
+          format = 'WEBP'
+        }
+
+        const dataUrl = await new Promise<string | null>((resolve) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.onerror = () => resolve(null)
+          reader.readAsDataURL(blob)
+        })
+
+        if (dataUrl) {
+          const aspectRatio = await new Promise<number>((resolve) => {
+            const probeImg = new window.Image()
+            const timer = setTimeout(() => resolve(1.4), 1500)
+            probeImg.onload = () => {
+              clearTimeout(timer)
+              if (probeImg.naturalWidth && probeImg.naturalHeight) {
+                resolve(probeImg.naturalWidth / probeImg.naturalHeight)
+              } else {
+                resolve(1.4)
+              }
+            }
+            probeImg.onerror = () => {
+              clearTimeout(timer)
+              resolve(1.4)
+            }
+            probeImg.src = dataUrl
+          })
+
+          return { dataUrl, format, aspectRatio }
+        }
+      }
+    } catch (fetchErr) {
+      if (fetchTimer) clearTimeout(fetchTimer)
+      console.warn('Fetch do logo falhou ou deu timeout, tentando via Image():', fetchErr)
+    }
+
+    // 2. Fallback: carregar imagem em HTMLImageElement com timeout
     const img = new window.Image()
     img.crossOrigin = 'anonymous'
 
@@ -78,7 +129,7 @@ async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
         img.onload = null
         img.onerror = null
         resolve(false)
-      }, 5000)
+      }, 2000)
 
       img.onload = () => {
         clearTimeout(timer)
@@ -96,7 +147,6 @@ async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
       const naturalHeight = img.naturalHeight
       const aspectRatio = naturalWidth / naturalHeight
 
-      // Renderizar em um canvas para normalizar para PNG (compatível com jsPDF em todos os navegadores)
       try {
         const canvas = document.createElement('canvas')
         canvas.width = naturalWidth
@@ -114,51 +164,13 @@ async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
           }
         }
       } catch (canvasErr) {
-        console.warn(
-          'Canvas toDataURL falhou (possível CORS na imagem), tentando fallback fetch:',
-          canvasErr,
-        )
+        console.warn('Canvas toDataURL falhou:', canvasErr)
       }
     }
 
-    // 2. Fallback: fetch do blob e conversão via FileReader
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const blob = await res.blob()
-    const mimeType = blob.type.toLowerCase()
-    let format: 'PNG' | 'JPEG' | 'WEBP' = 'PNG'
-    if (mimeType.includes('jpeg') || mimeType.includes('jpg')) {
-      format = 'JPEG'
-    } else if (mimeType.includes('webp')) {
-      format = 'WEBP'
-    }
-
-    const dataUrl = await new Promise<string | null>((resolve) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = () => resolve(null)
-      reader.readAsDataURL(blob)
-    })
-
-    if (!dataUrl) return null
-
-    // Calcular proporção real da imagem
-    const aspectRatio = await new Promise<number>((resolve) => {
-      const probeImg = new window.Image()
-      probeImg.onload = () => {
-        if (probeImg.naturalWidth && probeImg.naturalHeight) {
-          resolve(probeImg.naturalWidth / probeImg.naturalHeight)
-        } else {
-          resolve(1.4)
-        }
-      }
-      probeImg.onerror = () => resolve(1.4)
-      probeImg.src = dataUrl
-    })
-
-    return { dataUrl, format, aspectRatio }
+    return null
   } catch (err) {
-    console.warn('Falha silenciosa ao carregar logotipo para o PDF (prosseguindo sem logo):', err)
+    console.warn('Falha ao carregar logotipo para o PDF (prosseguindo sem logo):', err)
     return null
   }
 }
@@ -378,7 +390,31 @@ export async function downloadAtestoPdf(
   data: AtestoDocumentData,
   filename?: string,
 ): Promise<void> {
-  const doc = await createOfficialAtestoPdf(data)
-  const safeFilename = filename || `Termo_Recebimento_${data.numeroAtesto || 'Atesto'}.pdf`
-  doc.save(safeFilename.endsWith('.pdf') ? safeFilename : `${safeFilename}.pdf`)
+  let doc: jsPDF
+  try {
+    doc = await createOfficialAtestoPdf(data)
+  } catch (err) {
+    console.warn('Falha na criação do PDF com logotipo, gerando versão sem logotipo:', err)
+    // Fallback garantido sem logo caso ocorra algum problema de renderização
+    doc = await createOfficialAtestoPdf({ ...data, logoUrl: undefined })
+  }
+
+  const rawName = filename || `Termo_Recebimento_${data.numeroAtesto || 'Atesto'}.pdf`
+  const sanitizedName = rawName.replace(/[/\\?%*:|"<>]/g, '_')
+  const finalFilename = sanitizedName.endsWith('.pdf') ? sanitizedName : `${sanitizedName}.pdf`
+
+  try {
+    doc.save(finalFilename)
+  } catch (saveErr) {
+    console.warn('doc.save() falhou, tentando fallback via Blob URL:', saveErr)
+    const blob = doc.output('blob')
+    const blobUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = finalFilename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000)
+  }
 }

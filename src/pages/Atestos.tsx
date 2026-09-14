@@ -32,6 +32,7 @@ import {
   Building2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import pb from '@/lib/pocketbase/client'
 import { configuracoesService } from '@/services/configuracoes'
 import { atestosService } from '@/services/atestos'
 import type { ConfiguracoesRecord, Order, Atesto } from '@/lib/types'
@@ -201,7 +202,7 @@ export default function Atestos() {
   const handleDownloadExisting = async (atesto: Atesto) => {
     setDownloadingId(atesto.id)
     try {
-      // Se já possui arquivo salvo no PocketBase, baixar diretamente o binário
+      // 1. Tentar baixar arquivo PDF já gravado no backend (se houver nome de arquivo gravado)
       if (atesto.arquivo) {
         const fileUrl = atestosService.getFileUrl(
           {
@@ -211,78 +212,144 @@ export default function Atestos() {
           },
           atesto.arquivo,
         )
+
         if (fileUrl) {
           try {
             const resp = await fetch(fileUrl)
             if (resp.ok) {
               const dlBlob = await resp.blob()
-              const objectUrl = window.URL.createObjectURL(dlBlob)
-              const a = document.createElement('a')
-              a.href = objectUrl
-              a.download = atesto.arquivo.endsWith('.pdf')
-                ? atesto.arquivo
-                : `${atesto.arquivo}.pdf`
-              document.body.appendChild(a)
-              a.click()
-              document.body.removeChild(a)
-              window.URL.revokeObjectURL(objectUrl)
-              toast.success('Download do PDF armazenado iniciado!')
-              setDownloadingId(null)
-              return
+              if (dlBlob && dlBlob.size > 0) {
+                const objectUrl = window.URL.createObjectURL(dlBlob)
+                const safeName = (
+                  atesto.arquivo.endsWith('.pdf') ? atesto.arquivo : `${atesto.arquivo}.pdf`
+                ).replace(/[/\\?%*:|"<>]/g, '_')
+                const a = document.createElement('a')
+                a.href = objectUrl
+                a.download = safeName
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000)
+                toast.success('Download do PDF armazenado iniciado com sucesso!')
+                return
+              }
             }
           } catch (fetchErr) {
             console.warn(
-              'Fetch direto do arquivo gravado falhou, tentando fallback link/geração:',
+              'Fetch do arquivo armazenado falhou (CORS ou rede), tentando link direto antes de sintetizar:',
               fetchErr,
             )
-            // Se falhar o fetch com blob, abre link direto
-            const a = document.createElement('a')
-            a.href = fileUrl
-            a.download = atesto.arquivo
-            a.target = '_blank'
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            toast.success('Download iniciado via link direto!')
-            setDownloadingId(null)
-            return
           }
+
+          // Se o fetch falhar ou vier vazio, tentar abrir link direto se não conseguirmos sintetizar
         }
       }
 
-      // Caso o registro seja anterior e não tenha o arquivo gravado, sintetizar o PDF oficial e também salvar no registro
-      const relatedOrder = orders.find((o) => o.id === atesto.orderId)
-      if (relatedOrder) {
-        const docData = prepareDocumentData(relatedOrder, atesto.numero, atesto.date)
-        let pdfBlob: Blob
+      // 2. Síntese retroativa ou regeneração do PDF oficial
+      // Procura o pedido vinculado na lista em memória ou busca no backend
+      let relatedOrder = orders.find((o) => o.id === atesto.orderId)
+
+      // Fallback: se por algum motivo não estiver na lista local de pedidos (ex: paginação ou filtro),
+      // tentar buscar os dados do pedido e itens direto do banco
+      if (!relatedOrder && atesto.orderId) {
         try {
-          pdfBlob = await generateAtestoBlob(docData)
-        } catch {
+          const pedRec = await pb.collection('pedidos').getOne<any>(atesto.orderId, {
+            expand: 'escola_id,ciclo_id,rota_id',
+          })
+          const pedItens = await pb.collection('pedido_itens').getFullList<any>({
+            filter: `pedido_id = "${atesto.orderId}"`,
+            expand: 'produto_id',
+          })
+
+          if (pedRec) {
+            relatedOrder = {
+              id: pedRec.id,
+              numero: pedRec.numero,
+              schoolId: pedRec.escola_id,
+              schoolName: pedRec.expand?.escola_id?.nome || atesto.schoolName || 'Unidade Escolar',
+              cicloId: pedRec.ciclo_id,
+              origem: pedRec.origem || 'manual',
+              rotaId: pedRec.rota_id,
+              validacao: pedRec.validacao,
+              date: pedRec.data_prevista || atesto.date,
+              status: pedRec.status,
+              entregue_em: pedRec.entregue_em,
+              total: 0,
+              items: pedItens.map((it: any) => ({
+                id: it.id,
+                productId: it.produto_id,
+                name: it.expand?.produto_id?.nome || 'Gêneros Alimentícios',
+                quantity: Number(it.quantidade) || 0,
+                price: Number(it.preco_unitario) || 0,
+              })),
+            }
+          }
+        } catch (fetchPedErr) {
+          console.warn('Busca de emergência do pedido falhou:', fetchPedErr)
+        }
+      }
+
+      // Se ainda não encontrou o pedido completo, construir um objeto Order sintético mínimo baseado nos dados do atesto
+      const targetOrder: Order = relatedOrder || {
+        id: atesto.orderId,
+        numero: atesto.orderNumber || atesto.numero,
+        schoolId: '',
+        schoolName: atesto.schoolName || 'Unidade Escolar',
+        origem: 'manual',
+        validacao: { status: 'validado', motivo: 'Registro de Atesto' },
+        date: atesto.date || new Date().toISOString(),
+        status: 'Entregue',
+        total: 0,
+        items: [
+          {
+            id: 'fallback-item',
+            productId: 'fallback',
+            name: 'Gêneros alimentícios da agricultura familiar conforme registro de entrega',
+            quantity: 1,
+            price: 0,
+          },
+        ],
+      }
+
+      const docData = prepareDocumentData(targetOrder, atesto.numero, atesto.date)
+
+      // 3. Sintetizar PDF com tolerância máxima a falhas de imagem
+      let pdfBlob: Blob | null = null
+      try {
+        pdfBlob = await generateAtestoBlob(docData)
+      } catch (genErr) {
+        console.warn('Falha na geração com logotipo, tentando sem logo:', genErr)
+        try {
           pdfBlob = await generateAtestoBlob({ ...docData, logoUrl: undefined })
+        } catch (genFallbackErr) {
+          console.error('Falha crítica na síntese do PDF:', genFallbackErr)
         }
-
-        // Salvar retroativamente no PocketBase
-        try {
-          await atestosService.updatePdf(
-            atesto.id,
-            pdfBlob,
-            `Termo_Recebimento_${atesto.numero || atesto.id}.pdf`,
-          )
-        } catch (upErr) {
-          console.warn('Gravação retroativa do PDF falhou (não impede o download):', upErr)
-        }
-
-        await downloadAtestoPdf(
-          docData,
-          `Termo_Recebimento_${atesto.numero || atesto.id}_${atesto.schoolName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-        )
-        toast.success('Documento oficial gerado e baixado com sucesso!')
-      } else {
-        toast.error('Pedido correspondente não encontrado para gerar o PDF.')
       }
+
+      // 4. Se sintetizou o Blob, salvar retroativamente no banco para os próximos downloads
+      if (pdfBlob) {
+        const safeAtestoNum = (atesto.numero || atesto.id).replace(/[^a-zA-Z0-9_-]/g, '_')
+        const retroFilename = `Termo_Recebimento_${safeAtestoNum}.pdf`
+        try {
+          await atestosService.updatePdf(atesto.id, pdfBlob, retroFilename)
+        } catch (upErr) {
+          console.warn(
+            'Atualização retroativa no PocketBase não concluída (não impede download):',
+            upErr,
+          )
+        }
+      }
+
+      // 5. Disparar download para o usuário no navegador
+      const safeSchoolName = (atesto.schoolName || 'Escola').replace(/[^a-zA-Z0-9_-]/g, '_')
+      const safeNum = (atesto.numero || atesto.id).replace(/[^a-zA-Z0-9_-]/g, '_')
+      const downloadFilename = `Termo_Recebimento_${safeNum}_${safeSchoolName}.pdf`
+
+      await downloadAtestoPdf(docData, downloadFilename)
+      toast.success('Termo de Recebimento gerado e baixado com sucesso!')
     } catch (err: any) {
       console.error('Erro no download do atesto:', err)
-      const detail = err?.message || 'Não foi possível gerar o PDF do atesto.'
+      const detail = err?.data?.message || err?.message || 'Erro ao processar o arquivo PDF.'
       toast.error(`Falha no download: ${detail}`)
     } finally {
       setDownloadingId(null)

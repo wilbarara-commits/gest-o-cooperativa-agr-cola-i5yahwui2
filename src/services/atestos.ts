@@ -66,7 +66,18 @@ export const atestosService = {
   ): string {
     const fn = filename || record.arquivo
     if (!fn) return ''
-    return pb.files.getURL(record as any, fn)
+    const recordPayload = {
+      id: record.id,
+      collectionId: record.collectionId || 'pbc_3783575615',
+      collectionName: record.collectionName || 'atestos',
+    }
+    return pb.files.getURL(recordPayload as any, fn)
+  },
+
+  async getById(id: string): Promise<AtestoRecord> {
+    return await pb.collection('atestos').getOne<AtestoRecord>(id, {
+      expand: 'pedido_id,pedido_id.escola_id',
+    })
   },
 
   async updateStatus(id: string, status: AtestoRecord['status']): Promise<AtestoRecord> {

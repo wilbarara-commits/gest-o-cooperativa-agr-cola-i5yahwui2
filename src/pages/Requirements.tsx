@@ -170,6 +170,7 @@ const MODULES: ModuleSpec[] = [
       'Local e Data: "{cidade}, {dia} de {mês} de {ano}." derivado do cadastro de Configurações da cooperativa e data de emissão.',
       'Rodapé de Assinatura: Linha "Matrícula ou CPF: ___________________________" (em branco para preenchimento manual após a impressão) e identificação "Representante da Unidade Escolar (conferente) {nome_da_escola}".',
       'Fluxo de Emissão & Armazenamento: Emitido apenas para pedidos Entregues sem atesto vinculado. Apresenta preview do documento oficial, botão "Emitir Atesto" que gera e armazena o binário PDF no registro do atesto (campo arquivo), e botão "Baixar PDF" nos atestos já emitidos.',
+      'Download e Síntese Retroativa Resiliente: O botão "Baixar PDF" realiza o download imediato do arquivo salvo via Blob/createObjectURL e, para registros legados sem arquivo ou na indisponibilidade do arquivo binário, realiza a síntese retroativa instantânea em memória, armazena o PDF no registro e conclui o download com feedback e tratamento completo de erros.',
     ],
   },
   {

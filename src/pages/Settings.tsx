@@ -362,8 +362,9 @@ export default function SettingsPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Formatos aceitos: PNG, JPG ou WEBP até 5MB. Exibido no cabeçalho do documento
-                    oficial Atesto.
+                    Formatos aceitos: PNG, JPG ou WEBP até 5MB. Aplicado no aplicativo (menu lateral
+                    desktop, cabeçalho mobile, tela de login, favicon da aba) e no cabeçalho oficial
+                    do documento Atesto.
                   </p>
                 </div>
               </div>

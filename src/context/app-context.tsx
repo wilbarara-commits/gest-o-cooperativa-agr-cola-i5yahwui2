@@ -18,7 +18,9 @@ import type {
   ContratoEscolaRecord,
   ContratoItemRecord,
   PedidoValidacao,
+  ConfiguracoesRecord,
 } from '@/lib/types'
+import { configuracoesService } from '@/services/configuracoes'
 import { produtosService } from '@/services/produtos'
 import { escolasService } from '@/services/escolas'
 import { contratosService } from '@/services/contratos'
@@ -53,6 +55,8 @@ interface AppState {
   ciclos: CicloRecord[]
   activeCiclo: CicloRecord | null
   rotas: RotaRecord[]
+  config: ConfiguracoesRecord | null
+  logoUrl: string
   isLoading: boolean
   error: string | null
   refreshData: () => Promise<void>
@@ -99,6 +103,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [ciclos, setCiclos] = useState<CicloRecord[]>([])
   const [activeCiclo, setActiveCiclo] = useState<CicloRecord | null>(null)
   const [rotas, setRotas] = useState<RotaRecord[]>([])
+  const [config, setConfig] = useState<ConfiguracoesRecord | null>(null)
+  const [logoUrl, setLogoUrl] = useState<string>('')
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -116,6 +122,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         rawAtestos,
         rawCiclos,
         rawRotas,
+        rawConfig,
       ] = await Promise.all([
         produtosService.getAll(),
         escolasService.getAll(),
@@ -127,7 +134,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
         atestosService.getAll(),
         ciclosService.getAll(),
         rotasService.getAll(),
+        configuracoesService.get(),
       ])
+
+      setConfig(rawConfig)
+      const computedLogo = configuracoesService.getLogoUrl(rawConfig)
+      setLogoUrl(computedLogo)
+
+      // Atualizar dinamicamente o favicon e título se houver logotipo/config
+      if (typeof document !== 'undefined') {
+        if (computedLogo) {
+          let linkIcon = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null
+          if (!linkIcon) {
+            linkIcon = document.createElement('link')
+            linkIcon.rel = 'icon'
+            document.head.appendChild(linkIcon)
+          }
+          linkIcon.href = computedLogo
+
+          let appleIcon = document.querySelector(
+            "link[rel='apple-touch-icon']",
+          ) as HTMLLinkElement | null
+          if (!appleIcon) {
+            appleIcon = document.createElement('link')
+            appleIcon.rel = 'apple-touch-icon'
+            document.head.appendChild(appleIcon)
+          }
+          appleIcon.href = computedLogo
+        }
+
+        if (rawConfig?.sigla || rawConfig?.nome_cooperativa) {
+          const nomeApp = rawConfig.sigla || rawConfig.nome_cooperativa
+          document.title = `${nomeApp} — Gestão Cooperativa`
+        }
+      }
 
       setCiclos(rawCiclos)
       const currentActive = rawCiclos.find((c) => c.status !== 'fechado') || rawCiclos[0] || null
@@ -313,6 +353,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useRealtime('atestos', () => loadAllData())
   useRealtime('ciclos', () => loadAllData())
   useRealtime('rotas', () => loadAllData())
+  useRealtime('configuracoes', () => loadAllData())
 
   const addOrder = async (orderData: CreateOrderData): Promise<boolean> => {
     try {
@@ -624,6 +665,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ciclos,
         activeCiclo,
         rotas,
+        config,
+        logoUrl,
         isLoading,
         error,
         refreshData: loadAllData,

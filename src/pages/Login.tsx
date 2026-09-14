@@ -51,6 +51,8 @@ export default function Login() {
   // Controle de atalhos demo vindo das configurações da cooperativa
   const [showDemoShortcuts, setShowDemoShortcuts] = useState<boolean>(true)
   const [coopName, setCoopName] = useState<string>('CooperGestão')
+  const [coopLogoUrl, setCoopLogoUrl] = useState<string>('')
+  const [logoLoadFailed, setLogoLoadFailed] = useState<boolean>(false)
 
   // Modal Esqueci minha senha
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false)
@@ -68,10 +70,21 @@ export default function Login() {
           if (config.nome_cooperativa) {
             setCoopName(config.nome_cooperativa)
           }
+          const url = configuracoesService.getLogoUrl(config)
+          if (url) {
+            setCoopLogoUrl(url)
+            // Atualizar favicon também na tela de login
+            if (typeof document !== 'undefined') {
+              let linkIcon = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null
+              if (linkIcon) {
+                linkIcon.href = url
+              }
+            }
+          }
         }
       })
-      .catch(() => {
-        // Fallback padrão
+      .catch((err) => {
+        console.warn('Configurações não carregadas no login:', err)
         setShowDemoShortcuts(true)
       })
   }, [])
@@ -156,13 +169,24 @@ export default function Login() {
       <div className="w-full max-w-md space-y-6">
         {/* Marca / Logotipo CoopGestão */}
         <div className="flex flex-col items-center text-center space-y-2">
-          <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-sm">
-            <Sprout className="h-9 w-9 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
+          {coopLogoUrl && !logoLoadFailed ? (
+            <div className="h-20 w-auto max-w-[200px] px-3 py-1.5 rounded-xl bg-white/95 dark:bg-card border border-border/80 flex items-center justify-center shadow-sm">
+              <img
+                src={coopLogoUrl}
+                alt={coopName}
+                onError={() => setLogoLoadFailed(true)}
+                className="max-h-16 max-w-full object-contain"
+              />
+            </div>
+          ) : (
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-sm">
+              <Sprout className="h-9 w-9 text-primary" />
+            </div>
+          )}
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <span>CoopGestão</span>
           </h1>
-          <p className="text-sm text-muted-foreground max-w-xs">
+          <p className="text-sm text-muted-foreground max-w-sm px-2">
             {coopName} • Gestão Integrada de Cooperativas Agrícolas (PNAE / PAA)
           </p>
         </div>

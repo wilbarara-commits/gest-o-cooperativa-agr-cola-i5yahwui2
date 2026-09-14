@@ -211,10 +211,11 @@ const MODULES: ModuleSpec[] = [
     id: '3.16',
     title: 'Configurações da Cooperativa (Exclusivo MASTER)',
     route: '/configuracoes',
-    goal: 'Parametrização institucional da cooperativa e controle de ambiente de autenticação.',
+    goal: 'Parametrização institucional da cooperativa, identidade visual completa e controle de ambiente de autenticação.',
     details: [
       'Controle de atalhos demo na tela de login: toggle para ocultar ou exibir botões de teste rápido (para produção segura).',
       'Dados institucionais da cooperativa: Razão Social, Sigla, CNPJ, Município/UF, Telefone e E-mail.',
+      'Logotipo Institucional da Cooperativa: upload de imagem (PNG, JPG, WEBP) aplicado dinamicamente em todo o aplicativo — menu lateral desktop, cabeçalho mobile, tela pública de login e favicon/apple-touch-icon da aba do navegador, com fallback resiliente para ícone/sigla.',
       'Integração dos dados da cooperativa em atestos, relatórios e telas do sistema.',
     ],
   },
@@ -248,7 +249,11 @@ const PROFILES = [
 
 const VISUAL = [
   ['Nome do sistema', 'CoopGestão'],
-  ['Ícone primário', 'Sprout (broto/folha) — Lucide Icons'],
+  [
+    'Logotipo da cooperativa',
+    'Personalizado via Configurações da Cooperativa (upload singleton); exibido no menu lateral, header mobile, login, favicon da aba do navegador e Termo de Atesto oficial',
+  ],
+  ['Ícone primário (fallback)', 'Sprout (broto/folha) — Lucide Icons'],
   ['Paleta', 'Verde (primária), laranja/âmbar (secundária), tons neutros slate/gray'],
   ['Tipografia', 'Inter (padrão shadcn/ui), tracking-tight para títulos'],
   ['Componentes UI', 'shadcn/ui com Tailwind CSS'],

@@ -42,6 +42,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/auth-context'
+import { useApp } from '@/context/app-context'
 import { toast } from 'sonner'
 import { ChangePasswordDialog } from '@/components/ChangePasswordDialog'
 
@@ -77,8 +78,13 @@ export default function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, isMaster, isAdmin, logout } = useAuth()
+  const { config, logoUrl } = useApp()
+  const [logoError, setLogoError] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+
+  const coopNomeExibicao = config?.sigla || config?.nome_cooperativa || 'CoopGestão'
+  const temLogoValido = Boolean(logoUrl && !logoError)
 
   const handleLogout = () => {
     logout()
@@ -141,13 +147,45 @@ export default function Layout() {
     <div className="flex h-screen w-full bg-background overflow-hidden">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 flex-col border-r bg-card shadow-sm z-10">
-        <div className="flex h-16 items-center gap-2 px-6 border-b">
-          <Sprout className="h-6 w-6 text-primary" />
-          <span className="font-bold text-lg tracking-tight text-primary">CoopGestão</span>
+        <div className="flex h-16 items-center gap-3 px-5 border-b">
+          {temLogoValido ? (
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="h-9 w-9 rounded-md bg-white border border-border/80 flex items-center justify-center p-0.5 shrink-0 shadow-xs overflow-hidden">
+                <img
+                  src={logoUrl}
+                  alt={coopNomeExibicao}
+                  onError={() => setLogoError(true)}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span
+                  className="font-bold text-sm tracking-tight text-foreground truncate leading-tight"
+                  title={coopNomeExibicao}
+                >
+                  {coopNomeExibicao}
+                </span>
+                <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wider">
+                  CooperGestão
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Sprout className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-bold text-base tracking-tight text-primary truncate leading-tight">
+                  {coopNomeExibicao}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto py-2">
           <NavLinks />
-        </div>
+        </div>{' '}
         {/* Rodapé do Sidebar com perfil do usuário */}
         <div className="p-4 border-t bg-muted/20">
           <Link
@@ -203,7 +241,7 @@ export default function Layout() {
       <div className="flex flex-col flex-1 overflow-hidden w-full">
         {/* Header */}
         <header className="flex h-16 items-center justify-between border-b bg-card px-4 md:px-6 shadow-sm z-10">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="md:hidden">
@@ -214,9 +252,36 @@ export default function Layout() {
               <SheetContent side="left" className="w-72 p-0 flex flex-col justify-between">
                 <div>
                   <SheetTitle className="sr-only">Menu de Navegação</SheetTitle>
-                  <div className="flex h-16 items-center gap-2 px-6 border-b">
-                    <Sprout className="h-6 w-6 text-primary" />
-                    <span className="font-bold text-lg text-primary">CoopGestão</span>
+                  <div className="flex h-16 items-center gap-3 px-5 border-b">
+                    {temLogoValido ? (
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="h-9 w-9 rounded-md bg-white border border-border/80 flex items-center justify-center p-0.5 shrink-0 shadow-xs overflow-hidden">
+                          <img
+                            src={logoUrl}
+                            alt={coopNomeExibicao}
+                            onError={() => setLogoError(true)}
+                            className="h-full w-full object-contain"
+                          />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-bold text-sm tracking-tight text-foreground truncate leading-tight">
+                            {coopNomeExibicao}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wider">
+                            CooperGestão
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Sprout className="h-5 w-5 text-primary" />
+                        </div>
+                        <span className="font-bold text-base text-primary truncate">
+                          {coopNomeExibicao}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <NavLinks onClick={() => setMobileOpen(false)} />
                 </div>
@@ -260,6 +325,25 @@ export default function Layout() {
                 </div>
               </SheetContent>
             </Sheet>
+
+            {/* Header Mobile: logotipo ou sigla da cooperativa visível no topo mobile */}
+            <div className="flex md:hidden items-center gap-2 min-w-0">
+              {temLogoValido ? (
+                <div className="h-8 w-8 rounded-md bg-white border border-border/80 flex items-center justify-center p-0.5 shrink-0 overflow-hidden shadow-xs">
+                  <img
+                    src={logoUrl}
+                    alt={coopNomeExibicao}
+                    onError={() => setLogoError(true)}
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+              ) : (
+                <Sprout className="h-5 w-5 text-primary shrink-0" />
+              )}
+              <span className="font-bold text-sm tracking-tight text-foreground truncate max-w-[130px] sm:max-w-[200px]">
+                {coopNomeExibicao}
+              </span>
+            </div>
 
             <div className="hidden sm:flex items-center relative w-64 md:w-80">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

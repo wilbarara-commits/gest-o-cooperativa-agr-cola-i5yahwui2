@@ -155,7 +155,19 @@ export default function Atestos() {
     setIsEmitting(true)
     try {
       const nextNum = `AT-${String(atestos.length + 1).padStart(3, '0')}`
-      const docData = prepareDocumentData(order, nextNum)
+      let warnedLogoFailure = false
+      const handleLogoError = (err: unknown) => {
+        if (!warnedLogoFailure) {
+          warnedLogoFailure = true
+          console.warn('Falha ao carregar logotipo para o PDF:', err)
+          toast.error('Falha ao carregar o logotipo — o PDF será gerado sem o logo.')
+        }
+      }
+
+      const docData = {
+        ...prepareDocumentData(order, nextNum),
+        onLogoError: handleLogoError,
+      }
 
       // 1. Gerar PDF oficial como Blob (robusto mesmo se logotipo falhar)
       let pdfBlob: Blob | undefined
@@ -163,8 +175,13 @@ export default function Atestos() {
         pdfBlob = await generateAtestoBlob(docData)
       } catch (pdfErr) {
         console.warn('Tentativa com logotipo falhou ao gerar Blob, tentando sem logo:', pdfErr)
+        handleLogoError(pdfErr)
         // Fallback garantido: gerar sem logo para não barrar a emissão do atesto oficial
-        pdfBlob = await generateAtestoBlob({ ...docData, logoUrl: undefined })
+        pdfBlob = await generateAtestoBlob({
+          ...docData,
+          logoUrl: undefined,
+          onLogoError: undefined,
+        })
       }
 
       // 2. Gravar no backend no registro do atesto (com arquivo PDF no campo `arquivo`)
@@ -182,6 +199,7 @@ export default function Atestos() {
           )
         } catch (dlErr) {
           console.warn('Download automático em navegador falhou:', dlErr)
+          toast.error('O atesto foi gerado, mas houve uma falha ao disparar o download automático.')
         }
         setPreviewOrderId(null)
       }
@@ -198,7 +216,7 @@ export default function Atestos() {
     }
   }
 
-  // 3. Download do PDF de um Atesto já emitido
+  // 3. Download do PDF de um Atesto já emitido (fluxo resiliente com captura abrangente de erros)
   const handleDownloadExisting = async (atesto: Atesto) => {
     setDownloadingId(atesto.id)
     try {
@@ -214,6 +232,7 @@ export default function Atestos() {
         )
 
         if (fileUrl) {
+          let fileDownloadOk = false
           try {
             const resp = await fetch(fileUrl)
             if (resp.ok) {
@@ -231,17 +250,24 @@ export default function Atestos() {
                 document.body.removeChild(a)
                 setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000)
                 toast.success('Download do PDF armazenado iniciado com sucesso!')
+                fileDownloadOk = true
                 return
               }
+            } else {
+              console.warn(`Fetch do arquivo gravado retornou status HTTP ${resp.status}`)
             }
           } catch (fetchErr) {
             console.warn(
-              'Fetch do arquivo armazenado falhou (CORS ou rede), tentando link direto antes de sintetizar:',
+              'Fetch do arquivo armazenado falhou (CORS ou rede), prosseguindo para síntese retroativa:',
               fetchErr,
             )
           }
 
-          // Se o fetch falhar ou vier vazio, tentar abrir link direto se não conseguirmos sintetizar
+          if (!fileDownloadOk) {
+            toast.error(
+              'Não foi possível baixar o arquivo gravado. Iniciando regeneração do documento...',
+            )
+          }
         }
       }
 
@@ -249,8 +275,7 @@ export default function Atestos() {
       // Procura o pedido vinculado na lista em memória ou busca no backend
       let relatedOrder = orders.find((o) => o.id === atesto.orderId)
 
-      // Fallback: se por algum motivo não estiver na lista local de pedidos (ex: paginação ou filtro),
-      // tentar buscar os dados do pedido e itens direto do banco
+      // Fallback: se não estiver na lista local de pedidos, buscar dados do pedido e itens direto do banco
       if (!relatedOrder && atesto.orderId) {
         try {
           const pedRec = await pb.collection('pedidos').getOne<any>(atesto.orderId, {
@@ -286,6 +311,9 @@ export default function Atestos() {
           }
         } catch (fetchPedErr) {
           console.warn('Busca de emergência do pedido falhou:', fetchPedErr)
+          toast.error(
+            'Não foi possível carregar os dados completos do pedido vinculado. Usando dados do atesto.',
+          )
         }
       }
 
@@ -311,18 +339,41 @@ export default function Atestos() {
         ],
       }
 
-      const docData = prepareDocumentData(targetOrder, atesto.numero, atesto.date)
+      let warnedLogoFailure = false
+      const handleLogoError = (err: unknown) => {
+        if (!warnedLogoFailure) {
+          warnedLogoFailure = true
+          console.warn('Falha ao carregar logotipo para o PDF:', err)
+          toast.error('Falha ao carregar o logotipo — o PDF será gerado sem o logo.')
+        }
+      }
+
+      const docData: AtestoDocumentData = {
+        ...prepareDocumentData(targetOrder, atesto.numero, atesto.date),
+        onLogoError: handleLogoError,
+      }
 
       // 3. Sintetizar PDF com tolerância máxima a falhas de imagem
       let pdfBlob: Blob | null = null
+      let generationError: unknown = null
+
       try {
         pdfBlob = await generateAtestoBlob(docData)
       } catch (genErr) {
+        generationError = genErr
         console.warn('Falha na geração com logotipo, tentando sem logo:', genErr)
+        handleLogoError(genErr)
+
         try {
-          pdfBlob = await generateAtestoBlob({ ...docData, logoUrl: undefined })
+          pdfBlob = await generateAtestoBlob({
+            ...docData,
+            logoUrl: undefined,
+            onLogoError: undefined,
+          })
+          generationError = null
         } catch (genFallbackErr) {
-          console.error('Falha crítica na síntese do PDF:', genFallbackErr)
+          generationError = genFallbackErr
+          console.error('Falha crítica na síntese do PDF sem logotipo:', genFallbackErr)
         }
       }
 
@@ -337,6 +388,9 @@ export default function Atestos() {
             'Atualização retroativa no PocketBase não concluída (não impede download):',
             upErr,
           )
+          toast.error(
+            'PDF gerado com sucesso, mas não foi possível salvar a cópia no banco para downloads futuros.',
+          )
         }
       }
 
@@ -345,12 +399,21 @@ export default function Atestos() {
       const safeNum = (atesto.numero || atesto.id).replace(/[^a-zA-Z0-9_-]/g, '_')
       const downloadFilename = `Termo_Recebimento_${safeNum}_${safeSchoolName}.pdf`
 
-      await downloadAtestoPdf(docData, downloadFilename)
-      toast.success('Termo de Recebimento gerado e baixado com sucesso!')
+      try {
+        await downloadAtestoPdf(docData, downloadFilename)
+        toast.success('Termo de Recebimento gerado e baixado com sucesso!')
+      } catch (dlErr: any) {
+        console.error('Falha ao disparar download do PDF:', dlErr)
+        const reason =
+          generationError instanceof Error
+            ? generationError.message
+            : dlErr?.message || 'Falha ao processar o arquivo PDF.'
+        toast.error(`Não foi possível regenerar o PDF do atesto: ${reason}`)
+      }
     } catch (err: any) {
-      console.error('Erro no download do atesto:', err)
-      const detail = err?.data?.message || err?.message || 'Erro ao processar o arquivo PDF.'
-      toast.error(`Falha no download: ${detail}`)
+      console.error('Erro geral no download do atesto:', err)
+      const detail = err?.data?.message || err?.message || 'Erro inesperado ao processar o atesto.'
+      toast.error(`Falha no download do atesto: ${detail}`)
     } finally {
       setDownloadingId(null)
     }

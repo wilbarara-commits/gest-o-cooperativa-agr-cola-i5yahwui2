@@ -16,6 +16,7 @@ export interface AtestoDocumentData {
     unidade?: string
   }>
   logoUrl?: string
+  onLogoError?: (err: unknown) => void
 }
 
 /**
@@ -218,10 +219,14 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
           'FAST',
         )
         startY += imgHeight + 4
+      } else {
+        // Notifica falha no carregamento do logo se callback estiver configurado
+        data.onLogoError?.(new Error('Logotipo inacessível ou formato inválido'))
       }
     } catch (e) {
-      // continua sem imagem sem travar a geração
+      // continua sem imagem sem travar a geração (degradante, não bloqueante)
       console.warn('Não foi possível embutir o logotipo no PDF:', e)
+      data.onLogoError?.(e)
     }
   }
 

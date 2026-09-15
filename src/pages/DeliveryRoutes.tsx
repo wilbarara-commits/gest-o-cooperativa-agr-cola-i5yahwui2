@@ -45,7 +45,12 @@ import {
   AlertTriangle,
   ArrowUpDown,
   FileCheck2,
+  Plus,
+  Trash2,
+  Route as RouteIcon,
+  Sparkles,
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import {
   MOTIVOS_LOGISTICOS_CANCELAMENTO,
@@ -62,6 +67,9 @@ export default function DeliveryRoutes() {
     rotasLogisticas,
     paradasRota,
     despachos,
+    criarRotaLogistica,
+    excluirRotaLogistica,
+    sincronizarEscolasRotaLogistica,
     despacharRotaInteira,
     confirmarEntregaRotaInteira,
     marcarNaoEntreguePedido,
@@ -74,12 +82,22 @@ export default function DeliveryRoutes() {
   // Selecionar contrato ativo para roteamento e despacho
   const [selectedContratoId, setSelectedContratoId] = useState<string>(contracts[0]?.id || 'todos')
 
+  // Estado para criação rápida de rota logística
+  const [createRouteDialogOpen, setCreateRouteDialogOpen] = useState(false)
+  const [newRouteName, setNewRouteName] = useState('')
+  const [isCreatingRoute, setIsCreatingRoute] = useState(false)
+
+  // Estado para exclusão de rota logística
+  const [routeToDelete, setRouteToDelete] = useState<RotaLogisticaRecord | null>(null)
+  const [isDeletingRoute, setIsDeletingRoute] = useState(false)
+
   // Estado para montagem/atribuição de roteamento
   const [routingDialogOpen, setRoutingDialogOpen] = useState(false)
   const [selectedRotaForRouting, setSelectedRotaForRouting] = useState<RotaLogisticaRecord | null>(
     null,
   )
   const [selectedOrdersToAssign, setSelectedOrdersToAssign] = useState<string[]>([])
+  const [selectedSchoolsToAssign, setSelectedSchoolsToAssign] = useState<string[]>([])
   const [isSavingAssignment, setIsSavingAssignment] = useState(false)
 
   // Estado para confirmação de despacho da rota inteira
@@ -328,23 +346,108 @@ export default function DeliveryRoutes() {
     }
   }
 
+  // Criar nova rota logística
+  const handleOpenCreateRoute = () => {
+    setNewRouteName('')
+    setCreateRouteDialogOpen(true)
+  }
+
+  const handleConfirmCreateRoute = async () => {
+    const trimmed = newRouteName.trim()
+    if (!trimmed) {
+      toast.error('Informe um nome para a rota logística.')
+      return
+    }
+
+    if (!currentContrato) {
+      toast.error('Selecione um contrato específico para criar uma rota.')
+      return
+    }
+
+    // Verificar se já atingiu o limite se num_rotas_logisticas estiver definido
+    if (
+      currentContrato.num_rotas_logisticas &&
+      filteredRotasLogisticas.length >= currentContrato.num_rotas_logisticas
+    ) {
+      toast.error(
+        `Este contrato permite no máximo ${currentContrato.num_rotas_logisticas} rotas logísticas.`,
+      )
+      return
+    }
+
+    setIsCreatingRoute(true)
+    try {
+      const created = await criarRotaLogistica({
+        contrato_id: currentContrato.id,
+        nome: trimmed,
+        ordem: filteredRotasLogisticas.length + 1,
+        ativa: true,
+      })
+      if (created) {
+        setCreateRouteDialogOpen(false)
+        setNewRouteName('')
+      }
+    } finally {
+      setIsCreatingRoute(false)
+    }
+  }
+
+  // Excluir rota logística
+  const handleConfirmDeleteRoute = async () => {
+    if (!routeToDelete) return
+    setIsDeletingRoute(true)
+    try {
+      await excluirRotaLogistica(routeToDelete.id)
+      setRouteToDelete(null)
+    } finally {
+      setIsDeletingRoute(false)
+    }
+  }
+
   // Roteamento por contrato: Abrir modal de montagem de roteamento
   const handleOpenRouting = (rota: RotaLogisticaRecord) => {
     setSelectedRotaForRouting(rota)
-    // Pré-selecionar pedidos já vinculados ou pendentes sem rota
+    // Pré-selecionar pedidos já vinculados
     const pedidosJaNaRota = orders
       .filter((o) => o.rotaLogisticaId === rota.id && o.status === 'Pendente')
       .map((o) => o.id)
     setSelectedOrdersToAssign(pedidosJaNaRota)
+
+    // Pré-selecionar escolas já vinculadas a esta rota (pelas paradas ou pedidos)
+    const paradasDaRota = paradasRota
+      .filter((p) => p.rota_logistica_id === rota.id)
+      .map((p) => p.escola_id)
+    const escolasDosPedidos = orders
+      .filter((o) => o.rotaLogisticaId === rota.id)
+      .map((o) => o.schoolId)
+    const allEscolaIds = Array.from(new Set([...paradasDaRota, ...escolasDosPedidos]))
+    setSelectedSchoolsToAssign(allEscolaIds)
+
     setRoutingDialogOpen(true)
   }
 
-  // Roteamento por contrato: Salvar atribuição de pedidos à rota logística
+  // Roteamento por contrato: Salvar atribuição de pedidos e escolas à rota logística
+  // Preenche paradas_rota, atualiza pedidos e mantém coerência com contrato_escolas
   const handleSaveRouting = async () => {
     if (!selectedRotaForRouting) return
     setIsSavingAssignment(true)
     try {
-      await atribuirPedidosARotaLogistica(selectedOrdersToAssign, selectedRotaForRouting.id)
+      // Coletar todas as escolas selecionadas: tanto as caixas de escolas quanto as dos pedidos selecionados
+      const escolasDosPedidosSel = orders
+        .filter((o) => selectedOrdersToAssign.includes(o.id))
+        .map((o) => o.schoolId)
+
+      const todasEscolas = Array.from(
+        new Set([...selectedSchoolsToAssign, ...escolasDosPedidosSel]),
+      )
+
+      await sincronizarEscolasRotaLogistica(
+        selectedRotaForRouting.contrato_id,
+        selectedRotaForRouting.id,
+        todasEscolas,
+        selectedOrdersToAssign,
+      )
+
       setRoutingDialogOpen(false)
       setSelectedRotaForRouting(null)
     } finally {
@@ -415,7 +518,7 @@ export default function DeliveryRoutes() {
           </p>
         </div>
 
-        {/* Filtro por Contrato */}
+        {/* Filtro por Contrato e Ações */}
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-primary shrink-0" />
           <Select value={selectedContratoId} onValueChange={setSelectedContratoId}>
@@ -426,11 +529,35 @@ export default function DeliveryRoutes() {
               <SelectItem value="todos">Todos os Contratos</SelectItem>
               {contracts.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
-                  {c.numero} ({c.num_rotas_logisticas || 2} rotas logísticas)
+                  {c.numero} (
+                  {c.num_rotas_logisticas
+                    ? `${c.num_rotas_logisticas} rota(s) max`
+                    : 'Rotas livres'}
+                  )
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+
+          {selectedContratoId !== 'todos' && (
+            <Button
+              onClick={handleOpenCreateRoute}
+              size="sm"
+              className="gap-1.5 shrink-0"
+              disabled={
+                Boolean(currentContrato?.num_rotas_logisticas) &&
+                filteredRotasLogisticas.length >= (currentContrato?.num_rotas_logisticas || 0)
+              }
+              title={
+                Boolean(currentContrato?.num_rotas_logisticas) &&
+                filteredRotasLogisticas.length >= (currentContrato?.num_rotas_logisticas || 0)
+                  ? `Limite de ${currentContrato?.num_rotas_logisticas} rotas atingido`
+                  : 'Criar nova rota logística para este contrato'
+              }
+            >
+              <Plus className="h-4 w-4" /> Nova Rota
+            </Button>
+          )}
         </div>
       </div>
 
@@ -455,16 +582,39 @@ export default function DeliveryRoutes() {
 
       {/* Grid de Rotas Logísticas da Cooperativa */}
       {filteredRotasLogisticas.length === 0 ? (
-        <Card>
-          <CardContent className="py-14 text-center text-muted-foreground">
-            <Truck className="h-12 w-12 mx-auto mb-3 opacity-40 text-primary" />
-            <p className="text-base font-semibold text-foreground">
-              Nenhuma rota logística cadastrada para este contrato.
-            </p>
-            <p className="text-xs mt-1 max-w-md mx-auto">
-              Acesse a tela de <strong>Contratos & Escolas</strong> para definir o número de rotas e
-              cadastrar as rotas logísticas da cooperativa.
-            </p>
+        <Card className="border-dashed border-2 border-primary/20 bg-primary/5">
+          <CardContent className="py-12 text-center text-muted-foreground space-y-4">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <RouteIcon className="h-7 w-7" />
+            </div>
+            <div className="max-w-md mx-auto space-y-1.5">
+              <h3 className="text-lg font-bold text-foreground">
+                Primeira Configuração de Rotas do Contrato
+              </h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {currentContrato ? (
+                  <>
+                    O contrato <strong>{currentContrato.numero}</strong> ainda não possui rotas
+                    logísticas configuradas. Crie as rotas aqui mesmo com nomes livres (
+                    {currentContrato.num_rotas_logisticas
+                      ? `até ${currentContrato.num_rotas_logisticas} rota(s) conforme o contrato`
+                      : 'quantas desejar'}
+                    ), atribua as escolas e pedidos do contrato e ordene as paradas por
+                    drag-and-drop.
+                  </>
+                ) : (
+                  'Selecione um contrato acima para iniciar a primeira configuração de rotas logísticas, atribuição de escolas e pedidos.'
+                )}
+              </p>
+            </div>
+
+            {currentContrato && (
+              <div className="pt-2">
+                <Button onClick={handleOpenCreateRoute} className="gap-2">
+                  <Plus className="h-4 w-4" /> Criar Primeira Rota Logística
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -509,6 +659,18 @@ export default function DeliveryRoutes() {
                         <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
                         Roteamento ({item.pedidosDaRota.length})
                       </Button>
+                      {/* Opção para excluir rota vazia */}
+                      {item.pedidosEmRota.length === 0 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          title="Excluir rota logística"
+                          onClick={() => setRouteToDelete(item.rota)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -726,77 +888,254 @@ export default function DeliveryRoutes() {
         </div>
       )}
 
-      {/* MODAL 1: Montagem de Roteamento por Contrato (Template Persistente) */}
-      <Dialog open={routingDialogOpen} onOpenChange={setRoutingDialogOpen}>
-        <DialogContent className="sm:max-w-[560px] max-h-[85vh] overflow-y-auto">
+      {/* MODAL 0: Criar Rota Logística no Contrato */}
+      <Dialog open={createRouteDialogOpen} onOpenChange={setCreateRouteDialogOpen}>
+        <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <SlidersHorizontal className="h-5 w-5 text-primary" /> Montar Roteamento da Rota
-              Logística
+              <Truck className="h-5 w-5 text-primary" /> Nova Rota Logística
             </DialogTitle>
             <DialogDescription>
-              Atribua pedidos pendentes à rota <strong>{selectedRotaForRouting?.nome}</strong>. Esta
-              configuração fica persistente e é reaproveitada nos ciclos seguintes como template.
+              Crie uma rota logística para o contrato <strong>{currentContrato?.numero}</strong>. O
+              nome é livre e define o roteiro de despacho da cooperativa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs">
+            <div className="space-y-1.5">
+              <Label htmlFor="route-name" className="font-semibold">
+                Nome da Rota Logística <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="route-name"
+                placeholder="Ex: Rota Centro-Sul, Rota Rural 1, Setor Escolar A..."
+                value={newRouteName}
+                onChange={(e) => setNewRouteName(e.target.value)}
+                autoFocus
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {currentContrato?.num_rotas_logisticas ? (
+                  <>
+                    Limite contratual: {filteredRotasLogisticas.length + 1} de{' '}
+                    {currentContrato.num_rotas_logisticas} rotas permitidas.
+                  </>
+                ) : (
+                  'Número de rotas ilimitado para este contrato.'
+                )}
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isCreatingRoute}
+              onClick={() => setCreateRouteDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={isCreatingRoute || !newRouteName.trim()}
+              onClick={handleConfirmCreateRoute}
+            >
+              {isCreatingRoute ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Criando...
+                </>
+              ) : (
+                'Criar Rota'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL Excluir Rota Logística */}
+      <AlertDialog
+        open={Boolean(routeToDelete)}
+        onOpenChange={(open) => !open && setRouteToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" /> Excluir Rota Logística
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja remover a rota logística <strong>{routeToDelete?.nome}</strong>? Suas paradas
+              cadastradas e eventuais pedidos pendentes vinculados serão desatribuídos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingRoute}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              disabled={isDeletingRoute}
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmDeleteRoute()
+              }}
+            >
+              {isDeletingRoute ? 'Excluindo...' : 'Confirmar Exclusão'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* MODAL 1: Montagem de Roteamento por Contrato (Template Persistente) */}
+      <Dialog open={routingDialogOpen} onOpenChange={setRoutingDialogOpen}>
+        <DialogContent className="sm:max-w-[620px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="h-5 w-5 text-primary" /> Roteamento da Rota Logística
+            </DialogTitle>
+            <DialogDescription>
+              Configure as escolas e pedidos do contrato atendidos pela rota{' '}
+              <strong>{selectedRotaForRouting?.nome}</strong>. Esta configuração fica persistente,
+              sincroniza o vínculo no contrato (<code>contrato_escolas</code>) e é reaproveitada nos
+              ciclos seguintes como template.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2 text-xs">
-            <p className="text-muted-foreground">
-              Selecione os pedidos que serão atendidos por esta rota logística:
-            </p>
+            {/* Seção 1: Escolas Participantes do Contrato */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Building2 className="h-4 w-4 text-primary" /> Escolas Atendidas por Esta Rota
+                </Label>
+                <span className="text-[11px] text-muted-foreground">
+                  {selectedSchoolsToAssign.length} escola(s) vinculada(s)
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Marque as escolas que compõem o roteiro desta rota. O vínculo será salvo em{' '}
+                <code>contrato_escolas</code> e as paradas serão inseridas na rota.
+              </p>
 
-            <div className="rounded border divide-y max-h-[300px] overflow-y-auto">
-              {contratoOrders
-                .filter((o) => o.status === 'Pendente')
-                .map((ped) => {
-                  const isChecked = selectedOrdersToAssign.includes(ped.id)
-                  const isJaNaOutraRota =
-                    ped.rotaLogisticaId && ped.rotaLogisticaId !== selectedRotaForRouting?.id
-
-                  return (
-                    <label
-                      key={ped.id}
-                      className="flex items-center justify-between p-2.5 hover:bg-muted/30 cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedOrdersToAssign((prev) => [...prev, ped.id])
-                            } else {
-                              setSelectedOrdersToAssign((prev) =>
-                                prev.filter((id) => id !== ped.id),
-                              )
-                            }
-                          }}
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                        />
-                        <div>
-                          <p className="font-semibold text-foreground">
-                            {ped.numero} • {ped.schoolName}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {ped.items.length} itens • R$ {ped.total.toFixed(2)} • Rota ref:{' '}
-                            {ped.rotaNome || 'Sem rota'}
-                          </p>
+              <div className="rounded border divide-y max-h-[160px] overflow-y-auto bg-card">
+                {currentContrato ? (
+                  currentContrato.escolas.map((esc) => {
+                    const isChecked = selectedSchoolsToAssign.includes(esc.escolaId)
+                    return (
+                      <label
+                        key={esc.escolaId}
+                        className="flex items-center justify-between p-2 hover:bg-muted/30 cursor-pointer text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedSchoolsToAssign((prev) => [...prev, esc.escolaId])
+                              } else {
+                                setSelectedSchoolsToAssign((prev) =>
+                                  prev.filter((id) => id !== esc.escolaId),
+                                )
+                              }
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          />
+                          <div>
+                            <p className="font-semibold text-foreground">
+                              {esc.escolaNome || 'Escola'}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {esc.escolaEndereco || 'Endereço não informado'}{' '}
+                              {esc.escolaAlunos ? `• ${esc.escolaAlunos} alunos` : ''}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      {isJaNaOutraRota && (
-                        <Badge variant="outline" className="text-[9px] text-amber-700 bg-amber-50">
-                          Transferir de outra rota
+                        <Badge variant="outline" className="text-[9px]">
+                          {esc.rotaNome || 'Sem Rota'}
                         </Badge>
-                      )}
-                    </label>
-                  )
-                })}
+                      </label>
+                    )
+                  })
+                ) : (
+                  <div className="py-4 text-center text-muted-foreground">
+                    Selecione um contrato para visualizar suas escolas.
+                  </div>
+                )}
+              </div>
+            </div>
 
-              {contratoOrders.filter((o) => o.status === 'Pendente').length === 0 && (
-                <div className="py-6 text-center text-muted-foreground">
-                  Nenhum pedido pendente disponível para atribuição.
-                </div>
-              )}
+            {/* Seção 2: Pedidos Pendentes para Atribuição */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Package className="h-4 w-4 text-primary" /> Pedidos Pendentes a Atribuir
+                </Label>
+                <span className="text-[11px] text-muted-foreground">
+                  {selectedOrdersToAssign.length} pedido(s) selecionado(s)
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Selecione os pedidos pendentes que serão carregados e entregues por esta rota:
+              </p>
+
+              <div className="rounded border divide-y max-h-[180px] overflow-y-auto bg-card">
+                {contratoOrders
+                  .filter((o) => o.status === 'Pendente')
+                  .map((ped) => {
+                    const isChecked = selectedOrdersToAssign.includes(ped.id)
+                    const isJaNaOutraRota =
+                      ped.rotaLogisticaId && ped.rotaLogisticaId !== selectedRotaForRouting?.id
+
+                    return (
+                      <label
+                        key={ped.id}
+                        className="flex items-center justify-between p-2.5 hover:bg-muted/30 cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedOrdersToAssign((prev) => [...prev, ped.id])
+                                // Também marcar a escola correspondente
+                                if (!selectedSchoolsToAssign.includes(ped.schoolId)) {
+                                  setSelectedSchoolsToAssign((prev) => [...prev, ped.schoolId])
+                                }
+                              } else {
+                                setSelectedOrdersToAssign((prev) =>
+                                  prev.filter((id) => id !== ped.id),
+                                )
+                              }
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          />
+                          <div>
+                            <p className="font-semibold text-foreground">
+                              {ped.numero} • {ped.schoolName}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {ped.items.length} itens • R$ {ped.total.toFixed(2)} • Rota ref:{' '}
+                              {ped.rotaNome || 'Sem rota'}
+                            </p>
+                          </div>
+                        </div>
+                        {isJaNaOutraRota && (
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] text-amber-700 bg-amber-50"
+                          >
+                            Transferir de outra rota
+                          </Badge>
+                        )}
+                      </label>
+                    )
+                  })}
+
+                {contratoOrders.filter((o) => o.status === 'Pendente').length === 0 && (
+                  <div className="py-6 text-center text-muted-foreground">
+                    Nenhum pedido pendente disponível para atribuição.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -815,7 +1154,7 @@ export default function DeliveryRoutes() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando Roteamento...
                 </>
               ) : (
-                'Salvar Roteamento'
+                'Salvar Roteamento & Paradas'
               )}
             </Button>
           </DialogFooter>

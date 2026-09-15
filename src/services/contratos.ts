@@ -138,4 +138,25 @@ export const contratosService = {
       .collection('contrato_escolas')
       .update<ContratoEscolaRecord>(contratoEscolaId, { rota_id: rotaId })
   },
+
+  async updateEscolaRotaByContratoEscola(
+    contratoId: string,
+    escolaId: string,
+    rotaId: string,
+  ): Promise<ContratoEscolaRecord | null> {
+    const existing = await pb.collection('contrato_escolas').getFullList<ContratoEscolaRecord>({
+      filter: `contrato_id = "${contratoId}" && escola_id = "${escolaId}"`,
+    })
+    if (existing.length > 0) {
+      return await pb.collection('contrato_escolas').update<ContratoEscolaRecord>(existing[0].id, {
+        rota_id: rotaId,
+      })
+    } else {
+      return await pb.collection('contrato_escolas').create<ContratoEscolaRecord>({
+        contrato_id: contratoId,
+        escola_id: escolaId,
+        rota_id: rotaId,
+      })
+    }
+  },
 }

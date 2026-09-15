@@ -100,6 +100,19 @@ interface AppState {
     motivoLogistico: string,
     userId?: string,
   ) => Promise<boolean>
+  criarRotaLogistica: (data: {
+    contrato_id: string
+    nome: string
+    ordem?: number
+    ativa?: boolean
+  }) => Promise<RotaLogisticaRecord | null>
+  excluirRotaLogistica: (id: string) => Promise<boolean>
+  sincronizarEscolasRotaLogistica: (
+    contratoId: string,
+    rotaLogisticaId: string,
+    escolaIds: string[],
+    pedidoIds?: string[],
+  ) => Promise<boolean>
   atribuirPedidosARotaLogistica: (pedidoIds: string[], rotaLogisticaId: string) => Promise<boolean>
   salvarSequenciamentoParadas: (
     rotaLogisticaId: string,
@@ -771,15 +784,187 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Criar nova rota logística para um contrato
+  const criarRotaLogistica = async (data: {
+    contrato_id: string
+    nome: string
+    ordem?: number
+    ativa?: boolean
+  }): Promise<RotaLogisticaRecord | null> => {
+    try {
+      const created = await rotasLogisticasService.create(data)
+      await loadAllData()
+      toast.success(`Rota logística "${data.nome}" criada com sucesso!`)
+      return created
+    } catch (err: any) {
+      console.error('Erro ao criar rota logística:', err)
+      toast.error('Falha ao criar rota logística.')
+      return null
+    }
+  }
+
+  // Excluir rota logística
+  const excluirRotaLogistica = async (id: string): Promise<boolean> => {
+    try {
+      // Checar se há pedidos com status Em Rota ou Entregue vinculados a esta rota
+      const pedidosComEstaRota = orders.filter((o) => o.rotaLogisticaId === id)
+      const impedemExclusao = pedidosComEstaRota.filter((o) => o.status === 'Em Rota')
+      if (impedemExclusao.length > 0) {
+        toast.error('Não é possível excluir uma rota com pedidos em andamento ("Em Rota").')
+        return false
+      }
+
+      // Desvincular paradas cadastradas
+      const paradas = paradasRota.filter((p) => p.rota_logistica_id === id)
+      for (const p of paradas) {
+        await rotasLogisticasService.removerParada(p.id)
+      }
+
+      // Desvincular pedidos pendentes
+      for (const p of pedidosComEstaRota) {
+        if (p.status === 'Pendente') {
+          await pedidosService.atribuirRotaLogistica(p.id, '')
+        }
+      }
+
+      await rotasLogisticasService.delete(id)
+      await loadAllData()
+      toast.success('Rota logística excluída com sucesso!')
+      return true
+    } catch (err: any) {
+      console.error('Erro ao excluir rota logística:', err)
+      toast.error('Falha ao excluir rota logística.')
+      return false
+    }
+  }
+
+  // Sincronizar escolas atribuídas a uma rota logística:
+  // Preenche paradas_rota, atualiza pedidos pendentes e sincroniza contrato_escolas.rota
+  const sincronizarEscolasRotaLogistica = async (
+    contratoId: string,
+    rotaLogisticaId: string,
+    escolaIds: string[],
+    pedidoIds?: string[],
+  ): Promise<boolean> => {
+    try {
+      const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
+      const nomeRota = rotaLog?.nome || 'Rota'
+
+      // Garantir ou buscar registro na collection `rotas` com esse nome no contrato para coerência de FK rota_id
+      let rotaRefId: string | undefined
+      const existingRotasContrato = rotas.filter((r) => r.contrato_id === contratoId)
+      const match = existingRotasContrato.find(
+        (r) => r.nome.trim().toLowerCase() === nomeRota.trim().toLowerCase(),
+      )
+      if (match) {
+        rotaRefId = match.id
+      } else {
+        try {
+          const createdRotaRef = await rotasService.create({
+            contrato_id: contratoId,
+            nome: nomeRota,
+            ordem: existingRotasContrato.length + 1,
+          })
+          rotaRefId = createdRotaRef.id
+        } catch (_) {
+          // Fallback se não conseguir criar na collection rotas
+        }
+      }
+
+      // 1. Atualizar vínculo no contrato (contrato_escolas.rota_id)
+      if (rotaRefId) {
+        for (const escId of escolaIds) {
+          try {
+            await contratosService.updateEscolaRotaByContratoEscola(contratoId, escId, rotaRefId)
+          } catch (linkErr) {
+            console.warn(`Erro ao sincronizar contrato_escolas para escola ${escId}:`, linkErr)
+          }
+        }
+      }
+
+      // 2. Salvar paradas na collection paradas_rota com ordenação inicial sequencial
+      const paradasPayload = escolaIds.map((escolaId, idx) => ({
+        escola_id: escolaId,
+        ordem: idx + 1,
+      }))
+      await rotasLogisticasService.reordenarParadas(rotaLogisticaId, paradasPayload)
+
+      // 3. Se fornecido pedidoIds (ou para pedidos pendentes dessas escolas do contrato), atribuir rota_logistica_id
+      const pids =
+        pedidoIds !== undefined
+          ? pedidoIds
+          : orders
+              .filter((o) => o.status === 'Pendente' && escolaIds.includes(o.schoolId))
+              .map((o) => o.id)
+
+      for (const pid of pids) {
+        await pedidosService.atribuirRotaLogistica(pid, rotaLogisticaId)
+      }
+
+      await loadAllData()
+      toast.success(
+        `Rota "${nomeRota}" configurada com ${escolaIds.length} escola(s) e vínculos atualizados!`,
+      )
+      return true
+    } catch (err: any) {
+      console.error('Erro ao sincronizar escolas da rota logística:', err)
+      toast.error('Falha ao sincronizar escolas e rotas.')
+      return false
+    }
+  }
+
   // 4. ROTEAMENTO POR CONTRATO: Atribuir pedidos pendentes a rota logística
   const atribuirPedidosARotaLogistica = async (
     pedidoIds: string[],
     rotaLogisticaId: string,
   ): Promise<boolean> => {
     try {
+      const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
+      const contratoId = rotaLog?.contrato_id
+
       for (const pid of pedidoIds) {
         await pedidosService.atribuirRotaLogistica(pid, rotaLogisticaId)
       }
+
+      // COERÊNCIA DE DADOS: quando pedidos das escolas forem atribuídos a esta rota,
+      // sincronizar também o vínculo em contrato_escolas se houver contrato identificado
+      if (rotaLog && contratoId) {
+        const pedEscolaIds = new Set(
+          orders.filter((o) => pedidoIds.includes(o.id)).map((o) => o.schoolId),
+        )
+
+        let rotaRefId: string | undefined
+        const match = rotas.find(
+          (r) =>
+            r.contrato_id === contratoId &&
+            r.nome.trim().toLowerCase() === rotaLog.nome.trim().toLowerCase(),
+        )
+        if (match) {
+          rotaRefId = match.id
+        } else {
+          try {
+            const created = await rotasService.create({
+              contrato_id: contratoId,
+              nome: rotaLog.nome,
+              ordem: rotas.filter((r) => r.contrato_id === contratoId).length + 1,
+            })
+            rotaRefId = created.id
+          } catch {
+            /* intentionally ignored */
+          }
+        }
+
+        if (rotaRefId) {
+          for (const escId of pedEscolaIds) {
+            try {
+              await contratosService.updateEscolaRotaByContratoEscola(contratoId, escId, rotaRefId)
+            } catch {
+              /* intentionally ignored */
+            }
+          }
+        }
+      }
+
       await loadAllData()
       toast.success(`${pedidoIds.length} pedido(s) atribuído(s) à rota logística com sucesso!`)
       return true
@@ -921,6 +1106,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updateOrderStatus,
         confirmarEntregaPedido,
         cancelarPedido,
+        criarRotaLogistica,
+        excluirRotaLogistica,
+        sincronizarEscolasRotaLogistica,
         despacharRotaInteira,
         confirmarEntregaRotaInteira,
         marcarNaoEntreguePedido,

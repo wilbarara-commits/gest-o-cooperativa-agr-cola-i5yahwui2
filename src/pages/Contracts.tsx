@@ -64,6 +64,8 @@ import {
   Globe,
   Sparkles,
   Link2,
+  SlidersHorizontal,
+  Truck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { contratosService } from '@/services/contratos'

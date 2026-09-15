@@ -64,7 +64,7 @@ import { importacoesService } from '@/services/whatsapp-import'
 import type { ImportacaoRecord, EscolaTipo } from '@/lib/types'
 
 export default function ExcelImport() {
-  const { contracts, schools, products, activeCiclo, rotas, refreshData } = useApp()
+  const { contracts, schools, products, activeCiclo, rotas, paradasRota, refreshData } = useApp()
   const { user } = useAuth()
 
   // Filtrar contratos com modalidade centralizada
@@ -415,12 +415,22 @@ export default function ExcelImport() {
           const rotaId = routeMap.get(o.routeRaw)
           const orderNum = `IMP-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 900 + 100)}`
 
+          // Herdar rota logística da escola caso a escola já tenha sido roteada (paradas_rota)
+          let rotaLogisticaHerdadaId: string | undefined
+          if (o.schoolId) {
+            const paradaExistente = paradasRota.find((p) => p.escola_id === o.schoolId)
+            if (paradaExistente) {
+              rotaLogisticaHerdadaId = paradaExistente.rota_logistica_id
+            }
+          }
+
           await pedidosService.create({
             numero: orderNum,
             escola_id: o.schoolId!,
             ciclo_id: activeCiclo?.id,
             origem: 'excel',
             rota_id: rotaId,
+            rota_logistica_id: rotaLogisticaHerdadaId,
             validacao: {
               status: 'validado',
               motivo: `Importado de planilha centralizada (${o.routeRaw})`,

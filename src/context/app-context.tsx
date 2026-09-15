@@ -253,6 +253,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }))
       setSchools(mappedSchools)
 
+      // Mapa escola -> parada_rota mais recente para derivar a Rota Logística da Escola
+      // O roteamento e despacho operam sobre ESCOLAS: pedidos herdam a rota da escola.
+      const escolaParadaMap = new Map<string, ParadaRotaRecord>()
+      for (const p of rawParadasRota) {
+        if (!escolaParadaMap.has(p.escola_id)) {
+          escolaParadaMap.set(p.escola_id, p)
+        }
+      }
+
       // Map pedidos with items, rota, ciclo and validation
       const mappedOrders: Order[] = rawPedidos.map((ped) => {
         const schoolObj = mappedSchools.find((s) => s.id === ped.escola_id)
@@ -262,8 +271,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const rotaObj = rawRotas.find((r) => r.id === ped.rota_id)
         const rotaNome = ped.expand?.rota_id?.nome || rotaObj?.nome || schoolObj?.route
 
-        const rotaLogObj = rawRotasLogisticas.find((r) => r.id === ped.rota_logistica_id)
-        const rotaLogisticaNome = ped.expand?.rota_logistica_id?.nome || rotaLogObj?.nome
+        // Derivar Rota Logística prioritariamente da ESCOLA (paradas_rota) e fallback para ped.rota_logistica_id
+        const paradaEscola = escolaParadaMap.get(ped.escola_id)
+        const effectiveRotaLogisticaId = paradaEscola?.rota_logistica_id || ped.rota_logistica_id
+        const rotaLogObj = rawRotasLogisticas.find((r) => r.id === effectiveRotaLogisticaId)
+        const rotaLogisticaNome = rotaLogObj?.nome || ped.expand?.rota_logistica_id?.nome
 
         const pItens = rawPedidoItens.filter((pi) => pi.pedido_id === ped.id)
         let total = 0
@@ -306,7 +318,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           origem: ped.origem || 'manual',
           rotaId: ped.rota_id,
           rotaNome,
-          rotaLogisticaId: ped.rota_logistica_id,
+          rotaLogisticaId: effectiveRotaLogisticaId,
           rotaLogisticaNome,
           validacao: rawValidacao,
           date:
@@ -467,13 +479,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? orderData.date
         : `${orderData.date} 12:00:00.000Z`
 
+      // Herança automática da Rota Logística da Escola
+      let rotaLogisticaIdFinal = orderData.rotaLogisticaId
+      if (!rotaLogisticaIdFinal) {
+        const paradaDaEscola = paradasRota.find((p) => p.escola_id === orderData.schoolId)
+        if (paradaDaEscola) {
+          rotaLogisticaIdFinal = paradaDaEscola.rota_logistica_id
+        }
+      }
+
       await pedidosService.create({
         numero,
         escola_id: orderData.schoolId,
         ciclo_id: orderData.cicloId || activeCiclo?.id,
         origem: orderData.origem || 'manual',
         rota_id: rotaId,
-        rota_logistica_id: orderData.rotaLogisticaId,
+        rota_logistica_id: rotaLogisticaIdFinal,
         validacao: validationResult,
         data_prevista: datePrevista,
         status: 'Pendente',
@@ -642,18 +663,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   // 6. DESPACHO: Botão "Colocar em Rota" por rota logística que despacha a rota inteira
+  // Despacha TODOS os pedidos do ciclo ativo cujas ESCOLAS estão na rota (via paradas_rota)
   const despacharRotaInteira = async (
     rotaLogisticaId: string,
     contratoId: string,
     userId?: string,
   ): Promise<boolean> => {
     try {
-      const pedidosDaRota = orders.filter(
-        (o) => o.rotaLogisticaId === rotaLogisticaId && o.status === 'Pendente',
+      // Escolas que pertencem a esta rota logística (via paradas_rota)
+      const escolasDaRota = new Set(
+        paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId).map((p) => p.escola_id),
       )
 
+      // Identificar pedidos pendentes do ciclo ativo (ou pendentes em geral) cujas escolas estão na rota
+      const pedidosDaRota = orders.filter((o) => {
+        if (o.status !== 'Pendente') return false
+        // Se pertencer ao ciclo ativo quando houver ciclo ativo
+        if (activeCiclo?.id && o.cicloId && o.cicloId !== activeCiclo.id) return false
+        // Escola da parada OU rotaLogisticaId explicitamente configurado
+        return escolasDaRota.has(o.schoolId) || o.rotaLogisticaId === rotaLogisticaId
+      })
+
       if (pedidosDaRota.length === 0) {
-        toast.info('Não há pedidos pendentes atribuídos a esta rota logística para despachar.')
+        toast.info('Não há pedidos pendentes no ciclo ativo para as escolas desta rota.')
         return false
       }
 
@@ -692,9 +724,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userId?: string,
   ): Promise<boolean> => {
     try {
-      const pedidosEmRota = orders.filter(
-        (o) => o.rotaLogisticaId === rotaLogisticaId && o.status === 'Em Rota',
+      const escolasDaRota = new Set(
+        paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId).map((p) => p.escola_id),
       )
+
+      const pedidosEmRota = orders.filter((o) => {
+        if (o.status !== 'Em Rota') return false
+        return escolasDaRota.has(o.schoolId) || o.rotaLogisticaId === rotaLogisticaId
+      })
 
       if (pedidosEmRota.length === 0) {
         toast.info('Não há pedidos "Em Rota" nesta rota logística para confirmar entrega.')
@@ -839,16 +876,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   // Sincronizar escolas atribuídas a uma rota logística:
-  // Preenche paradas_rota, atualiza pedidos pendentes e sincroniza contrato_escolas.rota
+  // Preenche paradas_rota, atualiza pedidos pendentes dessas escolas e limpa as desatribuídas
   const sincronizarEscolasRotaLogistica = async (
     contratoId: string,
     rotaLogisticaId: string,
     escolaIds: string[],
-    pedidoIds?: string[],
+    _pedidoIdsIgnorado?: string[],
   ): Promise<boolean> => {
     try {
       const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
       const nomeRota = rotaLog?.nome || 'Rota'
+
+      // Identificar escolas que estavam antes nesta rota
+      const paradasAnteriores = paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId)
+      const escolasAnterioresIds = paradasAnteriores.map((p) => p.escola_id)
+      const novasEscolasSet = new Set(escolaIds)
+      const escolasDesatribuidas = escolasAnterioresIds.filter((id) => !novasEscolasSet.has(id))
 
       // Garantir ou buscar registro na collection `rotas` com esse nome no contrato para coerência de FK rota_id
       let rotaRefId: string | undefined
@@ -882,23 +925,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 2. Salvar paradas na collection paradas_rota com ordenação inicial sequencial
+      // 2. Salvar paradas na collection paradas_rota mantendo ordem existente se houver, ou sequencial
+      const ordemExistenteMap = new Map<string, number>()
+      paradasAnteriores.forEach((p) => ordemExistenteMap.set(p.escola_id, p.ordem))
+
       const paradasPayload = escolaIds.map((escolaId, idx) => ({
         escola_id: escolaId,
+        ordem: ordemExistenteMap.get(escolaId) || idx + 1,
+      }))
+      // Normalizar ordem 1..N
+      paradasPayload.sort((a, b) => a.ordem - b.ordem)
+      const paradasPayloadNormalizadas = paradasPayload.map((p, idx) => ({
+        escola_id: p.escola_id,
         ordem: idx + 1,
       }))
-      await rotasLogisticasService.reordenarParadas(rotaLogisticaId, paradasPayload)
+      await rotasLogisticasService.reordenarParadas(rotaLogisticaId, paradasPayloadNormalizadas)
 
-      // 3. Se fornecido pedidoIds (ou para pedidos pendentes dessas escolas do contrato), atribuir rota_logistica_id
-      const pids =
-        pedidoIds !== undefined
-          ? pedidoIds
-          : orders
-              .filter((o) => o.status === 'Pendente' && escolaIds.includes(o.schoolId))
-              .map((o) => o.id)
+      // 3. Atualizar pedidos pendentes das escolas atribuídas: recebem rota_logistica_id
+      const pedidosPendentesAtribuidos = orders.filter(
+        (o) => o.status === 'Pendente' && escolaIds.includes(o.schoolId),
+      )
+      for (const ped of pedidosPendentesAtribuidos) {
+        if (ped.rotaLogisticaId !== rotaLogisticaId) {
+          await pedidosService.atribuirRotaLogistica(ped.id, rotaLogisticaId)
+        }
+      }
 
-      for (const pid of pids) {
-        await pedidosService.atribuirRotaLogistica(pid, rotaLogisticaId)
+      // 4. Limpar rota_logistica_id dos pedidos pendentes das escolas desatribuídas
+      if (escolasDesatribuidas.length > 0) {
+        const pedidosPendentesDesatribuidos = orders.filter(
+          (o) =>
+            o.status === 'Pendente' &&
+            escolasDesatribuidas.includes(o.schoolId) &&
+            o.rotaLogisticaId === rotaLogisticaId,
+        )
+        for (const ped of pedidosPendentesDesatribuidos) {
+          await pedidosService.atribuirRotaLogistica(ped.id, '')
+        }
       }
 
       await loadAllData()

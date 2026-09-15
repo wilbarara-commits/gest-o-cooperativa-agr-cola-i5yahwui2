@@ -686,13 +686,20 @@ export default function Orders() {
                       <TableCell className="font-medium text-xs">{order.schoolName}</TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-0.5">
-                          {order.rotaLogisticaNome && (
+                          {order.rotaLogisticaNome ? (
                             <Badge className="bg-primary/10 text-primary border-primary/30 text-[10px] w-fit font-semibold">
                               {order.rotaLogisticaNome}
                             </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30 w-fit"
+                            >
+                              Sem rota (Escola pendente)
+                            </Badge>
                           )}
                           <span className="text-[10px] text-muted-foreground">
-                            {order.rotaNome ? `Ref: ${order.rotaNome}` : 'Sem rota ref.'}
+                            {order.rotaNome ? `Planilha: ${order.rotaNome}` : 'Sem rota ref.'}
                           </span>
                         </div>
                       </TableCell>

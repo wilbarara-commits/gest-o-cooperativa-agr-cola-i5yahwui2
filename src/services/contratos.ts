@@ -38,6 +38,7 @@ export const contratosService = {
     numero_chamada?: string
     tipo?: string
     modalidade_pedido?: 'individualizado' | 'centralizado'
+    num_rotas_logisticas?: number
     valor_total: number
     status?: 'Ativo' | 'Encerrado' | 'Pendente'
   }): Promise<ContratoRecord> {

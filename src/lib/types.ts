@@ -45,12 +45,64 @@ export interface RotaRecord {
   updated?: string
 }
 
+export interface RotaLogisticaRecord {
+  id: string
+  contrato_id: string
+  nome: string
+  ordem?: number
+  ativa?: boolean
+  created?: string
+  updated?: string
+}
+
+export interface ParadaRotaRecord {
+  id: string
+  rota_logistica_id: string
+  escola_id: string
+  ordem: number
+  expand?: {
+    escola_id?: EscolaRecord
+    rota_logistica_id?: RotaLogisticaRecord
+  }
+  created?: string
+  updated?: string
+}
+
+export interface DespachoRecord {
+  id: string
+  contrato_id: string
+  ciclo_id?: string
+  rota_logistica_id: string
+  data_despacho: string
+  usuario_id?: string
+  status: 'Em Rota' | 'Entregue' | 'Cancelado'
+  expand?: {
+    contrato_id?: ContratoRecord
+    ciclo_id?: CicloRecord
+    rota_logistica_id?: RotaLogisticaRecord
+    usuario_id?: UserRecord
+  }
+  created?: string
+  updated?: string
+}
+
+export const MOTIVOS_LOGISTICOS_CANCELAMENTO = [
+  'Veículo indisponível',
+  'Produto indisponível',
+  'Endereço inacessível',
+  'Escola fechada',
+  'Outro motivo logístico',
+] as const
+
+export type MotivoLogisticoCancelamento = (typeof MOTIVOS_LOGISTICOS_CANCELAMENTO)[number]
+
 export interface ContratoRecord {
   id: string
   numero: string
   numero_chamada?: string
   tipo?: string
   modalidade_pedido?: 'individualizado' | 'centralizado'
+  num_rotas_logisticas?: number
   valor_total: number
   status: 'Ativo' | 'Encerrado' | 'Pendente'
   created?: string
@@ -96,16 +148,20 @@ export interface PedidoRecord {
   ciclo_id?: string
   origem?: 'excel' | 'whatsapp' | 'manual'
   rota_id?: string
+  rota_logistica_id?: string
   validacao?: PedidoValidacao
   data_prevista: string
   status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
   entregue_em?: string
   entregue_por?: string
   cancelamento_motivo?: string
+  motivo_cancelamento?: string
+  cancelado_em?: string
   expand?: {
     escola_id?: EscolaRecord
     ciclo_id?: CicloRecord
     rota_id?: RotaRecord
+    rota_logistica_id?: RotaLogisticaRecord
     entregue_por?: UserRecord
   }
   created?: string
@@ -221,6 +277,7 @@ export interface Contract {
   numero_chamada?: string
   tipo?: string
   modalidade_pedido: 'individualizado' | 'centralizado'
+  num_rotas_logisticas?: number
   totalValue: number
   balance: number
   status: 'Ativo' | 'Encerrado' | 'Pendente'
@@ -240,10 +297,13 @@ export interface Order {
   numero: string
   schoolId: string
   schoolName: string
+  schoolAlunos?: number
   cicloId?: string
   origem: 'excel' | 'whatsapp' | 'manual'
   rotaId?: string
   rotaNome?: string
+  rotaLogisticaId?: string
+  rotaLogisticaNome?: string
   validacao: PedidoValidacao
   date: string
   status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
@@ -251,6 +311,8 @@ export interface Order {
   entregue_por?: string
   entreguePorNome?: string
   cancelamento_motivo?: string
+  motivo_cancelamento?: string
+  cancelado_em?: string
   total: number
   items: OrderItem[]
 }

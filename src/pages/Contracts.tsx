@@ -67,6 +67,7 @@ import {
 import { toast } from 'sonner'
 import { contratosService } from '@/services/contratos'
 import { rotasService } from '@/services/rotas'
+import { rotasLogisticasService } from '@/services/rotas-logisticas'
 import { escolasService } from '@/services/escolas'
 import { normalizeName } from '@/lib/excelImporter'
 import { ContractItemsManager, type ContractItemForm } from '@/components/ContractItemsManager'
@@ -76,8 +77,16 @@ interface ContractSchoolForm {
   rotaId: string
 }
 
+interface ContractRotaLogisticaForm {
+  id?: string
+  nome: string
+  ordem: number
+  ativa?: boolean
+}
+
 export default function Contracts() {
-  const { contracts, schools, products, orders, rotas, isLoading, refreshData } = useApp()
+  const { contracts, schools, products, orders, rotas, rotasLogisticas, isLoading, refreshData } =
+    useApp()
   const { isAdmin } = useAuth()
 
   // Diálogos principais
@@ -99,12 +108,19 @@ export default function Contracts() {
   const [modalidade, setModalidade] = useState<'individualizado' | 'centralizado'>(
     'individualizado',
   )
+  const [numRotasLogisticas, setNumRotasLogisticas] = useState<string>('2')
   const [valorTotal, setValorTotal] = useState('')
   const [status, setStatus] = useState<'Ativo' | 'Encerrado' | 'Pendente'>('Ativo')
 
-  // Vínculos N:N Escolas e Rotas no diálogo
+  // Vínculos N:N Escolas e Rotas da Planilha no diálogo
   const [contractSchoolsForm, setContractSchoolsForm] = useState<ContractSchoolForm[]>([])
   const [contractItems, setContractItems] = useState<ContractItemForm[]>([])
+
+  // Gestão de Rotas Logísticas da Cooperativa
+  const [contractRotasLogisticas, setContractRotasLogisticas] = useState<
+    ContractRotaLogisticaForm[]
+  >([])
+  const [newRotaLogisticaNome, setNewRotaLogisticaNome] = useState('')
 
   // Autocomplete e busca de escolas mestre no diálogo
   const [schoolSearchQuery, setSchoolSearchQuery] = useState('')
@@ -117,7 +133,7 @@ export default function Contracts() {
   const [quickSchoolRota, setQuickSchoolRota] = useState('')
   const [isCreatingQuickSchool, setIsCreatingQuickSchool] = useState(false)
 
-  // Gestão de Rotas do Contrato
+  // Rotas da Planilha / Secretaria (referência)
   const [contractRotas, setContractRotas] = useState<
     Array<{ id?: string; nome: string; ordem: number }>
   >([])
@@ -134,16 +150,18 @@ export default function Contracts() {
     setNumeroChamada('')
     setTipo('PNAE')
     setModalidade('individualizado')
+    setNumRotasLogisticas('2')
     setValorTotal('')
     setStatus('Ativo')
     setContractSchoolsForm([])
-    setSchoolSearchQuery('')
-    setShowQuickCreateSchool(false)
     setContractRotas([
       { nome: 'ROTA A', ordem: 1 },
       { nome: 'ROTA B', ordem: 2 },
     ])
-    // Novo contrato inicia limpo para seleção objetiva de produtos
+    setContractRotasLogisticas([
+      { nome: 'Rota Logística 1', ordem: 1, ativa: true },
+      { nome: 'Rota Logística 2', ordem: 2, ativa: true },
+    ])
     setContractItems([])
     setDialogOpen(true)
   }
@@ -154,6 +172,7 @@ export default function Contracts() {
     setNumeroChamada(contract.numero_chamada || '')
     setTipo(contract.tipo || 'PNAE')
     setModalidade(contract.modalidade_pedido || 'individualizado')
+    setNumRotasLogisticas(contract.num_rotas_logisticas?.toString() || '2')
     setValorTotal(contract.totalValue.toString())
     setStatus(contract.status)
 
@@ -164,10 +183,8 @@ export default function Contracts() {
         rotaId: e.rotaId || '',
       })),
     )
-    setSchoolSearchQuery('')
-    setShowQuickCreateSchool(false)
 
-    // Rotas do contrato
+    // Rotas da planilha da secretaria
     const existingRotas = rotas.filter((r) => r.contrato_id === contract.id)
     setContractRotas(
       existingRotas.length > 0
@@ -175,6 +192,22 @@ export default function Contracts() {
         : [
             { nome: 'ROTA A', ordem: 1 },
             { nome: 'ROTA B', ordem: 2 },
+          ],
+    )
+
+    // Rotas logísticas da cooperativa
+    const existingLog = rotasLogisticas.filter((r) => r.contrato_id === contract.id)
+    setContractRotasLogisticas(
+      existingLog.length > 0
+        ? existingLog.map((r) => ({
+            id: r.id,
+            nome: r.nome,
+            ordem: r.ordem || 1,
+            ativa: r.ativa !== false,
+          }))
+        : [
+            { nome: 'Rota Logística 1', ordem: 1, ativa: true },
+            { nome: 'Rota Logística 2', ordem: 2, ativa: true },
           ],
     )
 
@@ -221,12 +254,12 @@ export default function Contracts() {
     }
   }
 
-  // Adicionar e remover rotas no formulário
+  // Rotas da planilha
   const handleAddRota = () => {
-    const trimmed = newRotaNome.trim().toUpperCase()
+    const trimmed = newRotaNome.trim()
     if (!trimmed) return
-    if (contractRotas.some((r) => r.nome === trimmed)) {
-      toast.warning('Esta rota já foi adicionada.')
+    if (contractRotas.some((r) => r.nome.toLowerCase() === trimmed.toLowerCase())) {
+      toast.warning('Esta rota da planilha já foi adicionada.')
       return
     }
     setContractRotas((prev) => [...prev, { nome: trimmed, ordem: prev.length + 1 }])
@@ -235,6 +268,66 @@ export default function Contracts() {
 
   const handleRemoveRota = (index: number) => {
     setContractRotas((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // Rotas Logísticas da Cooperativa (com validação estrita do número definido no contrato)
+  const handleAddRotaLogistica = () => {
+    const maxPermitido = parseInt(numRotasLogisticas, 10) || 1
+    if (contractRotasLogisticas.length >= maxPermitido) {
+      toast.error(
+        `O contrato define o limite de EXATAMENTE ${maxPermitido} rota(s) logística(s). Aumente o número de rotas antes de adicionar outra.`,
+      )
+      return
+    }
+
+    const trimmed = newRotaLogisticaNome.trim()
+    if (!trimmed) return
+    if (contractRotasLogisticas.some((r) => r.nome.toLowerCase() === trimmed.toLowerCase())) {
+      toast.warning('Já existe uma rota logística com este nome.')
+      return
+    }
+
+    setContractRotasLogisticas((prev) => [
+      ...prev,
+      { nome: trimmed, ordem: prev.length + 1, ativa: true },
+    ])
+    setNewRotaLogisticaNome('')
+  }
+
+  const handleRemoveRotaLogistica = (index: number) => {
+    const rotaAlvo = contractRotasLogisticas[index]
+    if (rotaAlvo?.id) {
+      // Checar se há pedidos atribuídos a esta rota logística
+      const pedidosComRota = orders.filter((o) => o.rotaLogisticaId === rotaAlvo.id)
+      if (pedidosComRota.length > 0) {
+        toast.error(
+          `Esta rota possui ${pedidosComRota.length} pedido(s) atribuído(s). É preciso reatribuí-los antes de remover a rota.`,
+        )
+        return
+      }
+    }
+    setContractRotasLogisticas((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // Validação ao alterar o campo num_rotas_logisticas
+  const handleNumRotasChange = (novoValorStr: string) => {
+    const novoValor = parseInt(novoValorStr, 10)
+    setNumRotasLogisticas(novoValorStr)
+
+    if (!isNaN(novoValor) && novoValor < contractRotasLogisticas.length) {
+      // Verificar se as rotas excedentes (além do novo limite) têm pedidos vinculados
+      const rotasExcedentes = contractRotasLogisticas.slice(novoValor)
+      const excedentesComPedidos = rotasExcedentes.filter((r) => {
+        if (!r.id) return false
+        return orders.some((o) => o.rotaLogisticaId === r.id)
+      })
+
+      if (excedentesComPedidos.length > 0) {
+        toast.warning(
+          `Atenção: Existem rotas excedentes com pedidos atribuídos (${excedentesComPedidos.map((r) => r.nome).join(', ')}). É preciso reatribuí-los antes de reduzir o número de rotas.`,
+        )
+      }
+    }
   }
 
   // Adicionar e remover escolas do contrato
@@ -348,6 +441,43 @@ export default function Contracts() {
       return
     }
 
+    const nRotas = parseInt(numRotasLogisticas, 10)
+    if (isNaN(nRotas) || nRotas < 1) {
+      toast.error('Defina um número válido de rotas logísticas (mínimo 1).')
+      return
+    }
+
+    // Regra 3: Na área de gestão de rotas logísticas do contrato, mostre o número definido e permita criar EXATAMENTE essa quantidade de rotas (não mais).
+    if (contractRotasLogisticas.length > nRotas) {
+      toast.error(
+        `O contrato define ${nRotas} rota(s) logística(s), mas existem ${contractRotasLogisticas.length} cadastradas. Remova o excesso ou aumente o limite.`,
+      )
+      return
+    }
+
+    // Para reduzir o número, só se as rotas excedentes estiverem sem pedidos atribuídos
+    if (
+      editingContract &&
+      contractRotasLogisticas.length < (editingContract.num_rotas_logisticas || 0)
+    ) {
+      // checar se rotas já deletadas do form tinham pedidos
+      const currentLogIds = new Set(contractRotasLogisticas.map((r) => r.id).filter(Boolean))
+      const rotasDoContratoOriginal = rotasLogisticas.filter(
+        (r) => r.contrato_id === editingContract.id,
+      )
+      for (const rOrig of rotasDoContratoOriginal) {
+        if (!currentLogIds.has(rOrig.id)) {
+          const pedidosVinculados = orders.filter((o) => o.rotaLogisticaId === rOrig.id)
+          if (pedidosVinculados.length > 0) {
+            toast.error(
+              `A rota logística "${rOrig.nome}" possui ${pedidosVinculados.length} pedido(s) atribuído(s). É preciso reatribuí-los antes de reduzi-la.`,
+            )
+            return
+          }
+        }
+      }
+    }
+
     setIsSubmitting(true)
     try {
       let contractId = editingContract?.id
@@ -358,6 +488,7 @@ export default function Contracts() {
           numero_chamada: numeroChamada.trim() || undefined,
           tipo,
           modalidade_pedido: modalidade,
+          num_rotas_logisticas: nRotas,
           valor_total: val,
           status,
         })
@@ -367,6 +498,7 @@ export default function Contracts() {
           numero_chamada: numeroChamada.trim() || undefined,
           tipo,
           modalidade_pedido: modalidade,
+          num_rotas_logisticas: nRotas,
           valor_total: val,
           status,
         })
@@ -388,6 +520,34 @@ export default function Contracts() {
               ordem: cr.ordem,
             })
             savedRotasMap.set(cr.nome, newR.id)
+          }
+        }
+
+        // 1.1 Salvar / Atualizar Rotas Logísticas da Cooperativa
+        const existingDbLogRotas = await rotasLogisticasService.getByContrato(contractId)
+        const formLogIds = new Set(contractRotasLogisticas.map((r) => r.id).filter(Boolean))
+
+        // Remover rotas logísticas excluídas (que não têm pedidos)
+        for (const dbLog of existingDbLogRotas) {
+          if (!formLogIds.has(dbLog.id)) {
+            await rotasLogisticasService.delete(dbLog.id)
+          }
+        }
+
+        for (const crl of contractRotasLogisticas) {
+          if (crl.id) {
+            await rotasLogisticasService.update(crl.id, {
+              nome: crl.nome,
+              ordem: crl.ordem,
+              ativa: crl.ativa !== false,
+            })
+          } else {
+            await rotasLogisticasService.create({
+              contrato_id: contractId,
+              nome: crl.nome,
+              ordem: crl.ordem,
+              ativa: crl.ativa !== false,
+            })
           }
         }
 
@@ -738,7 +898,9 @@ export default function Contracts() {
             <Tabs defaultValue="geral" className="w-full">
               <TabsList className="grid grid-cols-4 w-full">
                 <TabsTrigger value="geral">Dados Gerais</TabsTrigger>
-                <TabsTrigger value="rotas">Rotas ({contractRotas.length})</TabsTrigger>
+                <TabsTrigger value="rotas">
+                  Rotas Logísticas ({contractRotasLogisticas.length}/{numRotasLogisticas})
+                </TabsTrigger>
                 <TabsTrigger value="escolas">Escolas ({contractSchoolsForm.length})</TabsTrigger>
                 <TabsTrigger value="produtos">Itens & Preços ({contractItems.length})</TabsTrigger>
               </TabsList>
@@ -846,50 +1008,167 @@ export default function Contracts() {
                     />
                   </div>
                 </div>
+
+                <div className="p-3 rounded-lg border bg-amber-500/10 border-amber-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label
+                        htmlFor="c-num-rotas"
+                        className="font-semibold text-xs text-amber-950 dark:text-amber-200"
+                      >
+                        Número de Rotas Logísticas da Cooperativa
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Define exatamente quantas rotas logísticas este contrato terá para despacho
+                        e sequenciamento.
+                      </p>
+                    </div>
+                    <div className="w-24">
+                      <Input
+                        id="c-num-rotas"
+                        type="number"
+                        min="1"
+                        step="1"
+                        className="h-8 font-bold text-center bg-background"
+                        value={numRotasLogisticas}
+                        onChange={(e) => handleNumRotasChange(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
               </TabsContent>
 
-              {/* Aba 2: Gestão de Rotas do Contrato */}
-              <TabsContent value="rotas" className="space-y-3 pt-3">
-                <div>
-                  <Label className="text-sm font-semibold">Rotas Logísticas deste Contrato</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Defina as rotas que atendem as escolas (ex.: ROTA A, ROTA B).
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Nome da Rota (ex.: ROTA C)"
-                    value={newRotaNome}
-                    onChange={(e) => setNewRotaNome(e.target.value)}
-                    className="h-9"
-                  />
-                  <Button type="button" onClick={handleAddRota} className="h-9 gap-1 text-xs">
-                    <Plus className="h-3.5 w-3.5" /> Adicionar Rota
-                  </Button>
-                </div>
-
-                <div className="space-y-2 max-h-[220px] overflow-y-auto">
-                  {contractRotas.map((r, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between p-2 rounded border bg-muted/20 text-xs"
+              {/* Aba 2: Gestão de Rotas Logísticas da Cooperativa e Rotas da Planilha */}
+              <TabsContent value="rotas" className="space-y-4 pt-3">
+                {/* Seção 1: Rotas Logísticas da Cooperativa */}
+                <div className="space-y-3 p-3.5 rounded-lg border bg-card">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm font-bold flex items-center gap-2 text-primary">
+                        <Route className="h-4 w-4" /> Rotas Logísticas da Cooperativa
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Utilizadas para despacho, sequenciamento de paradas e entrega no campo.
+                        Limite definido no contrato:{' '}
+                        <strong className="text-foreground">{numRotasLogisticas} rota(s)</strong>{' '}
+                        (criadas: {contractRotasLogisticas.length}).
+                      </p>
+                    </div>
+                    <Badge
+                      variant={
+                        contractRotasLogisticas.length === parseInt(numRotasLogisticas, 10)
+                          ? 'default'
+                          : 'outline'
+                      }
                     >
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{idx + 1}º</Badge>
-                        <span className="font-semibold">{r.nome}</span>
-                      </div>
+                      {contractRotasLogisticas.length} / {numRotasLogisticas} rotas
+                    </Badge>
+                  </div>
+
+                  {contractRotasLogisticas.length < (parseInt(numRotasLogisticas, 10) || 1) ? (
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Nome livre da rota logística (ex.: Rota 1 Centro, Linha Norte, Rota Especial...)"
+                        value={newRotaLogisticaNome}
+                        onChange={(e) => setNewRotaLogisticaNome(e.target.value)}
+                        className="h-9 text-xs"
+                      />
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => handleRemoveRota(idx)}
+                        onClick={handleAddRotaLogistica}
+                        className="h-9 gap-1 text-xs shrink-0"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Plus className="h-3.5 w-3.5" /> Adicionar Rota Logística
                       </Button>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="p-2 rounded bg-muted/40 border text-xs text-muted-foreground">
+                      Limite de <strong>{numRotasLogisticas} rota(s) logística(s)</strong> atingido.
+                      Para criar outra, aumente o número de rotas nos Dados Gerais.
+                    </div>
+                  )}
+
+                  <div className="space-y-2 max-h-[180px] overflow-y-auto">
+                    {contractRotasLogisticas.map((r, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2 rounded border bg-muted/20 text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            {idx + 1}ª
+                          </Badge>
+                          <span className="font-semibold text-foreground">{r.nome}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => handleRemoveRotaLogistica(idx)}
+                          title="Remover rota logística"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                    {contractRotasLogisticas.length === 0 && (
+                      <p className="text-xs text-muted-foreground italic text-center py-2">
+                        Nenhuma rota logística cadastrada ainda.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Seção 2: Rotas da Planilha da Secretaria (Referência) */}
+                <div className="space-y-3 p-3.5 rounded-lg border bg-muted/20">
+                  <div>
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Rotas da Planilha da Secretaria (Referência de Agrupamento)
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Nomes livres de agrupamento importados ou referenciados da planilha da
+                      secretaria (ex: ROTA A, ROTA B, Zona Rural).
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Nome livre da rota da planilha (ex.: ROTA A, Setor 1...)"
+                      value={newRotaNome}
+                      onChange={(e) => setNewRotaNome(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAddRota}
+                      className="h-8 gap-1 text-xs"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Adicionar Rota da Planilha
+                    </Button>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+                    {contractRotas.map((r, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-1.5 rounded border bg-background text-xs"
+                      >
+                        <span className="font-medium">{r.nome}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-destructive"
+                          onClick={() => handleRemoveRota(idx)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </TabsContent>
 

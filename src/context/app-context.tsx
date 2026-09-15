@@ -15,6 +15,9 @@ import type {
   AtestoRecord,
   CicloRecord,
   RotaRecord,
+  RotaLogisticaRecord,
+  ParadaRotaRecord,
+  DespachoRecord,
   ContratoEscolaRecord,
   ContratoItemRecord,
   PedidoValidacao,
@@ -28,6 +31,7 @@ import { pedidosService } from '@/services/pedidos'
 import { atestosService } from '@/services/atestos'
 import { ciclosService } from '@/services/ciclos'
 import { rotasService } from '@/services/rotas'
+import { rotasLogisticasService } from '@/services/rotas-logisticas'
 import { toast } from 'sonner'
 import useRealtime from '@/hooks/use-realtime'
 import { validateOrder } from '@/lib/orderValidation'
@@ -38,6 +42,7 @@ export interface CreateOrderData {
   cicloId?: string
   origem?: 'excel' | 'whatsapp' | 'manual'
   rotaId?: string
+  rotaLogisticaId?: string
   items: Array<{
     productId: string
     quantity: number
@@ -55,6 +60,9 @@ interface AppState {
   ciclos: CicloRecord[]
   activeCiclo: CicloRecord | null
   rotas: RotaRecord[]
+  rotasLogisticas: RotaLogisticaRecord[]
+  paradasRota: ParadaRotaRecord[]
+  despachos: DespachoRecord[]
   config: ConfiguracoesRecord | null
   logoUrl: string
   isLoading: boolean
@@ -72,12 +80,31 @@ interface AppState {
     status: Order['status'],
     options?: {
       cancelamento_motivo?: string
+      motivo_cancelamento?: string
       entregue_em?: string
       entregue_por?: string
+      cancelado_em?: string
+      rota_logistica_id?: string
     },
   ) => Promise<boolean>
   confirmarEntregaPedido: (id: string, userId?: string) => Promise<boolean>
-  cancelarPedido: (id: string, motivo: string) => Promise<boolean>
+  cancelarPedido: (id: string, motivo: string, isEmRota?: boolean) => Promise<boolean>
+  despacharRotaInteira: (
+    rotaLogisticaId: string,
+    contratoId: string,
+    userId?: string,
+  ) => Promise<boolean>
+  confirmarEntregaRotaInteira: (rotaLogisticaId: string, userId?: string) => Promise<boolean>
+  marcarNaoEntreguePedido: (
+    pedidoId: string,
+    motivoLogistico: string,
+    userId?: string,
+  ) => Promise<boolean>
+  atribuirPedidosARotaLogistica: (pedidoIds: string[], rotaLogisticaId: string) => Promise<boolean>
+  salvarSequenciamentoParadas: (
+    rotaLogisticaId: string,
+    paradas: Array<{ escola_id: string; ordem: number }>,
+  ) => Promise<boolean>
   updateCicloStatus: (
     cicloId: string,
     status: 'coletando' | 'correcao' | 'fechado',
@@ -103,6 +130,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [ciclos, setCiclos] = useState<CicloRecord[]>([])
   const [activeCiclo, setActiveCiclo] = useState<CicloRecord | null>(null)
   const [rotas, setRotas] = useState<RotaRecord[]>([])
+  const [rotasLogisticas, setRotasLogisticas] = useState<RotaLogisticaRecord[]>([])
+  const [paradasRota, setParadasRota] = useState<ParadaRotaRecord[]>([])
+  const [despachos, setDespachos] = useState<DespachoRecord[]>([])
   const [config, setConfig] = useState<ConfiguracoesRecord | null>(null)
   const [logoUrl, setLogoUrl] = useState<string>('')
   const [isLoading, setIsLoading] = useState<boolean>(true)
@@ -122,6 +152,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         rawAtestos,
         rawCiclos,
         rawRotas,
+        rawRotasLogisticas,
+        rawParadasRota,
+        rawDespachos,
         rawConfig,
       ] = await Promise.all([
         produtosService.getAll(),
@@ -134,6 +167,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         atestosService.getAll(),
         ciclosService.getAll(),
         rotasService.getAll(),
+        rotasLogisticasService.getAll(),
+        rotasLogisticasService.getParadas(),
+        rotasLogisticasService.getDespachos(),
         configuracoesService.get(),
       ])
 
@@ -173,6 +209,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const currentActive = rawCiclos.find((c) => c.status !== 'fechado') || rawCiclos[0] || null
       setActiveCiclo(currentActive)
       setRotas(rawRotas)
+      setRotasLogisticas(rawRotasLogisticas)
+      setParadasRota(rawParadasRota)
+      setDespachos(rawDespachos)
       setContractSchools(rawContratoEscolas)
       setContractItems(rawContratoItens)
 
@@ -210,6 +249,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const rotaObj = rawRotas.find((r) => r.id === ped.rota_id)
         const rotaNome = ped.expand?.rota_id?.nome || rotaObj?.nome || schoolObj?.route
 
+        const rotaLogObj = rawRotasLogisticas.find((r) => r.id === ped.rota_logistica_id)
+        const rotaLogisticaNome = ped.expand?.rota_logistica_id?.nome || rotaLogObj?.nome
+
         const pItens = rawPedidoItens.filter((pi) => pi.pedido_id === ped.id)
         let total = 0
         const items = pItens.map((pi) => {
@@ -239,15 +281,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ped.expand?.entregue_por?.email ||
           ''
 
+        const motivoCancel = ped.motivo_cancelamento || ped.cancelamento_motivo
+
         return {
           id: ped.id,
           numero: ped.numero,
           schoolId: ped.escola_id,
           schoolName,
+          schoolAlunos: schoolObj?.alunos,
           cicloId: ped.ciclo_id,
           origem: ped.origem || 'manual',
           rotaId: ped.rota_id,
           rotaNome,
+          rotaLogisticaId: ped.rota_logistica_id,
+          rotaLogisticaNome,
           validacao: rawValidacao,
           date:
             ped.data_prevista ||
@@ -257,7 +304,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           entregue_em: ped.entregue_em,
           entregue_por: ped.entregue_por,
           entreguePorNome,
-          cancelamento_motivo: ped.cancelamento_motivo,
+          cancelamento_motivo: motivoCancel,
+          motivo_cancelamento: motivoCancel,
+          cancelado_em: ped.cancelado_em,
           total: Math.round(total * 100) / 100,
           items,
         }
@@ -301,6 +350,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           numero_chamada: c.numero_chamada || '',
           tipo: c.tipo || 'PNAE',
           modalidade_pedido: c.modalidade_pedido || 'individualizado',
+          num_rotas_logisticas:
+            c.num_rotas_logisticas !== undefined && c.num_rotas_logisticas !== null
+              ? Number(c.num_rotas_logisticas)
+              : undefined,
           totalValue,
           balance,
           status: c.status,
@@ -353,6 +406,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useRealtime('atestos', () => loadAllData())
   useRealtime('ciclos', () => loadAllData())
   useRealtime('rotas', () => loadAllData())
+  useRealtime('rotas_logisticas', () => loadAllData())
+  useRealtime('paradas_rota', () => loadAllData())
+  useRealtime('despachos', () => loadAllData())
   useRealtime('configuracoes', () => loadAllData())
 
   const addOrder = async (orderData: CreateOrderData): Promise<boolean> => {
@@ -404,6 +460,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ciclo_id: orderData.cicloId || activeCiclo?.id,
         origem: orderData.origem || 'manual',
         rota_id: rotaId,
+        rota_logistica_id: orderData.rotaLogisticaId,
         validacao: validationResult,
         data_prevista: datePrevista,
         status: 'Pendente',
@@ -434,8 +491,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     status: Order['status'],
     options?: {
       cancelamento_motivo?: string
+      motivo_cancelamento?: string
       entregue_em?: string
       entregue_por?: string
+      cancelado_em?: string
+      rota_logistica_id?: string
     },
   ): Promise<boolean> => {
     try {
@@ -458,12 +518,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Se a transição for para Cancelado, motivo é obrigatório
       if (status === 'Cancelado') {
-        const motivo = options?.cancelamento_motivo?.trim()
+        const motivo = (options?.motivo_cancelamento || options?.cancelamento_motivo)?.trim()
         if (!motivo) {
           toast.error('Motivo do cancelamento é obrigatório.')
           return false
         }
-        return await cancelarPedido(id, motivo)
+        const isEmRota = targetOrder.status === 'Em Rota'
+        return await cancelarPedido(id, motivo, isEmRota)
       }
 
       // Transição padrão (ex: Pendente -> Em Rota)
@@ -525,7 +586,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const cancelarPedido = async (id: string, motivo: string): Promise<boolean> => {
+  const cancelarPedido = async (id: string, motivo: string, isEmRota = false): Promise<boolean> => {
     try {
       const targetOrder = orders.find((o) => o.id === id)
       if (!targetOrder) {
@@ -538,8 +599,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return true
       }
 
-      if (targetOrder.status !== 'Pendente') {
-        toast.error('Apenas pedidos com status "Pendente" podem ser cancelados.')
+      if (targetOrder.status === 'Entregue') {
+        toast.error('Não é possível cancelar um pedido já entregue.')
         return false
       }
 
@@ -548,16 +609,199 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return false
       }
 
+      const nowIso = new Date().toISOString()
+      const cleanMotivo = motivo.trim()
+
       await pedidosService.updateStatus(id, 'Cancelado', {
-        cancelamento_motivo: motivo.trim(),
+        motivo_cancelamento: cleanMotivo,
+        cancelamento_motivo: cleanMotivo,
+        cancelado_em: nowIso,
       })
 
       await loadAllData()
-      toast.success(`Pedido ${targetOrder.numero} foi cancelado com sucesso.`)
+      toast.success(`Pedido ${targetOrder.numero} foi cancelado definitivamente.`)
       return true
     } catch (err: any) {
       console.error('Erro ao cancelar pedido:', err)
       toast.error('Falha ao cancelar pedido.')
+      return false
+    }
+  }
+
+  // 6. DESPACHO: Botão "Colocar em Rota" por rota logística que despacha a rota inteira
+  const despacharRotaInteira = async (
+    rotaLogisticaId: string,
+    contratoId: string,
+    userId?: string,
+  ): Promise<boolean> => {
+    try {
+      const pedidosDaRota = orders.filter(
+        (o) => o.rotaLogisticaId === rotaLogisticaId && o.status === 'Pendente',
+      )
+
+      if (pedidosDaRota.length === 0) {
+        toast.info('Não há pedidos pendentes atribuídos a esta rota logística para despachar.')
+        return false
+      }
+
+      const nowIso = new Date().toISOString()
+
+      // 1. Criar registro na collection despachos
+      await rotasLogisticasService.criarDespacho({
+        contrato_id: contratoId,
+        ciclo_id: activeCiclo?.id || undefined,
+        rota_logistica_id: rotaLogisticaId,
+        usuario_id: userId,
+        data_despacho: nowIso,
+        status: 'Em Rota',
+      })
+
+      // 2. Passar todos os pedidos pendentes dela para "Em Rota"
+      for (const p of pedidosDaRota) {
+        await pedidosService.updateStatus(p.id, 'Em Rota')
+      }
+
+      await loadAllData()
+      toast.success(
+        `Rota logística despachada com sucesso! ${pedidosDaRota.length} pedido(s) colocados "Em Rota".`,
+      )
+      return true
+    } catch (err: any) {
+      console.error('Erro ao despachar rota inteira:', err)
+      toast.error('Falha ao despachar rota logística.')
+      return false
+    }
+  }
+
+  // 7. ENTREGA POR ROTA INTEIRA (operação offline): botão "Rota Entregue" marca TODOS os pedidos "Em Rota" dela como Entregue
+  const confirmarEntregaRotaInteira = async (
+    rotaLogisticaId: string,
+    userId?: string,
+  ): Promise<boolean> => {
+    try {
+      const pedidosEmRota = orders.filter(
+        (o) => o.rotaLogisticaId === rotaLogisticaId && o.status === 'Em Rota',
+      )
+
+      if (pedidosEmRota.length === 0) {
+        toast.info('Não há pedidos "Em Rota" nesta rota logística para confirmar entrega.')
+        return false
+      }
+
+      const nowIso = new Date().toISOString()
+
+      // Para cada pedido "Em Rota", marcar como Entregue e dar baixa no estoque dos itens
+      for (const ped of pedidosEmRota) {
+        await pedidosService.updateStatus(ped.id, 'Entregue', {
+          entregue_em: nowIso,
+          entregue_por: userId,
+        })
+
+        // Baixa no estoque
+        for (const it of ped.items) {
+          if (it.productId && it.quantity > 0) {
+            try {
+              await produtosService.decrementarEstoque(it.productId, it.quantity)
+            } catch (stkErr) {
+              console.error(`Erro ao baixar estoque do produto ${it.productId}:`, stkErr)
+            }
+          }
+        }
+      }
+
+      // Atualizar status do despacho ativo se existir
+      const despachosAtivos = despachos.filter(
+        (d) => d.rota_logistica_id === rotaLogisticaId && d.status === 'Em Rota',
+      )
+      for (const d of despachosAtivos) {
+        await rotasLogisticasService.atualizarStatusDespacho(d.id, 'Entregue')
+      }
+
+      await loadAllData()
+      toast.success(
+        `Rota confirmada como entregue! ${pedidosEmRota.length} pedido(s) finalizados e estoque baixado.`,
+      )
+      return true
+    } catch (err: any) {
+      console.error('Erro ao confirmar entrega da rota inteira:', err)
+      toast.error('Falha ao confirmar entrega da rota logística.')
+      return false
+    }
+  }
+
+  // 8. CANCELAMENTO: botão "Não entregue" após despacho (Em Rota) -> Cancelado DEFINITIVAMENTE com motivo logístico
+  const marcarNaoEntreguePedido = async (
+    pedidoId: string,
+    motivoLogistico: string,
+    userId?: string,
+  ): Promise<boolean> => {
+    try {
+      const targetOrder = orders.find((o) => o.id === pedidoId)
+      if (!targetOrder) {
+        toast.error('Pedido não encontrado.')
+        return false
+      }
+
+      if (targetOrder.status !== 'Em Rota') {
+        toast.error(
+          'A marcação de "Não entregue" aplica-se apenas a pedidos despachados ("Em Rota").',
+        )
+        return false
+      }
+
+      const nowIso = new Date().toISOString()
+      const cleanMotivo = motivoLogistico.trim()
+
+      await pedidosService.updateStatus(pedidoId, 'Cancelado', {
+        motivo_cancelamento: cleanMotivo,
+        cancelamento_motivo: cleanMotivo,
+        cancelado_em: nowIso,
+        entregue_por: userId,
+      })
+
+      await loadAllData()
+      toast.success(
+        `Pedido ${targetOrder.numero} marcado como "Não entregue" e cancelado definitivamente por motivo logístico.`,
+      )
+      return true
+    } catch (err: any) {
+      console.error('Erro ao marcar pedido como não entregue:', err)
+      toast.error('Falha ao processar não entrega.')
+      return false
+    }
+  }
+
+  // 4. ROTEAMENTO POR CONTRATO: Atribuir pedidos pendentes a rota logística
+  const atribuirPedidosARotaLogistica = async (
+    pedidoIds: string[],
+    rotaLogisticaId: string,
+  ): Promise<boolean> => {
+    try {
+      for (const pid of pedidoIds) {
+        await pedidosService.atribuirRotaLogistica(pid, rotaLogisticaId)
+      }
+      await loadAllData()
+      toast.success(`${pedidoIds.length} pedido(s) atribuído(s) à rota logística com sucesso!`)
+      return true
+    } catch (err: any) {
+      console.error('Erro ao atribuir pedidos à rota logística:', err)
+      toast.error('Falha ao salvar atribuição de rota.')
+      return false
+    }
+  }
+
+  // 5. SEQUENCIAMENTO DAS PARADAS: Salvar paradas ordenadas
+  const salvarSequenciamentoParadas = async (
+    rotaLogisticaId: string,
+    paradas: Array<{ escola_id: string; ordem: number }>,
+  ): Promise<boolean> => {
+    try {
+      await rotasLogisticasService.reordenarParadas(rotaLogisticaId, paradas)
+      await loadAllData()
+      return true
+    } catch (err: any) {
+      console.error('Erro ao salvar sequenciamento de paradas:', err)
+      toast.error('Falha ao salvar sequência de paradas.')
       return false
     }
   }
@@ -665,6 +909,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ciclos,
         activeCiclo,
         rotas,
+        rotasLogisticas,
+        paradasRota,
+        despachos,
         config,
         logoUrl,
         isLoading,
@@ -674,6 +921,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updateOrderStatus,
         confirmarEntregaPedido,
         cancelarPedido,
+        despacharRotaInteira,
+        confirmarEntregaRotaInteira,
+        marcarNaoEntreguePedido,
+        atribuirPedidosARotaLogistica,
+        salvarSequenciamentoParadas,
         updateCicloStatus,
         createCiclo,
         generateAtesto,

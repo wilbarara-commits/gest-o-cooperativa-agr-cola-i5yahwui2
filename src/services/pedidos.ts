@@ -4,7 +4,7 @@ import type { PedidoRecord, PedidoItemRecord, PedidoValidacao } from '@/lib/type
 export const pedidosService = {
   async getAll(): Promise<PedidoRecord[]> {
     return await pb.collection('pedidos').getFullList<PedidoRecord>({
-      expand: 'escola_id,ciclo_id,rota_id,entregue_por',
+      expand: 'escola_id,ciclo_id,rota_id,rota_logistica_id,entregue_por',
       sort: '-data_prevista',
     })
   },
@@ -28,6 +28,7 @@ export const pedidosService = {
     ciclo_id?: string
     origem?: 'excel' | 'whatsapp' | 'manual'
     rota_id?: string
+    rota_logistica_id?: string
     validacao?: PedidoValidacao
     data_prevista: string
     status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
@@ -43,6 +44,7 @@ export const pedidosService = {
       ciclo_id: data.ciclo_id || '',
       origem: data.origem || 'manual',
       rota_id: data.rota_id || '',
+      rota_logistica_id: data.rota_logistica_id || '',
       validacao: data.validacao || { status: 'validado', motivo: 'Lançamento manual' },
       data_prevista: data.data_prevista,
       status: data.status,
@@ -67,6 +69,9 @@ export const pedidosService = {
       entregue_em?: string
       entregue_por?: string
       cancelamento_motivo?: string
+      motivo_cancelamento?: string
+      cancelado_em?: string
+      rota_logistica_id?: string
     },
   ): Promise<PedidoRecord> {
     const payload: Partial<PedidoRecord> = { status }
@@ -78,8 +83,25 @@ export const pedidosService = {
     }
     if (options?.cancelamento_motivo !== undefined) {
       payload.cancelamento_motivo = options.cancelamento_motivo
+      payload.motivo_cancelamento = options.cancelamento_motivo
+    }
+    if (options?.motivo_cancelamento !== undefined) {
+      payload.motivo_cancelamento = options.motivo_cancelamento
+      payload.cancelamento_motivo = options.motivo_cancelamento
+    }
+    if (options?.cancelado_em !== undefined) {
+      payload.cancelado_em = options.cancelado_em
+    }
+    if (options?.rota_logistica_id !== undefined) {
+      payload.rota_logistica_id = options.rota_logistica_id
     }
     return await pb.collection('pedidos').update<PedidoRecord>(id, payload)
+  },
+
+  async atribuirRotaLogistica(pedidoId: string, rotaLogisticaId: string): Promise<PedidoRecord> {
+    return await pb.collection('pedidos').update<PedidoRecord>(pedidoId, {
+      rota_logistica_id: rotaLogisticaId,
+    })
   },
 
   async updateValidacao(id: string, validacao: PedidoValidacao): Promise<PedidoRecord> {

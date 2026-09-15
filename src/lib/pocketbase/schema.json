@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-14T00:55:44.535Z",
+  "generatedAt": "2026-09-15T03:31:44.881Z",
   "collections": [
     {
       "name": "users",
@@ -277,6 +277,12 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "num_rotas_logisticas",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []
@@ -423,6 +429,25 @@
         {
           "name": "cancelamento_motivo",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rota_logistica_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "rotas_logisticas"
+        },
+        {
+          "name": "motivo_cancelamento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cancelado_em",
+          "type": "date",
           "required": false,
           "system": false
         }
@@ -940,6 +965,186 @@
         }
       ],
       "indexes": []
+    },
+    {
+      "name": "rotas_logisticas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "contrato_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "contratos"
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ordem",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativa",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_rotas_log_contrato ON rotas_logisticas (contrato_id)",
+        "CREATE INDEX idx_rotas_log_ordem ON rotas_logisticas (ordem)"
+      ]
+    },
+    {
+      "name": "paradas_rota",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "rota_logistica_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "rotas_logisticas"
+        },
+        {
+          "name": "escola_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "escolas"
+        },
+        {
+          "name": "ordem",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_paradas_rota ON paradas_rota (rota_logistica_id, ordem)",
+        "CREATE INDEX idx_paradas_escola ON paradas_rota (escola_id)"
+      ]
+    },
+    {
+      "name": "despachos",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "contrato_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "contratos"
+        },
+        {
+          "name": "ciclo_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "ciclos"
+        },
+        {
+          "name": "rota_logistica_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "rotas_logisticas"
+        },
+        {
+          "name": "data_despacho",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "usuario_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Em Rota", "Entregue", "Cancelado"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_despachos_rota ON despachos (rota_logistica_id)",
+        "CREATE INDEX idx_despachos_contrato ON despachos (contrato_id)",
+        "CREATE INDEX idx_despachos_ciclo ON despachos (ciclo_id)"
+      ]
     }
   ]
 }

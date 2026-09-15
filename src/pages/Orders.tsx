@@ -1,7 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useApp } from '@/context/app-context'
 import { useAuth } from '@/context/auth-context'
-import type { Order } from '@/lib/types'
+import {
+  type Order,
+  type MotivoLogisticoCancelamento,
+  MOTIVOS_LOGISTICOS_CANCELAMENTO,
+} from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -75,6 +79,7 @@ export default function Orders() {
     updateOrderStatus,
     confirmarEntregaPedido,
     cancelarPedido,
+    marcarNaoEntreguePedido,
     isLoading,
   } = useApp()
   const { user } = useAuth()
@@ -100,10 +105,13 @@ export default function Orders() {
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
 
-  // Diálogo de cancelamento com motivo obrigatório
+  // Diálogo de cancelamento (livre para Pendente / logístico para Em Rota)
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [orderToCancel, setOrderToCancel] = useState<Order | null>(null)
   const [cancelReason, setCancelReason] = useState('')
+  const [selectedMotivoLogistico, setSelectedMotivoLogistico] =
+    useState<MotivoLogisticoCancelamento>(MOTIVOS_LOGISTICOS_CANCELAMENTO[0])
+  const [cancelReasonLogisticoDetalhe, setCancelReasonLogisticoDetalhe] = useState('')
   const [isCanceling, setIsCanceling] = useState(false)
 
   // Diálogo de confirmação de entrega
@@ -306,30 +314,49 @@ export default function Orders() {
   }
 
   const handleOpenCancelDialog = (order: Order) => {
-    if (order.status !== 'Pendente') {
-      toast.error(
-        'Cancelamento é permitido apenas enquanto o pedido estiver com status "Pendente".',
-      )
+    if (order.status === 'Cancelado') {
+      toast.info('Este pedido já está cancelado.')
+      return
+    }
+    if (order.status === 'Entregue') {
+      toast.error('Não é possível cancelar um pedido já entregue.')
       return
     }
     setOrderToCancel(order)
     setCancelReason('')
+    setSelectedMotivoLogistico(MOTIVOS_LOGISTICOS_CANCELAMENTO[0])
+    setCancelReasonLogisticoDetalhe('')
     setCancelDialogOpen(true)
   }
 
   const handleExecuteCancel = async () => {
     if (!orderToCancel) return
-    if (!cancelReason.trim()) {
-      toast.error('Informe obrigatoriamente o motivo do cancelamento.')
-      return
-    }
+
     setIsCanceling(true)
     try {
-      const ok = await cancelarPedido(orderToCancel.id, cancelReason.trim())
-      if (ok) {
-        setCancelDialogOpen(false)
-        setOrderToCancel(null)
-        setCancelReason('')
+      if (orderToCancel.status === 'Pendente') {
+        // Regra 8: Pedido NÃO despachado (Pendente): pode ser cancelado antes do despacho, com motivo livre
+        if (!cancelReason.trim()) {
+          toast.error('Informe obrigatoriamente o motivo do cancelamento.')
+          return
+        }
+        const ok = await cancelarPedido(orderToCancel.id, cancelReason.trim(), false)
+        if (ok) {
+          setCancelDialogOpen(false)
+          setOrderToCancel(null)
+          setCancelReason('')
+        }
+      } else if (orderToCancel.status === 'Em Rota') {
+        // Regra 8: Pedido despachado (Em Rota) ou Não entregue: só por motivos logísticos da cooperativa (lista fixa + detalhe livre)
+        const motivoCompleto = cancelReasonLogisticoDetalhe.trim()
+          ? `${selectedMotivoLogistico}: ${cancelReasonLogisticoDetalhe.trim()}`
+          : selectedMotivoLogistico
+        const ok = await marcarNaoEntreguePedido(orderToCancel.id, motivoCompleto, user?.id)
+        if (ok) {
+          setCancelDialogOpen(false)
+          setOrderToCancel(null)
+          setCancelReasonLogisticoDetalhe('')
+        }
       }
     } finally {
       setIsCanceling(false)
@@ -625,9 +652,10 @@ export default function Orders() {
                   <TableHead>Nº Pedido</TableHead>
                   <TableHead>Origem</TableHead>
                   <TableHead>Instituição Escolar</TableHead>
-                  <TableHead>Rota</TableHead>
+                  <TableHead>Rota Logística / Planilha</TableHead>
                   <TableHead>Data Prevista</TableHead>
                   <TableHead>Validação</TableHead>
+                  <TableHead>Motivo Cancelamento</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Total (R$)</TableHead>
                   <TableHead className="text-right">Ação</TableHead>
@@ -657,14 +685,42 @@ export default function Orders() {
                       <TableCell>{getOrigemBadge(order.origem)}</TableCell>
                       <TableCell className="font-medium text-xs">{order.schoolName}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-[10px]">
-                          {order.rotaNome || 'Sem rota'}
-                        </Badge>
+                        <div className="flex flex-col gap-0.5">
+                          {order.rotaLogisticaNome && (
+                            <Badge className="bg-primary/10 text-primary border-primary/30 text-[10px] w-fit font-semibold">
+                              {order.rotaLogisticaNome}
+                            </Badge>
+                          )}
+                          <span className="text-[10px] text-muted-foreground">
+                            {order.rotaNome ? `Ref: ${order.rotaNome}` : 'Sem rota ref.'}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs">
                         {new Date(order.date).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell>{getValidacaoBadge(order.validacao)}</TableCell>
+                      <TableCell className="text-xs">
+                        {order.status === 'Cancelado' ? (
+                          <div
+                            className="max-w-[190px]"
+                            title={order.motivo_cancelamento || order.cancelamento_motivo || ''}
+                          >
+                            <span className="text-xs font-semibold text-destructive line-clamp-2">
+                              {order.motivo_cancelamento ||
+                                order.cancelamento_motivo ||
+                                'Sem motivo registrado'}
+                            </span>
+                            {order.cancelado_em && (
+                              <span className="text-[9px] text-muted-foreground block">
+                                Em {new Date(order.cancelado_em).toLocaleDateString('pt-BR')}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>{getStatusBadge(order.status)}</TableCell>
                       <TableCell className="text-right font-mono font-medium text-xs">
                         R${' '}
@@ -731,14 +787,23 @@ export default function Orders() {
                                 </>
                               )}
 
-                              {/* Se Em Rota: pode avançar para Entregue */}
+                              {/* Se Em Rota: pode avançar para Entregue ou marcar "Não entregue" */}
                               {order.status === 'Em Rota' && (
-                                <DropdownMenuItem
-                                  className="gap-2 cursor-pointer text-emerald-700 dark:text-emerald-400"
-                                  onClick={() => handleOpenConfirmDelivery(order)}
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar Entrega
-                                </DropdownMenuItem>
+                                <>
+                                  <DropdownMenuItem
+                                    className="gap-2 cursor-pointer text-emerald-700 dark:text-emerald-400"
+                                    onClick={() => handleOpenConfirmDelivery(order)}
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar Entrega
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="gap-2 cursor-pointer text-destructive focus:text-destructive font-semibold"
+                                    onClick={() => handleOpenCancelDialog(order)}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" /> Não entregue (Cancelar)
+                                  </DropdownMenuItem>
+                                </>
                               )}
 
                               {/* Se Entregue: finalizado */}
@@ -819,13 +884,21 @@ export default function Orders() {
               {/* Motivo de Cancelamento se cancelado */}
               {viewingOrder.status === 'Cancelado' && (
                 <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/10 space-y-1 text-destructive">
-                  <div className="flex items-center gap-1.5 font-semibold">
-                    <XCircle className="h-4 w-4" /> Pedido Cancelado (Bloqueado)
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <XCircle className="h-4 w-4" /> Pedido Cancelado Definitivamente
                   </div>
                   <p className="text-[11px] text-foreground">
                     <strong>Motivo:</strong>{' '}
-                    {viewingOrder.cancelamento_motivo || 'Motivo não informado.'}
+                    {viewingOrder.motivo_cancelamento ||
+                      viewingOrder.cancelamento_motivo ||
+                      'Motivo não informado.'}
                   </p>
+                  {viewingOrder.cancelado_em && (
+                    <p className="text-[10px] text-muted-foreground">
+                      <strong>Data/Hora do Cancelamento:</strong>{' '}
+                      {new Date(viewingOrder.cancelado_em).toLocaleString('pt-BR')}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -852,43 +925,103 @@ export default function Orders() {
           )}{' '}
         </DialogContent>
       </Dialog>
-      {/* Modal de Cancelamento de Pedido com Motivo Obrigatório */}
+      {/* Modal de Cancelamento de Pedido (Pendente: Motivo Livre | Em Rota: "Não entregue" Motivo Logístico) */}
       <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-        <DialogContent className="sm:max-w-[460px]">
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
-              <XCircle className="h-5 w-5" /> Cancelar Pedido {orderToCancel?.numero}
+              <XCircle className="h-5 w-5" />
+              {orderToCancel?.status === 'Em Rota'
+                ? `Registrar "Não Entregue" - Pedido ${orderToCancel?.numero}`
+                : `Cancelar Pedido ${orderToCancel?.numero}`}
             </DialogTitle>
             <DialogDescription>
-              Atenção: O cancelamento só é permitido na fase <strong>Pendente</strong> e{' '}
-              <strong>não poderá ser revertido</strong>. O motivo é obrigatório para auditoria.
+              {orderToCancel?.status === 'Em Rota' ? (
+                <span>
+                  Pedido despachado não entregue: será <strong>cancelado definitivamente</strong>{' '}
+                  por motivo logístico da cooperativa (sem reentrega — não volta para Pendente).
+                </span>
+              ) : (
+                <span>
+                  Pedido ainda não despachado (Pendente): pode ser cancelado com motivo livre antes
+                  do despacho.
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2 text-xs">
-            <div className="p-2.5 rounded bg-muted/30 border">
+            <div className="p-2.5 rounded bg-muted/30 border space-y-1">
               <p>
                 <strong>Escola:</strong> {orderToCancel?.schoolName}
               </p>
               <p>
                 <strong>Valor:</strong> R$ {orderToCancel?.total.toFixed(2)}
               </p>
+              {orderToCancel?.rotaLogisticaNome && (
+                <p>
+                  <strong>Rota Logística:</strong> {orderToCancel?.rotaLogisticaNome}
+                </p>
+              )}
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="cancel-motivo" className="text-xs font-semibold">
-                Motivo do Cancelamento <span className="text-destructive">*</span>
-              </Label>
-              <Textarea
-                id="cancel-motivo"
-                placeholder="Descreva detalhadamente o motivo do cancelamento deste pedido..."
-                rows={3}
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                className="text-xs"
-                required
-              />
-            </div>
+            {orderToCancel?.status === 'Pendente' ? (
+              // Regra 8.1: Pedido NÃO despachado (Pendente): motivo livre
+              <div className="space-y-1.5">
+                <Label htmlFor="cancel-motivo" className="text-xs font-semibold">
+                  Motivo do Cancelamento (Livre) <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  id="cancel-motivo"
+                  placeholder="Informe detalhadamente por que este pedido está sendo cancelado antes do despacho..."
+                  rows={3}
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="text-xs"
+                  required
+                />
+              </div>
+            ) : (
+              // Regra 8.2 & 8.3: Pedido despachado (Em Rota): Motivo Logístico da lista fixa + detalhe livre
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cancel-logistico-sel" className="text-xs font-semibold">
+                    Motivo Logístico da Cooperativa <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={selectedMotivoLogistico}
+                    onValueChange={(val) =>
+                      setSelectedMotivoLogistico(val as MotivoLogisticoCancelamento)
+                    }
+                  >
+                    <SelectTrigger id="cancel-logistico-sel" className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MOTIVOS_LOGISTICOS_CANCELAMENTO.map((motivo) => (
+                        <SelectItem key={motivo} value={motivo}>
+                          {motivo}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="cancel-logistico-detalhe" className="text-xs font-semibold">
+                    Detalhamento Livre (Opcional)
+                  </Label>
+                  <Textarea
+                    id="cancel-logistico-detalhe"
+                    placeholder="Ex.: Motorista relata caminhão quebrado no km 15, escola fechada sem aviso prévio..."
+                    rows={2}
+                    value={cancelReasonLogisticoDetalhe}
+                    onChange={(e) => setCancelReasonLogisticoDetalhe(e.target.value)}
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
@@ -903,13 +1036,15 @@ export default function Orders() {
             <Button
               type="button"
               variant="destructive"
-              disabled={isCanceling || !cancelReason.trim()}
+              disabled={isCanceling}
               onClick={handleExecuteCancel}
             >
               {isCanceling ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cancelando...
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...
                 </>
+              ) : orderToCancel?.status === 'Em Rota' ? (
+                'Confirmar "Não Entregue"'
               ) : (
                 'Confirmar Cancelamento'
               )}

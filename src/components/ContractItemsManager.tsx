@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import type { Product } from '@/lib/types'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,30 +38,46 @@ import {
   ClipboardPaste,
   Check,
   AlertCircle,
-  HelpCircle,
   RotateCcw,
   Sparkles,
   Package,
+  Upload,
+  FileSpreadsheet,
+  Calculator,
+  Download,
+  AlertTriangle,
+  Info,
 } from 'lucide-react'
 import { normalizeName } from '@/lib/excelImporter'
+import {
+  matchCatalogProduct,
+  parseBRLNumber,
+  parseContractItemsFile,
+  type ContractItemsFileParseResult,
+  type ParsedContractItemRow,
+} from '@/lib/contractItemsImporter'
 import { toast } from 'sonner'
+import * as XLSX from 'xlsx'
 
 export interface ContractItemForm {
   id?: string
   productId: string
   price: number
+  quantity?: number // quantidade contratada (opcional)
 }
 
 interface ContractItemsManagerProps {
   items: ContractItemForm[]
   onChange: (items: ContractItemForm[]) => void
   catalogProducts: Product[]
+  onTotalCalculadoChange?: (total: number, hasQuantities: boolean) => void
 }
 
 export function ContractItemsManager({
   items,
   onChange,
   catalogProducts,
+  onTotalCalculadoChange,
 }: ContractItemsManagerProps) {
   // Modal de Seleção em Lote do Catálogo
   const [batchModalOpen, setBatchModalOpen] = useState(false)
@@ -72,9 +88,21 @@ export function ContractItemsManager({
   const [pasteModalOpen, setPasteModalOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pastePreview, setPastePreview] = useState<{
-    matched: Array<{ product: Product; price: number; originalLine: string }>
+    matched: Array<{
+      product: Product
+      price: number
+      quantity: number
+      subtotal: number
+      originalLine: string
+    }>
     unmatched: string[]
   } | null>(null)
+
+  // Modal de Importação de Arquivo (CSV / XLSX)
+  const [fileModalOpen, setFileModalOpen] = useState(false)
+  const [fileParseResult, setFileParseResult] = useState<ContractItemsFileParseResult | null>(null)
+  const [isParsingFile, setIsParsingFile] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // Confirmação de exclusão individual
   const [itemToDeleteIndex, setItemToDeleteIndex] = useState<number | null>(null)
@@ -93,6 +121,33 @@ export function ContractItemsManager({
     return new Set(items.map((it) => it.productId))
   }, [items])
 
+  // Cálculo do total contratado e verificação se há quantidades informadas
+  const { totalContratadoCalculado, totalItensComQtd, totalItensConfigurados } = useMemo(() => {
+    let total = 0
+    let comQtd = 0
+    for (const it of items) {
+      const q =
+        it.quantity !== undefined && it.quantity !== null && it.quantity > 0 ? it.quantity : 0
+      if (q > 0) {
+        total += (it.price || 0) * q
+        comQtd++
+      }
+    }
+    return {
+      totalContratadoCalculado: total,
+      totalItensComQtd: comQtd,
+      totalItensConfigurados: items.length,
+    }
+  }, [items])
+
+  // Notificar pai sobre o total recalculado quando houver quantidades
+  // Notificação suave para manter sincronia
+  useMemo(() => {
+    if (onTotalCalculadoChange) {
+      onTotalCalculadoChange(totalContratadoCalculado, totalItensComQtd > 0)
+    }
+  }, [totalContratadoCalculado, totalItensComQtd, onTotalCalculadoChange])
+
   // Produtos disponíveis para seleção em lote (com filtro de busca)
   const filteredCatalogForBatch = useMemo(() => {
     const q = batchSearchQuery.trim().toLowerCase()
@@ -106,7 +161,7 @@ export function ContractItemsManager({
     })
   }, [catalogProducts, batchSearchQuery])
 
-  // Abertura do modal de lote: inicializa seleção com itens que ainda NÃO estão no contrato
+  // Abertura do modal de lote
   const handleOpenBatchModal = () => {
     setBatchSearchQuery('')
     setSelectedProductIds(new Set())
@@ -159,6 +214,7 @@ export function ContractItemsManager({
         newItems.push({
           productId: prodId,
           price: prod?.price || 0,
+          quantity: 0,
         })
         addedCount++
       }
@@ -176,6 +232,18 @@ export function ContractItemsManager({
       return {
         ...it,
         price: isNaN(newPrice) ? 0 : Math.max(0, newPrice),
+      }
+    })
+    onChange(updated)
+  }
+
+  // Edição inline de quantidade contratada
+  const handleQuantityChange = (index: number, newQuantity: number) => {
+    const updated = items.map((it, idx) => {
+      if (idx !== index) return it
+      return {
+        ...it,
+        quantity: isNaN(newQuantity) ? 0 : Math.max(0, newQuantity),
       }
     })
     onChange(updated)
@@ -201,7 +269,7 @@ export function ContractItemsManager({
     setItemToDeleteIndex(null)
   }
 
-  // Limpar todos os itens (ação rápida)
+  // Limpar todos os itens
   const handleClearAll = () => {
     if (items.length === 0) return
     if (window.confirm('Deseja remover todos os produtos deste contrato?')) {
@@ -210,7 +278,7 @@ export function ContractItemsManager({
     }
   }
 
-  // Processamento de Colar em Massa
+  // Processamento de Colar em Massa (colunas: produto, preço, quantidade)
   const handleProcessPaste = () => {
     const lines = pasteText
       .split('\n')
@@ -222,64 +290,85 @@ export function ContractItemsManager({
       return
     }
 
-    const matched: Array<{ product: Product; price: number; originalLine: string }> = []
+    const matched: Array<{
+      product: Product
+      price: number
+      quantity: number
+      subtotal: number
+      originalLine: string
+    }> = []
     const unmatched: string[] = []
 
     for (const line of lines) {
-      // Formatos suportados: "Nome do produto; Preço", "Nome \t Preço", "Nome, Preço" ou "Nome - Preço"
+      // Formatos suportados: tab (Excel), ponto e vírgula (;), vírgula (,), ou traço (-)
       let sep = ';'
       if (line.includes('\t')) sep = '\t'
       else if (line.includes(';')) sep = ';'
       else if (line.includes(' - ')) sep = ' - '
       else if (line.includes(',')) {
-        // Cuidado com vírgula de decimais (ex: "Alface, 3,50")
-        // Se houver mais de uma vírgula ou vírgula antes de dígitos
+        // Cuidado com números com vírgula: se tiver múltiplos campos separados por vírgula
         const parts = line.split(',')
-        if (parts.length === 2 && !isNaN(parseFloat(parts[1].trim()))) {
+        if (parts.length >= 2) {
           sep = ','
         }
       }
 
-      const rawParts = line.split(sep)
+      const rawParts = line.split(sep).map((p) => p.trim())
+
       let namePart = ''
       let pricePart = ''
+      let qtyPart = ''
 
-      if (rawParts.length >= 2) {
-        namePart = rawParts
-          .slice(0, rawParts.length - 1)
-          .join(sep)
-          .trim()
-        pricePart = rawParts[rawParts.length - 1].trim()
+      if (rawParts.length >= 3) {
+        // 3 colunas: Produto, Preço, Quantidade (ou Produto, Quantidade, Preço)
+        namePart = rawParts[0]
+        const p1 = parseBRLNumber(rawParts[1])
+        const p2 = parseBRLNumber(rawParts[2])
+
+        // Tentar discernir preço e quantidade: geralmente preço tem casas decimais ou moeda
+        // Mas o padrão pedido é "produto, preço, quantidade"
+        pricePart = rawParts[1]
+        qtyPart = rawParts[2]
+      } else if (rawParts.length === 2) {
+        namePart = rawParts[0]
+        pricePart = rawParts[1]
       } else {
         namePart = line.trim()
-        pricePart = ''
       }
 
-      // Normaliza o nome do produto
-      const normInput = normalizeName(namePart)
-      const found = catalogProducts.find((p) => {
-        const normCat = normalizeName(p.name)
-        return normCat === normInput || normCat.includes(normInput) || normInput.includes(normCat)
-      })
+      // Normaliza e faz matching contra o catálogo
+      const found = matchCatalogProduct(namePart, catalogProducts)
 
       if (!found) {
         unmatched.push(line)
         continue
       }
 
-      // Converte preço (trata R$, vírgulas e pontos)
+      // Preço
       let price = found.price
       if (pricePart) {
-        const cleanPrice = pricePart.replace(/[R$\s]/g, '').replace(',', '.')
-        const parsed = parseFloat(cleanPrice)
-        if (!isNaN(parsed) && parsed >= 0) {
-          price = parsed
+        const parsed = parseBRLNumber(pricePart)
+        if (parsed.isValid && parsed.value >= 0) {
+          price = parsed.value
         }
       }
+
+      // Quantidade
+      let quantity = 0
+      if (qtyPart) {
+        const parsedQ = parseBRLNumber(qtyPart)
+        if (parsedQ.isValid && parsedQ.value >= 0) {
+          quantity = parsedQ.value
+        }
+      }
+
+      const subtotal = price * quantity
 
       matched.push({
         product: found,
         price,
+        quantity,
+        subtotal,
         originalLine: line,
       })
     }
@@ -290,7 +379,7 @@ export function ContractItemsManager({
   const handleApplyPastedItems = () => {
     if (!pastePreview || pastePreview.matched.length === 0) return
 
-    // Mesclar: se já existe o produto, atualiza o preço; se não existe, adiciona
+    // Mesclar: se já existe o produto, atualiza o preço e quantidade; se não existe, adiciona
     const currentMap = new Map<string, ContractItemForm>()
     for (const it of items) {
       currentMap.set(it.productId, { ...it })
@@ -303,11 +392,71 @@ export function ContractItemsManager({
       if (currentMap.has(match.product.id)) {
         const existing = currentMap.get(match.product.id)!
         existing.price = match.price
+        if (match.quantity > 0) {
+          existing.quantity = match.quantity
+        }
         updatedCount++
       } else {
         currentMap.set(match.product.id, {
           productId: match.product.id,
           price: match.price,
+          quantity: match.quantity,
+        })
+        addedCount++
+      }
+    }
+
+    onChange(Array.from(currentMap.values()))
+    toast.success(`Itens aplicados: ${addedCount} adicionado(s), ${updatedCount} atualizado(s)!`)
+    setPasteModalOpen(false)
+    setPasteText('')
+    setPastePreview(null)
+  }
+
+  // Upload e Parse de Planilha/CSV
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsParsingFile(true)
+    try {
+      const res = await parseContractItemsFile(file, catalogProducts)
+      setFileParseResult(res)
+    } catch (err: any) {
+      console.error('Erro ao processar arquivo:', err)
+      toast.error(err?.message || 'Falha ao ler planilha/CSV.')
+      setFileParseResult(null)
+    } finally {
+      setIsParsingFile(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleApplyFileItems = () => {
+    if (!fileParseResult || fileParseResult.validRows.length === 0) return
+
+    const currentMap = new Map<string, ContractItemForm>()
+    for (const it of items) {
+      currentMap.set(it.productId, { ...it })
+    }
+
+    let addedCount = 0
+    let updatedCount = 0
+
+    for (const row of fileParseResult.validRows) {
+      if (!row.product) continue
+      if (currentMap.has(row.product.id)) {
+        const existing = currentMap.get(row.product.id)!
+        existing.price = row.price
+        existing.quantity = row.quantity
+        updatedCount++
+      } else {
+        currentMap.set(row.product.id, {
+          productId: row.product.id,
+          price: row.price,
+          quantity: row.quantity,
         })
         addedCount++
       }
@@ -315,11 +464,26 @@ export function ContractItemsManager({
 
     onChange(Array.from(currentMap.values()))
     toast.success(
-      `Importação concluída: ${addedCount} adicionado(s), ${updatedCount} preço(s) atualizado(s)!`,
+      `Planilha importada com sucesso: ${addedCount} produto(s) adicionado(s), ${updatedCount} atualizado(s)!`,
     )
-    setPasteModalOpen(false)
-    setPasteText('')
-    setPastePreview(null)
+    setFileModalOpen(false)
+    setFileParseResult(null)
+  }
+
+  const handleDownloadTemplate = () => {
+    const wsData = [
+      ['Produto', 'Preço Unitário (R$)', 'Quantidade Contratada'],
+      ['Alface Crespa', '3,50', '1200'],
+      ['Banana Prata', '5,20', '3500'],
+      ['Cenoura', '4,80', '2000'],
+      ['Feijão Carioca', '8,50', '1500'],
+      ['Tomate Longa Vida', '6,90', '1800'],
+    ]
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet(wsData)
+    XLSX.utils.book_append_sheet(wb, ws, 'Itens do Contrato')
+    XLSX.writeFile(wb, 'modelo_itens_contrato.xlsx')
+    toast.success('Modelo de planilha baixado!')
   }
 
   return (
@@ -327,16 +491,45 @@ export function ContractItemsManager({
       {/* Barra de Ações Superior */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b">
         <div>
-          <Label className="text-sm font-semibold flex items-center gap-1.5">
-            <Package className="h-4 w-4 text-primary" />
-            Produtos e Preços Acordados ({items.length})
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Selecione em lote do catálogo, ajuste os preços direto na tabela ou cole de planilhas.
+          <div className="flex items-center gap-2">
+            <Label className="text-sm font-semibold flex items-center gap-1.5">
+              <Package className="h-4 w-4 text-primary" />
+              Produtos, Preços e Quantidades Contratadas ({items.length})
+            </Label>
+            {totalItensComQtd > 0 ? (
+              <Badge
+                variant="secondary"
+                className="text-[10px] bg-emerald-500/10 text-emerald-700 border-emerald-300"
+              >
+                Total calculado pelos itens
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                Sem quantidades (Total informado diretamente)
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Informe preço e quantidade contratada de cada item para cálculo automático do valor
+            total, ou use importação em massa.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => {
+              setFileParseResult(null)
+              setFileModalOpen(true)
+            }}
+          >
+            <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+            Importar Planilha / CSV
+          </Button>
+
           <Button
             type="button"
             variant="outline"
@@ -364,6 +557,29 @@ export function ContractItemsManager({
         </div>
       </div>
 
+      {/* Dica explicativa sobre o modo */}
+      <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/30 border text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <Calculator className="h-4 w-4 text-primary shrink-0" />
+          <span>
+            {totalItensComQtd > 0 ? (
+              <>
+                <strong className="text-foreground">
+                  {totalItensComQtd} de {items.length} produto(s)
+                </strong>{' '}
+                têm quantidade contratada. O valor total do contrato é a{' '}
+                <strong>soma (preço × quantidade)</strong>.
+              </>
+            ) : (
+              <>
+                Nenhum produto possui quantidade contratada informada. O contrato opera no modo de{' '}
+                <strong>Total informado diretamente</strong> na aba Dados Gerais.
+              </>
+            )}
+          </span>
+        </div>
+      </div>
+
       {/* Tabela de Edição Inline de Itens */}
       {items.length === 0 ? (
         <div className="py-10 text-center border rounded-lg bg-muted/10 space-y-3">
@@ -373,31 +589,49 @@ export function ContractItemsManager({
               Nenhum produto associado a este contrato
             </p>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Clique em <strong>"Selecionar Produtos"</strong> para marcar vários itens do catálogo
-              de uma vez com preços pré-preenchidos.
+              Clique em <strong>"Selecionar Produtos"</strong> para marcar itens do catálogo, ou
+              utilize <strong>"Importar Planilha / CSV"</strong> para carregar produto, preço e
+              quantidade contratada de uma vez.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1.5"
-            onClick={handleOpenBatchModal}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Abrir Catálogo de Produtos
-          </Button>
+          <div className="flex items-center justify-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={handleOpenBatchModal}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Abrir Catálogo de Produtos
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={() => {
+                setFileParseResult(null)
+                setFileModalOpen(true)
+              }}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Carregar Planilha (.xlsx/.csv)
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="rounded-md border max-h-[320px] overflow-y-auto">
+          <div className="rounded-md border max-h-[340px] overflow-y-auto">
             <Table>
               <TableHeader className="bg-muted/30 sticky top-0 z-10 backdrop-blur-xs">
                 <TableRow className="text-xs">
-                  <TableHead className="w-[45%]">Produto / Categoria</TableHead>
-                  <TableHead className="w-[12%] text-center">Unidade</TableHead>
-                  <TableHead className="w-[28%]">Preço Acordado (R$)</TableHead>
-                  <TableHead className="w-[15%] text-right">Ações</TableHead>
+                  <TableHead className="w-[34%]">Produto / Categoria</TableHead>
+                  <TableHead className="w-[10%] text-center">Unidade</TableHead>
+                  <TableHead className="w-[20%]">Preço Unit. (R$)</TableHead>
+                  <TableHead className="w-[18%]">Qtd. Contratada</TableHead>
+                  <TableHead className="w-[12%] text-right">Subtotal (R$)</TableHead>
+                  <TableHead className="w-[6%] text-right"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -405,11 +639,14 @@ export function ContractItemsManager({
                   const prod = productById.get(item.productId)
                   const catalogPrice = prod?.price ?? 0
                   const isDiff = Math.abs(item.price - catalogPrice) > 0.009 && catalogPrice > 0
+                  const qty =
+                    item.quantity !== undefined && item.quantity !== null ? item.quantity : 0
+                  const subtotal = item.price * qty
 
                   return (
                     <TableRow key={item.productId || index} className="text-xs hover:bg-muted/10">
                       {/* Nome e categoria */}
-                      <TableCell className="py-2.5">
+                      <TableCell className="py-2">
                         <div className="flex flex-col">
                           <span className="font-semibold text-foreground">
                             {prod?.name || 'Produto não encontrado'}
@@ -439,22 +676,22 @@ export function ContractItemsManager({
                       </TableCell>
 
                       {/* Unidade */}
-                      <TableCell className="text-center font-mono py-2.5 text-muted-foreground">
+                      <TableCell className="text-center font-mono py-2 text-muted-foreground">
                         {prod?.unit || 'Kg'}
                       </TableCell>
 
                       {/* Preço editável inline */}
-                      <TableCell className="py-2.5">
+                      <TableCell className="py-2">
                         <div className="space-y-1">
-                          <div className="relative max-w-[170px]">
-                            <span className="absolute left-2 top-2 text-[11px] text-muted-foreground pointer-events-none font-medium">
+                          <div className="relative max-w-[130px]">
+                            <span className="absolute left-2 top-1.5 text-[11px] text-muted-foreground pointer-events-none font-medium">
                               R$
                             </span>
                             <Input
                               type="number"
                               step="0.01"
                               min="0"
-                              value={item.price || ''}
+                              value={item.price ?? ''}
                               onChange={(e) =>
                                 handlePriceChange(index, parseFloat(e.target.value) || 0)
                               }
@@ -484,8 +721,52 @@ export function ContractItemsManager({
                         </div>
                       </TableCell>
 
+                      {/* Quantidade contratada inline */}
+                      <TableCell className="py-2">
+                        <div className="relative max-w-[120px]">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            placeholder="0 (opcional)"
+                            value={
+                              item.quantity === undefined ||
+                              item.quantity === null ||
+                              item.quantity === 0
+                                ? ''
+                                : item.quantity
+                            }
+                            onChange={(e) => {
+                              const val =
+                                e.target.value.trim() === '' ? 0 : parseFloat(e.target.value)
+                              handleQuantityChange(index, isNaN(val) ? 0 : val)
+                            }}
+                            className={`h-7 px-2 text-xs font-mono font-medium ${
+                              qty > 0
+                                ? 'border-primary/50 bg-primary/5 font-semibold text-primary'
+                                : 'text-muted-foreground'
+                            }`}
+                          />
+                        </div>
+                      </TableCell>
+
+                      {/* Subtotal */}
+                      <TableCell className="text-right py-2 font-mono font-semibold">
+                        {qty > 0 ? (
+                          <span className="text-foreground">
+                            R${' '}
+                            {subtotal.toLocaleString('pt-BR', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/60 text-[11px]">—</span>
+                        )}
+                      </TableCell>
+
                       {/* Ações */}
-                      <TableCell className="text-right py-2.5">
+                      <TableCell className="text-right py-2">
                         <Button
                           type="button"
                           variant="ghost"
@@ -504,21 +785,43 @@ export function ContractItemsManager({
             </Table>
           </div>
 
-          <div className="flex items-center justify-between text-xs text-muted-foreground px-1 pt-1">
-            <span>
-              Total: <strong>{items.length}</strong> produto(s) configurado(s)
-            </span>
-            {items.length > 0 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleClearAll}
-                className="h-6 text-[11px] text-destructive hover:bg-destructive/10 px-2"
-              >
-                Limpar todos os produtos
-              </Button>
-            )}
+          {/* Rodapé com Valor Total Contratado Recalculado em Tempo Real */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-primary/5 border-primary/20">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Produtos cadastrados: <strong className="text-foreground">{items.length}</strong>
+                </span>
+                <span className="text-muted-foreground/50">•</span>
+                <span className="text-xs text-muted-foreground">
+                  Com quantidade: <strong className="text-emerald-700">{totalItensComQtd}</strong>
+                </span>
+              </div>
+              {items.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearAll}
+                  className="h-6 text-[11px] text-destructive hover:bg-destructive/10 px-2"
+                >
+                  Limpar lista
+                </Button>
+              )}
+            </div>
+
+            <div className="flex items-baseline justify-between sm:justify-end gap-3 text-right">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Valor Total Contratado:
+              </span>
+              <span className="text-base sm:text-lg font-bold font-mono text-primary">
+                R${' '}
+                {totalContratadoCalculado.toLocaleString('pt-BR', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -533,7 +836,7 @@ export function ContractItemsManager({
             </DialogTitle>
             <DialogDescription>
               Marque os produtos que deseja incluir no contrato. Os preços virão pré-preenchidos com
-              o valor unitário cadastrado em cada produto e poderão ser ajustados.
+              o valor cadastrado e poderão ser ajustados junto com as quantidades contratadas.
             </DialogDescription>
           </DialogHeader>
 
@@ -666,17 +969,18 @@ export function ContractItemsManager({
         </DialogContent>
       </Dialog>
 
-      {/* MODAL 2: COLAR EM MASSA (EXCEL/PLANILHA) */}
+      {/* MODAL 2: COLAR EM MASSA (PRODUTO, PREÇO, QUANTIDADE) */}
       <Dialog open={pasteModalOpen} onOpenChange={setPasteModalOpen}>
-        <DialogContent className="sm:max-w-[620px] max-h-[85vh] flex flex-col">
+        <DialogContent className="sm:max-w-[650px] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ClipboardPaste className="h-5 w-5 text-primary" />
-              Colar Produtos e Preços em Massa
+              Colar Produtos, Preços e Quantidades
             </DialogTitle>
             <DialogDescription>
-              Cole linhas copiadas de uma planilha no formato "produto;preço" ou "produto [tab]
-              preço". O sistema fará o matching inteligente por nome.
+              Copie células do Excel e cole abaixo. Aceita as colunas:{' '}
+              <strong>Produto [tab] Preço [tab] Quantidade</strong> ou{' '}
+              <strong>Produto; Preço; Quantidade</strong>.
             </DialogDescription>
           </DialogHeader>
 
@@ -684,14 +988,16 @@ export function ContractItemsManager({
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <Label htmlFor="paste-area" className="text-xs font-semibold">
-                  Conteúdo copiado (uma linha por produto):
+                  Conteúdo copiado (uma linha por item):
                 </Label>
-                <span className="text-[10px] text-muted-foreground">Ex: Banana Prata; 5,50</span>
+                <span className="text-[10px] text-muted-foreground">
+                  Ex: Banana Prata; 5,50; 1200
+                </span>
               </div>
               <Textarea
                 id="paste-area"
                 rows={5}
-                placeholder={`Banana Prata; 5,50\nMaçã Nacional; 8,20\nCenoura; 4,00\nTomate`}
+                placeholder={`Banana Prata; 5,50; 1200\nMaçã Nacional; 8,20; 800\nCenoura; 4,00; 2500\nTomate; 6,50`}
                 value={pasteText}
                 onChange={(e) => {
                   setPasteText(e.target.value)
@@ -733,26 +1039,37 @@ export function ContractItemsManager({
 
                 {/* Lista de itens identificados */}
                 {pastePreview.matched.length > 0 && (
-                  <div className="max-h-[140px] overflow-y-auto space-y-1 pr-1">
+                  <div className="max-h-[160px] overflow-y-auto space-y-1 pr-1">
                     {pastePreview.matched.map((m, i) => (
                       <div
                         key={i}
                         className="flex items-center justify-between p-1.5 rounded bg-card border text-[11px]"
                       >
-                        <span className="font-medium truncate">{m.product.name}</span>
-                        <span className="font-mono text-primary font-semibold shrink-0">
-                          R$ {m.price.toFixed(2)}
-                        </span>
+                        <div className="truncate mr-2">
+                          <span className="font-semibold">{m.product.name}</span>
+                          <span className="text-muted-foreground ml-1">({m.product.unit})</span>
+                        </div>
+                        <div className="flex items-center gap-3 font-mono shrink-0">
+                          <span className="text-muted-foreground">R$ {m.price.toFixed(2)}</span>
+                          <span>×</span>
+                          <span className="text-primary font-semibold">
+                            {m.quantity} {m.product.unit}
+                          </span>
+                          <span>=</span>
+                          <span className="font-bold text-foreground">
+                            R$ {m.subtotal.toFixed(2)}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Linhas não encontradas (avisos tolerantes, não travam) */}
+                {/* Linhas não encontradas */}
                 {pastePreview.unmatched.length > 0 && (
                   <div className="pt-2 border-t border-border space-y-1">
                     <p className="text-[10px] text-muted-foreground font-semibold">
-                      Não encontrados no catálogo (serão ignorados sem travar):
+                      Não encontrados no catálogo de produtos (serão ignorados):
                     </p>
                     <div className="max-h-[80px] overflow-y-auto space-y-0.5">
                       {pastePreview.unmatched.map((line, i) => (
@@ -788,6 +1105,201 @@ export function ContractItemsManager({
             >
               <Check className="h-3.5 w-3.5" />
               Aplicar {pastePreview?.matched.length || 0} produto(s) ao Contrato
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL 3: IMPORTAÇÃO EM MASSA VIA PLANILHA / CSV */}
+      <Dialog open={fileModalOpen} onOpenChange={setFileModalOpen}>
+        <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-primary" />
+              Importação em Massa de Itens do Contrato (Excel / CSV)
+            </DialogTitle>
+            <DialogDescription>
+              Faça upload de uma planilha (.xlsx ou .csv) contendo os produtos, preços e quantidades
+              contratadas. O sistema valida os itens contra o catálogo cadastrado.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2 flex-1 overflow-y-auto">
+            {/* Upload Area */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-lg border-2 border-dashed bg-muted/20 hover:bg-muted/30 transition-colors">
+              <div className="space-y-1 text-center sm:text-left">
+                <p className="text-xs font-semibold text-foreground">
+                  Selecione seu arquivo de planilha (.xlsx, .xls ou .csv)
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Colunas esperadas: <strong>Produto</strong>, <strong>Preço Unitário</strong> e{' '}
+                  <strong>Quantidade Contratada</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadTemplate}
+                  className="h-8 text-xs gap-1"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Baixar Modelo
+                </Button>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="contract-items-file-upload"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isParsingFile}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {isParsingFile ? 'Lendo arquivo...' : 'Escolher Arquivo'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Resultado e Preview do Parse */}
+            {fileParseResult && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-card border text-xs">
+                  <div>
+                    <p className="font-semibold text-foreground flex items-center gap-1.5">
+                      <FileSpreadsheet className="h-4 w-4 text-primary" />
+                      {fileParseResult.fileName}
+                    </p>
+                    <p className="text-muted-foreground text-[11px]">
+                      {fileParseResult.totalRows} linha(s) encontrada(s) •{' '}
+                      <strong className="text-emerald-700">
+                        {fileParseResult.validRows.length} itens válidos
+                      </strong>
+                      {fileParseResult.unmatchedCount > 0 && (
+                        <>
+                          {' '}
+                          •{' '}
+                          <strong className="text-destructive">
+                            {fileParseResult.unmatchedCount} não cadastrado(s)
+                          </strong>
+                        </>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">
+                      Total da Planilha:
+                    </span>
+                    <span className="font-mono font-bold text-sm text-primary">
+                      R${' '}
+                      {fileParseResult.totalCalculado.toLocaleString('pt-BR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Tabela de Preview */}
+                <div className="rounded-md border max-h-[220px] overflow-y-auto">
+                  <Table>
+                    <TableHeader className="bg-muted/40 sticky top-0 text-xs">
+                      <TableRow>
+                        <TableHead className="w-[8%]">Linha</TableHead>
+                        <TableHead className="w-[36%]">Produto Identificado</TableHead>
+                        <TableHead className="w-[18%] text-right">Preço</TableHead>
+                        <TableHead className="w-[18%] text-right">Qtd. Contratada</TableHead>
+                        <TableHead className="w-[20%] text-right">Subtotal</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {fileParseResult.allRows.map((r) => (
+                        <TableRow key={r.index} className="text-xs">
+                          <TableCell className="font-mono text-muted-foreground">
+                            {r.index}
+                          </TableCell>
+                          <TableCell>
+                            {r.product ? (
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-foreground">
+                                  {r.product.name}
+                                </span>
+                                {r.warnings.length > 0 && (
+                                  <span className="text-[10px] text-amber-600">
+                                    {r.warnings[0]}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col text-destructive">
+                                <span className="font-semibold line-through">{r.rawProduct}</span>
+                                <span className="text-[10px]">{r.statusReason}</span>
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            R$ {r.price.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-semibold text-primary">
+                            {r.quantity} {r.product?.unit || ''}
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-bold">
+                            R$ {r.subtotal.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {fileParseResult.unmatchedCount > 0 && (
+                  <div className="flex items-start gap-2 p-2.5 rounded bg-amber-500/10 border border-amber-300 text-amber-800 text-xs">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">Atenção para produtos não cadastrados</p>
+                      <p className="text-[11px] text-amber-700">
+                        {fileParseResult.unmatchedCount} produto(s) não foram localizados no
+                        catálogo mestre de produtos. Apenas os produtos já cadastrados serão
+                        importados.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setFileModalOpen(false)
+                setFileParseResult(null)
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleApplyFileItems}
+              disabled={!fileParseResult || fileParseResult.validRows.length === 0}
+              className="gap-1.5"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Confirmar Importação de {fileParseResult?.validRows.length || 0} produto(s)
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-16T22:08:06.799Z",
+  "generatedAt": "2026-09-16T22:58:29.824Z",
   "collections": [
     {
       "name": "users",
@@ -331,6 +331,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "quantidade_contratada",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE INDEX idx_contrato_itens_contrato ON contrato_itens (contrato_id)"]

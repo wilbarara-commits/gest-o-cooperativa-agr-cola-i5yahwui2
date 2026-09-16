@@ -67,6 +67,7 @@ import {
   SlidersHorizontal,
   Truck,
   FileSpreadsheet,
+  Calculator,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { contratosService } from '@/services/contratos'
@@ -227,13 +228,20 @@ export default function Contracts() {
     setIsLoadingItems(true)
     try {
       const items = await contratosService.getItems(contract.id)
-      setContractItems(
-        items.map((it) => ({
-          id: it.id,
-          productId: it.produto_id,
-          price: Number(it.preco) || 0,
-        })),
-      )
+      const mapped = items.map((it) => ({
+        id: it.id,
+        productId: it.produto_id,
+        price: Number(it.preco) || 0,
+        quantity: it.quantidade_contratada ? Number(it.quantidade_contratada) : 0,
+      }))
+      setContractItems(mapped)
+
+      // Se há produtos com quantidade contratada informada > 0, sincroniza o total automaticamente
+      const somaContratada = mapped.reduce((acc, it) => acc + it.price * (it.quantity || 0), 0)
+      const temQtd = mapped.some((it) => (it.quantity || 0) > 0)
+      if (temQtd && somaContratada > 0) {
+        setValorTotal(somaContratada.toFixed(2))
+      }
     } catch (err) {
       console.error('Erro ao buscar itens:', err)
       setContractItems([])
@@ -615,7 +623,7 @@ export default function Contracts() {
           })
         }
 
-        // 3. Sincronizar itens e preços acordados
+        // 3. Sincronizar itens, preços e quantidades contratadas acordadas
         const validItems = contractItems.filter((i) => i.productId && i.price > 0)
         await contratosService.syncItems(
           contractId,
@@ -623,6 +631,7 @@ export default function Contracts() {
             id: it.id,
             produto_id: it.productId,
             preco: it.price,
+            quantidade_contratada: it.quantity && it.quantity > 0 ? it.quantity : undefined,
           })),
         )
       }
@@ -703,16 +712,27 @@ export default function Contracts() {
           realizadoValor: 0,
         }
 
-        const pct = schRealizadoTotal > 0 ? (consumo.realizadoValor / schRealizadoTotal) * 100 : 0
+        const cotaContratada = ci.quantidade_contratada
+          ? Number(ci.quantidade_contratada)
+          : undefined
+        // Se cota contratada informada > 0, percentual de consumo do item sobre a cota do item
+        // Caso contrário, percentual sobre o valor total da escola
+        const pct =
+          cotaContratada && cotaContratada > 0
+            ? Math.min(100, (consumo.realizadoQtd / cotaContratada) * 100)
+            : schRealizadoTotal > 0
+              ? Math.min(100, (consumo.realizadoValor / schRealizadoTotal) * 100)
+              : 0
 
         return {
           produtoId: ci.produto_id,
           produtoNome: ci.expand?.produto_id?.nome || prod?.name || 'Produto',
           unidade: ci.expand?.produto_id?.unidade || prod?.unit || 'Kg',
           preco: Number(ci.preco) || prod?.price || 0,
+          cotaContratada,
           realizadoQtd: consumo.realizadoQtd,
           realizadoValor: consumo.realizadoValor,
-          percentExecucao: Math.min(100, pct),
+          percentExecucao: pct,
         }
       })
 
@@ -1040,24 +1060,67 @@ export default function Contracts() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="c-total">
-                    Valor Total do Contrato (R$) <span className="text-destructive">*</span>
-                  </Label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                {/* Valor Total do Contrato: calculado automaticamente vs informado diretamente */}
+                <div className="space-y-2 p-3.5 rounded-lg border bg-muted/20">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <Label
+                        htmlFor="c-total"
+                        className="font-semibold text-foreground flex items-center gap-2"
+                      >
+                        <DollarSign className="h-4 w-4 text-primary" />
+                        Valor Total do Contrato (R$) <span className="text-destructive">*</span>
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {contractItems.some((it) => (it.quantity || 0) > 0)
+                          ? 'Recalculado automaticamente pela soma dos itens (preço unitário × quantidade contratada).'
+                          : 'Quando os itens não possuem quantidades contratadas, informe o valor global diretamente.'}
+                      </p>
+                    </div>
+
+                    <div>
+                      {contractItems.some((it) => (it.quantity || 0) > 0) ? (
+                        <Badge
+                          variant="secondary"
+                          className="bg-emerald-500/10 text-emerald-700 border-emerald-300 font-medium"
+                        >
+                          Total calculado pelos itens
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground font-medium">
+                          Total informado diretamente
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="relative pt-1">
+                    <DollarSign className="absolute left-2.5 top-3.5 h-4 w-4 text-muted-foreground pointer-events-none" />
                     <Input
                       id="c-total"
                       type="number"
                       step="0.01"
                       min="0"
                       placeholder="Ex: 50000.00"
-                      className="pl-9"
+                      className={`pl-9 font-mono text-sm font-semibold ${
+                        contractItems.some((it) => (it.quantity || 0) > 0)
+                          ? 'bg-muted/50 cursor-not-allowed border-dashed'
+                          : ''
+                      }`}
+                      readOnly={contractItems.some((it) => (it.quantity || 0) > 0)}
                       value={valorTotal}
                       onChange={(e) => setValorTotal(e.target.value)}
                       required
                     />
                   </div>
+
+                  {contractItems.some((it) => (it.quantity || 0) > 0) && (
+                    <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      <Calculator className="h-3.5 w-3.5 text-primary shrink-0" />
+                      Para alterar o valor total, altere as quantidades ou preços na aba{' '}
+                      <strong>Itens & Preços</strong>.
+                    </p>
+                  )}
                 </div>
 
                 <div className="p-3 rounded-lg border bg-muted/40 space-y-2">
@@ -1572,8 +1635,24 @@ export default function Contracts() {
                 ) : (
                   <ContractItemsManager
                     items={contractItems}
-                    onChange={setContractItems}
+                    onChange={(newItems) => {
+                      setContractItems(newItems)
+                      // Recalcula total se houver quantidades
+                      const comQtd = newItems.filter((i) => (i.quantity || 0) > 0)
+                      if (comQtd.length > 0) {
+                        const totalCalc = newItems.reduce(
+                          (acc, it) => acc + it.price * (it.quantity || 0),
+                          0,
+                        )
+                        setValorTotal(totalCalc.toFixed(2))
+                      }
+                    }}
                     catalogProducts={products}
+                    onTotalCalculadoChange={(total, hasQuantities) => {
+                      if (hasQuantities) {
+                        setValorTotal(total.toFixed(2))
+                      }
+                    }}
                   />
                 )}
               </TabsContent>
@@ -1688,8 +1767,10 @@ export default function Contracts() {
                           <TableRow className="text-xs">
                             <TableHead>Produto</TableHead>
                             <TableHead className="text-right">Preço Unitário</TableHead>
-                            <TableHead className="text-right">Quantidade Realizada</TableHead>
+                            <TableHead className="text-right">Cota Contratada</TableHead>
+                            <TableHead className="text-right">Qtd. Realizada</TableHead>
                             <TableHead className="text-right">Valor Realizado</TableHead>
+                            <TableHead className="w-[90px] text-right">% Item</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1699,11 +1780,38 @@ export default function Contracts() {
                               <TableCell className="text-right font-mono">
                                 R$ {it.preco.toFixed(2)}
                               </TableCell>
+                              <TableCell className="text-right font-mono text-muted-foreground">
+                                {it.cotaContratada && it.cotaContratada > 0 ? (
+                                  <span className="font-semibold text-foreground">
+                                    {it.cotaContratada} {it.unidade}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground/60">—</span>
+                                )}
+                              </TableCell>
                               <TableCell className="text-right font-mono text-primary font-semibold">
                                 {it.realizadoQtd} {it.unidade}
                               </TableCell>
                               <TableCell className="text-right font-mono font-medium">
                                 R$ {it.realizadoValor.toFixed(2)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-[11px]">
+                                {it.cotaContratada && it.cotaContratada > 0 ? (
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-[10px] py-0 px-1 font-mono ${
+                                      it.percentExecucao >= 100
+                                        ? 'text-emerald-700 border-emerald-300 bg-emerald-50'
+                                        : 'text-primary border-primary/30'
+                                    }`}
+                                  >
+                                    {it.percentExecucao.toFixed(0)}%
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">
+                                    {it.percentExecucao.toFixed(0)}%
+                                  </span>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -1950,17 +2058,56 @@ export default function Contracts() {
               </div>
 
               <div>
-                <h4 className="font-semibold text-sm mb-1.5">Itens e Preços Acordados</h4>
-                <div className="space-y-1">
-                  {viewingItems.map((it) => (
-                    <div
-                      key={it.id}
-                      className="flex items-center justify-between p-2 rounded bg-muted/20 border"
-                    >
-                      <span>{it.expand?.produto_id?.nome || 'Produto'}</span>
-                      <span className="font-mono">R$ {Number(it.preco).toFixed(2)}</span>
-                    </div>
-                  ))}
+                <div className="flex items-center justify-between mb-1.5">
+                  <h4 className="font-semibold text-sm">Itens e Preços Acordados</h4>
+                  <Badge variant="outline" className="text-[10px]">
+                    {viewingItems.length} produto(s)
+                  </Badge>
+                </div>
+                <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
+                  {viewingItems.map((it) => {
+                    const qtd = it.quantidade_contratada ? Number(it.quantidade_contratada) : 0
+                    const preco = Number(it.preco) || 0
+                    const subtotal = preco * qtd
+                    const unidade = it.expand?.produto_id?.unidade || 'Kg'
+
+                    return (
+                      <div
+                        key={it.id}
+                        className="flex items-center justify-between p-2 rounded bg-muted/20 border text-xs"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">
+                            {it.expand?.produto_id?.nome || 'Produto'}
+                          </span>
+                          {qtd > 0 && (
+                            <span className="text-[11px] text-muted-foreground">
+                              Cota contratada:{' '}
+                              <strong className="text-primary">
+                                {qtd} {unidade}
+                              </strong>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-right font-mono">
+                          <span className="text-foreground">
+                            R$ {preco.toFixed(2)}{' '}
+                            <span className="text-muted-foreground text-[10px]">/{unidade}</span>
+                          </span>
+                          {qtd > 0 && (
+                            <div className="text-[11px] font-semibold text-primary">
+                              Total: R${' '}
+                              {subtotal.toLocaleString('pt-BR', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>

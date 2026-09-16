@@ -131,6 +131,7 @@ export interface ContratoItemRecord {
   contrato_id: string
   produto_id: string
   preco: number
+  quantidade_contratada?: number
   expand?: {
     produto_id?: ProdutoRecord
   }

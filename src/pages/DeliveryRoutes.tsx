@@ -1053,9 +1053,12 @@ export default function DeliveryRoutes() {
                               Atualmente na {outraRotaObj.nome}
                             </Badge>
                           )}
-                          {esc.rotaNome && !outraRotaObj && (
-                            <Badge variant="outline" className="text-[9px]">
-                              Ref: {esc.rotaNome}
+                          {(esc.rotaPlanilha || esc.rotaNome) && !outraRotaObj && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] bg-muted/50 text-muted-foreground"
+                            >
+                              Rota (Planilha): {esc.rotaPlanilha || esc.rotaNome}
                             </Badge>
                           )}
                         </div>

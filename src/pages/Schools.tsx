@@ -60,6 +60,7 @@ import {
   Route as RouteIcon,
   Briefcase,
   Info,
+  Truck,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useState, useMemo } from 'react'
@@ -80,12 +81,22 @@ const PRESET_ROUTES = [
 const ESCOLA_TIPOS: EscolaTipo[] = ['CMEI', 'CRECHE', 'INTEGRAL', 'FUNDAMENTAL']
 
 export default function Schools() {
-  const { schools, contracts, contractSchools, rotas, isLoading, refreshData } = useApp()
+  const {
+    schools,
+    contracts,
+    contractSchools,
+    rotas,
+    rotasLogisticas,
+    paradasRota,
+    isLoading,
+    refreshData,
+  } = useApp()
   const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [filterTipo, setFilterTipo] = useState<string>('todos')
   const [filterContrato, setFilterContrato] = useState<string>('todos')
-  const [filterRota, setFilterRota] = useState<string>('todas')
+  const [filterRotaPlanilha, setFilterRotaPlanilha] = useState<string>('todas')
+  const [filterRotaLogistica, setFilterRotaLogistica] = useState<string>('todas')
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -119,7 +130,7 @@ export default function Schools() {
   const [isCheckingDeps, setIsCheckingDeps] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  // Map of schoolId -> links with contracts and route names
+  // Map of schoolId -> links with contracts, rota da planilha e rota logística
   const schoolContractLinksMap = useMemo(() => {
     const map = new Map<
       string,
@@ -128,45 +139,53 @@ export default function Schools() {
         contratoNumero: string
         contratoTipo?: string
         rotaId?: string
-        rotaNome: string
+        rotaPlanilha: string
+        rotaLogisticaId?: string
+        rotaLogisticaNome?: string
       }>
     >()
 
     for (const c of contracts) {
       for (const link of c.escolas) {
         const list = map.get(link.escolaId) || []
+        // Parada nesta rota logística
+        const parada = paradasRota.find((p) => p.escola_id === link.escolaId)
+        const rotaLogId = link.rotaLogisticaId || parada?.rota_logistica_id
+        const rotaLogObj = rotasLogisticas.find((r) => r.id === rotaLogId)
+        const rotaLogNome = link.rotaLogisticaNome || rotaLogObj?.nome
+
         list.push({
           contratoId: c.id,
           contratoNumero: c.numero,
           contratoTipo: c.tipo,
           rotaId: link.rotaId,
-          rotaNome: link.rotaNome || 'Sem Rota',
+          rotaPlanilha: link.rotaPlanilha || link.rotaNome || 'Sem Rota',
+          rotaLogisticaId: rotaLogId,
+          rotaLogisticaNome: rotaLogNome,
         })
         map.set(link.escolaId, list)
       }
     }
     return map
-  }, [contracts])
+  }, [contracts, paradasRota, rotasLogisticas])
 
-  // Distinct routes derived from contract_escolas, rotas collection, and preset master routes
-  const availableRotas = useMemo(() => {
+  // Rotas da Planilha distintas (referência da secretaria)
+  const availableRotasPlanilha = useMemo(() => {
     const routeSet = new Set<string>()
 
-    // 1. Routes in rotas collection
     for (const r of rotas) {
       if (r.nome && r.nome.trim()) routeSet.add(r.nome.trim())
     }
 
-    // 2. Routes bound in contract schools links
     for (const c of contracts) {
       for (const e of c.escolas) {
-        if (e.rotaNome && e.rotaNome.trim() && e.rotaNome !== 'Sem Rota') {
-          routeSet.add(e.rotaNome.trim())
+        const nome = e.rotaPlanilha || e.rotaNome
+        if (nome && nome.trim() && nome !== 'Sem Rota') {
+          routeSet.add(nome.trim())
         }
       }
     }
 
-    // 3. Fallback master routes on schools
     for (const s of schools) {
       if (s.route && s.route.trim() && s.route !== 'Sem Rota') {
         routeSet.add(s.route.trim())
@@ -175,6 +194,15 @@ export default function Schools() {
 
     return Array.from(routeSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [rotas, contracts, schools])
+
+  // Rotas Logísticas da cooperativa distintas
+  const availableRotasLogisticas = useMemo(() => {
+    const routeSet = new Set<string>()
+    for (const r of rotasLogisticas) {
+      if (r.nome && r.nome.trim()) routeSet.add(r.nome.trim())
+    }
+    return Array.from(routeSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [rotasLogisticas])
 
   // Filtered schools
   const filteredSchools = useMemo(() => {
@@ -193,7 +221,8 @@ export default function Schools() {
         links.some(
           (l) =>
             l.contratoNumero.toLowerCase().includes(searchLower) ||
-            l.rotaNome.toLowerCase().includes(searchLower),
+            l.rotaPlanilha.toLowerCase().includes(searchLower) ||
+            (l.rotaLogisticaNome && l.rotaLogisticaNome.toLowerCase().includes(searchLower)),
         )
 
       // Filter by tipo
@@ -208,20 +237,55 @@ export default function Schools() {
             ? links.length === 0
             : links.some((l) => l.contratoId === filterContrato)
 
-      // Filter by route: matches either a contract-school link with that route OR the school's default route
-      const matchesRota =
-        filterRota === 'todas'
+      // Filter by Rota da Planilha
+      const matchesRotaPlanilha =
+        filterRotaPlanilha === 'todas'
           ? true
           : links.some(
               (l) =>
-                l.rotaNome.trim().toLowerCase() === filterRota.trim().toLowerCase() ||
-                l.rotaId === filterRota,
+                l.rotaPlanilha.trim().toLowerCase() === filterRotaPlanilha.trim().toLowerCase() ||
+                l.rotaId === filterRotaPlanilha,
             ) ||
-            (s.route && s.route.trim().toLowerCase() === filterRota.trim().toLowerCase())
+            (s.route && s.route.trim().toLowerCase() === filterRotaPlanilha.trim().toLowerCase())
 
-      return matchesSearch && matchesTipo && matchesContrato && matchesRota
+      // Filter by Rota Logística
+      const matchesRotaLogistica = (() => {
+        if (filterRotaLogistica === 'todas') return true
+        const parada = paradasRota.find((p) => p.escola_id === s.id)
+        const rotaLogId =
+          parada?.rota_logistica_id || links.find((l) => l.rotaLogisticaId)?.rotaLogisticaId
+        const rotaLogObj = rotasLogisticas.find((r) => r.id === rotaLogId)
+        const rotaLogNome = rotaLogObj?.nome
+
+        if (filterRotaLogistica === 'sem_rota_logistica') {
+          return !rotaLogId
+        }
+        return (
+          rotaLogId === filterRotaLogistica ||
+          (rotaLogNome &&
+            rotaLogNome.trim().toLowerCase() === filterRotaLogistica.trim().toLowerCase())
+        )
+      })()
+
+      return (
+        matchesSearch &&
+        matchesTipo &&
+        matchesContrato &&
+        matchesRotaPlanilha &&
+        matchesRotaLogistica
+      )
     })
-  }, [schools, search, filterTipo, filterContrato, filterRota, schoolContractLinksMap])
+  }, [
+    schools,
+    search,
+    filterTipo,
+    filterContrato,
+    filterRotaPlanilha,
+    filterRotaLogistica,
+    schoolContractLinksMap,
+    paradasRota,
+    rotasLogisticas,
+  ])
 
   // Reset page when filters change
   const totalPages = Math.max(1, Math.ceil(filteredSchools.length / pageSize))
@@ -236,13 +300,15 @@ export default function Schools() {
     search.trim() !== '' ||
     filterTipo !== 'todos' ||
     filterContrato !== 'todos' ||
-    filterRota !== 'todas'
+    filterRotaPlanilha !== 'todas' ||
+    filterRotaLogistica !== 'todas'
 
   const handleClearFilters = () => {
     setSearch('')
     setFilterTipo('todos')
     setFilterContrato('todos')
-    setFilterRota('todas')
+    setFilterRotaPlanilha('todas')
+    setFilterRotaLogistica('todas')
     setCurrentPage(1)
   }
 
@@ -419,14 +485,14 @@ export default function Schools() {
       {/* Barra de Filtros: Busca textual, Tipo, Contrato e Rota */}
       <Card className="border-border/60">
         <CardContent className="p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {/* 1. Busca textual */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Busca Textual</Label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Nome, endereço, e-mail..."
+                  placeholder="Nome, endereço..."
                   className="pl-9 h-9 text-xs bg-background"
                   value={search}
                   onChange={(e) => {
@@ -457,7 +523,7 @@ export default function Schools() {
                       {t}
                     </SelectItem>
                   ))}
-                  <SelectItem value="sem_tipo">Sem Tipo (Não classificado)</SelectItem>
+                  <SelectItem value="sem_tipo">Sem Tipo</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -480,31 +546,58 @@ export default function Schools() {
                   <SelectItem value="sem_contrato">Sem vínculo contratual</SelectItem>
                   {contracts.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.numero} {c.tipo ? `(${c.tipo})` : ''} — {c.escolas.length} escola(s)
+                      {c.numero} {c.tipo ? `(${c.tipo})` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* 4. Filtro por Rota */}
+            {/* 4. Filtro por Rota (Planilha) */}
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Rota Logística</Label>
+              <Label className="text-xs text-muted-foreground">Rota (Planilha)</Label>
               <Select
-                value={filterRota}
+                value={filterRotaPlanilha}
                 onValueChange={(val) => {
-                  setFilterRota(val)
+                  setFilterRotaPlanilha(val)
                   setCurrentPage(1)
                 }}
               >
                 <SelectTrigger className="h-9 bg-background text-xs">
-                  <SelectValue placeholder="Todas as Rotas" />
+                  <SelectValue placeholder="Todas da Planilha" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todas">Todas as Rotas</SelectItem>
-                  {availableRotas.map((r) => (
+                  <SelectItem value="todas">Todas da Planilha</SelectItem>
+                  {availableRotasPlanilha.map((r) => (
                     <SelectItem key={r} value={r}>
                       {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 5. Filtro por Rota Logística */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                <Truck className="h-3 w-3 text-amber-600" /> Rota Logística
+              </Label>
+              <Select
+                value={filterRotaLogistica}
+                onValueChange={(val) => {
+                  setFilterRotaLogistica(val)
+                  setCurrentPage(1)
+                }}
+              >
+                <SelectTrigger className="h-9 bg-background text-xs">
+                  <SelectValue placeholder="Todas as Logísticas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas as Logísticas</SelectItem>
+                  <SelectItem value="sem_rota_logistica">Sem rota logística atribuída</SelectItem>
+                  {availableRotasLogisticas.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      Rota Logística {r}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -573,21 +666,26 @@ export default function Schools() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="w-[280px] font-semibold text-foreground">
+                  <TableHead className="w-[260px] font-semibold text-foreground">
                     Escola / Instituição
                   </TableHead>
-                  <TableHead className="w-[140px] font-semibold text-foreground">Tipo</TableHead>
-                  <TableHead className="w-[170px] font-semibold text-foreground">Rota(s)</TableHead>
-                  <TableHead className="w-[100px] text-right font-semibold text-foreground">
+                  <TableHead className="w-[110px] font-semibold text-foreground">Tipo</TableHead>
+                  <TableHead className="w-[150px] font-semibold text-foreground">
+                    Rota (Planilha)
+                  </TableHead>
+                  <TableHead className="w-[170px] font-semibold text-foreground">
+                    Rota Logística
+                  </TableHead>
+                  <TableHead className="w-[80px] text-right font-semibold text-foreground">
                     Alunos
                   </TableHead>
-                  <TableHead className="w-[150px] font-semibold text-foreground">
+                  <TableHead className="w-[130px] font-semibold text-foreground">
                     Telefone
                   </TableHead>
-                  <TableHead className="min-w-[180px] font-semibold text-foreground">
-                    Contratos Vinculados
+                  <TableHead className="min-w-[150px] font-semibold text-foreground">
+                    Contratos
                   </TableHead>
-                  <TableHead className="w-[140px] text-right font-semibold text-foreground">
+                  <TableHead className="w-[120px] text-right font-semibold text-foreground">
                     Ações
                   </TableHead>
                 </TableRow>
@@ -595,10 +693,6 @@ export default function Schools() {
               <TableBody>
                 {paginatedSchools.map((school) => {
                   const links = schoolContractLinksMap.get(school.id) || []
-                  // Coleta rotas distintas ligadas aos contratos desta escola
-                  const contractRouteNames = Array.from(
-                    new Set(links.map((l) => l.rotaNome).filter((r) => r && r !== 'Sem Rota')),
-                  )
 
                   return (
                     <TableRow
@@ -647,34 +741,89 @@ export default function Schools() {
                         )}
                       </TableCell>
 
-                      {/* Rota(s) vinculada(s) ou rota mestre */}
+                      {/* Coluna 1: Rota (Planilha) - Neutra */}
                       <TableCell className="align-middle">
                         <div className="flex flex-col gap-1">
-                          {contractRouteNames.length > 0 ? (
-                            <div className="flex flex-wrap items-center gap-1">
-                              {contractRouteNames.map((r, idx) => (
+                          {(() => {
+                            const rotasPlanilhaSet = Array.from(
+                              new Set(
+                                links
+                                  .map((l) => l.rotaPlanilha)
+                                  .filter((r) => r && r !== 'Sem Rota'),
+                              ),
+                            )
+                            if (rotasPlanilhaSet.length > 0) {
+                              return (
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {rotasPlanilhaSet.map((r, idx) => (
+                                    <Badge
+                                      key={idx}
+                                      variant="secondary"
+                                      className="text-[10px] font-normal gap-1 bg-muted text-foreground border-border/80"
+                                      title="Origem na planilha da secretaria"
+                                    >
+                                      <FileSpreadsheet className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                                      {r}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )
+                            }
+                            if (school.route && school.route !== 'Sem Rota') {
+                              return (
                                 <Badge
-                                  key={idx}
-                                  variant="outline"
-                                  className="text-[10px] font-normal gap-1 bg-background text-foreground/90 border-border"
+                                  variant="secondary"
+                                  className="text-[10px] font-normal gap-1 bg-muted/60 text-muted-foreground border-border/60"
                                 >
-                                  <RouteIcon className="h-2.5 w-2.5 text-primary shrink-0" />
-                                  {r}
+                                  {school.route}
                                 </Badge>
-                              ))}
-                            </div>
-                          ) : school.route && school.route !== 'Sem Rota' ? (
-                            <span className="text-xs text-muted-foreground flex items-center gap-1">
-                              <MapIcon className="h-3 w-3 text-muted-foreground shrink-0" />
-                              {school.route}
-                              <span className="text-[10px] text-muted-foreground/70">(padrão)</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/60 italic">
-                              Sem rota
-                            </span>
-                          )}
+                              )
+                            }
+                            return (
+                              <span className="text-xs text-muted-foreground/60 italic">
+                                Sem rota
+                              </span>
+                            )
+                          })()}
                         </div>
+                      </TableCell>
+
+                      {/* Coluna 2: Rota Logística - Caminhão ou Pendente */}
+                      <TableCell className="align-middle">
+                        {(() => {
+                          const parada = paradasRota.find((p) => p.escola_id === school.id)
+                          const linkWithLog = links.find(
+                            (l) => l.rotaLogisticaNome || l.rotaLogisticaId,
+                          )
+                          const rotaLogObj = rotasLogisticas.find(
+                            (r) =>
+                              r.id === (parada?.rota_logistica_id || linkWithLog?.rotaLogisticaId),
+                          )
+                          const nomeLogistica = rotaLogObj?.nome || linkWithLog?.rotaLogisticaNome
+
+                          if (nomeLogistica) {
+                            return (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-medium gap-1 bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700"
+                              >
+                                <Truck className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                                Rota {nomeLogistica}
+                                {parada?.ordem && (
+                                  <span className="text-[9px] opacity-75">({parada.ordem}ª)</span>
+                                )}
+                              </Badge>
+                            )
+                          }
+                          return (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] font-normal text-muted-foreground border-dashed bg-muted/20"
+                            >
+                              Pendente de roteamento
+                            </Badge>
+                          )
+                        })()}
                       </TableCell>
 
                       {/* Nº de Alunos */}
@@ -709,7 +858,7 @@ export default function Schools() {
                                 key={idx}
                                 variant="outline"
                                 className="text-[10px] font-medium border-primary/30 text-primary bg-primary/5 gap-1"
-                                title={`Contrato: ${link.contratoNumero} • Rota: ${link.rotaNome}`}
+                                title={`Contrato: ${link.contratoNumero} • Rota (Planilha): ${link.rotaPlanilha}`}
                               >
                                 <FileCheck className="h-2.5 w-2.5" />
                                 {link.contratoNumero}
@@ -908,11 +1057,64 @@ export default function Schools() {
                   </div>
                 </div>
 
-                {/* Bloco de Contratos Vinculados e Rotas de Entrega */}
+                {/* Bloco de Rota Logística de Distribuição */}
+                <div className="rounded-lg border border-amber-200/60 dark:border-amber-800/60 p-4 bg-amber-500/5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                      <Truck className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" /> Rota
+                      Logística de Distribuição
+                    </h4>
+                    <span className="text-[11px] text-muted-foreground">
+                      Distribuição da Cooperativa
+                    </span>
+                  </div>
+                  {(() => {
+                    const parada = paradasRota.find((p) => p.escola_id === detailsSchool.id)
+                    const links = schoolContractLinksMap.get(detailsSchool.id) || []
+                    const linkWithLog = links.find((l) => l.rotaLogisticaNome || l.rotaLogisticaId)
+                    const rotaLogObj = rotasLogisticas.find(
+                      (r) => r.id === (parada?.rota_logistica_id || linkWithLog?.rotaLogisticaId),
+                    )
+                    const nomeLogistica = rotaLogObj?.nome || linkWithLog?.rotaLogisticaNome
+
+                    if (nomeLogistica) {
+                      return (
+                        <div className="flex items-center justify-between p-2.5 rounded bg-background border border-amber-200 dark:border-amber-800">
+                          <div>
+                            <p className="font-semibold text-foreground text-sm flex items-center gap-1.5">
+                              <Truck className="h-4 w-4 text-amber-600" /> Rota {nomeLogistica}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {parada
+                                ? `Posição de entrega: ${parada.ordem}ª parada na sequência`
+                                : 'Atribuída ao roteamento'}
+                            </p>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className="bg-amber-100 text-amber-800 border-amber-300"
+                          >
+                            Ativa no despacho
+                          </Badge>
+                        </div>
+                      )
+                    }
+                    return (
+                      <div className="p-2.5 rounded bg-background border border-dashed text-xs text-muted-foreground text-center">
+                        Esta escola ainda <strong>não possui Rota Logística atribuída</strong>. A
+                        rota logística deve ser configurada na tela de{' '}
+                        <em>Roteamento & Despacho</em>.
+                      </div>
+                    )
+                  })()}
+                </div>
+
+                {/* Bloco de Contratos Vinculados e Rota da Planilha */}
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <Briefcase className="h-3.5 w-3.5 text-primary" /> Contratos Vinculados
+                      <Briefcase className="h-3.5 w-3.5 text-primary" /> Contratos Vinculados & Rota
+                      da Planilha
                     </h4>
                     <span className="text-xs text-muted-foreground">
                       {(schoolContractLinksMap.get(detailsSchool.id) || []).length} vínculo(s)
@@ -955,17 +1157,17 @@ export default function Schools() {
                                 )}
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                Vínculo via collection <code>contrato_escolas</code>
+                                Origem cadastral no contrato
                               </p>
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
                               <Badge
                                 variant="secondary"
-                                className="text-xs font-normal gap-1 bg-primary/10 text-primary border border-primary/20"
+                                className="text-xs font-normal gap-1 bg-muted text-foreground border border-border"
                               >
-                                <RouteIcon className="h-3 w-3" />
-                                Rota: <strong>{link.rotaNome}</strong>
+                                <FileSpreadsheet className="h-3 w-3 text-muted-foreground" />
+                                Rota (Planilha): <strong>{link.rotaPlanilha}</strong>
                               </Badge>
                             </div>
                           </div>

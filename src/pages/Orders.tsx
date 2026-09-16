@@ -74,6 +74,7 @@ export default function Orders() {
     schools,
     orders,
     contracts,
+    rotasLogisticas,
     activeCiclo,
     addOrder,
     updateOrderStatus,
@@ -91,6 +92,8 @@ export default function Orders() {
   const [filterOrigem, setFilterOrigem] = useState<string>('todos')
   const [filterStatus, setFilterStatus] = useState<string>('todos')
   const [filterValidacao, setFilterValidacao] = useState<string>('todos')
+  const [filterRotaPlanilha, setFilterRotaPlanilha] = useState<string>('todas')
+  const [filterRotaLogistica, setFilterRotaLogistica] = useState<string>('todas')
 
   // Form de criação de pedido
   const [selectedContractId, setSelectedContractId] = useState<string>('')
@@ -211,15 +214,64 @@ export default function Orders() {
     }
   }
 
-  // Filtragem da lista
+  // Rotas da Planilha distintas presentes nos pedidos
+  const availableRotasPlanilha = useMemo(() => {
+    const routeSet = new Set<string>()
+    for (const o of orders) {
+      if (o.rotaNome && o.rotaNome.trim() && o.rotaNome !== 'Sem Rota') {
+        routeSet.add(o.rotaNome.trim())
+      }
+    }
+    return Array.from(routeSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [orders])
+
+  // Rotas Logísticas distintas presentes nos pedidos ou cadastradas
+  const availableRotasLogisticas = useMemo(() => {
+    const routeSet = new Set<string>()
+    for (const r of rotasLogisticas) {
+      if (r.nome && r.nome.trim()) routeSet.add(r.nome.trim())
+    }
+    for (const o of orders) {
+      if (o.rotaLogisticaNome && o.rotaLogisticaNome.trim()) {
+        routeSet.add(o.rotaLogisticaNome.trim())
+      }
+    }
+    return Array.from(routeSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [orders])
+
+  // Filtragem da lista com filtros separados de Rota (Planilha) e Rota Logística
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
       if (filterOrigem !== 'todos' && o.origem !== filterOrigem) return false
       if (filterStatus !== 'todos' && o.status !== filterStatus) return false
       if (filterValidacao !== 'todos' && o.validacao?.status !== filterValidacao) return false
+
+      // Filtro Rota (Planilha)
+      if (filterRotaPlanilha !== 'todas') {
+        if (
+          !o.rotaNome ||
+          o.rotaNome.trim().toLowerCase() !== filterRotaPlanilha.trim().toLowerCase()
+        ) {
+          return false
+        }
+      }
+
+      // Filtro Rota Logística
+      if (filterRotaLogistica !== 'todas') {
+        if (filterRotaLogistica === 'sem_rota_logistica') {
+          if (o.rotaLogisticaId || o.rotaLogisticaNome) return false
+        } else {
+          const matchId = o.rotaLogisticaId === filterRotaLogistica
+          const matchNome =
+            o.rotaLogisticaNome &&
+            o.rotaLogisticaNome.trim().toLowerCase() === filterRotaLogistica.trim().toLowerCase()
+          if (!matchId && !matchNome) return false
+        }
+      }
+
       return true
     })
-  }, [orders, filterOrigem, filterStatus, filterValidacao])
+  }, [orders, filterOrigem, filterStatus, filterValidacao, filterRotaPlanilha, filterRotaLogistica])
 
   const getOrigemBadge = (origem: Order['origem']) => {
     switch (origem) {
@@ -582,12 +634,12 @@ export default function Orders() {
 
       {/* Barra de Filtros */}
       <Card>
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+        <CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-center">
             <div>
               <Label className="text-xs">Origem do Pedido</Label>
               <Select value={filterOrigem} onValueChange={setFilterOrigem}>
-                <SelectTrigger className="h-9 mt-1">
+                <SelectTrigger className="h-9 mt-1 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -602,7 +654,7 @@ export default function Orders() {
             <div>
               <Label className="text-xs">Status da Entrega</Label>
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-9 mt-1">
+                <SelectTrigger className="h-9 mt-1 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -618,7 +670,7 @@ export default function Orders() {
             <div>
               <Label className="text-xs">Status da Validação</Label>
               <Select value={filterValidacao} onValueChange={setFilterValidacao}>
-                <SelectTrigger className="h-9 mt-1">
+                <SelectTrigger className="h-9 mt-1 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -628,7 +680,72 @@ export default function Orders() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Filtro Rota (Planilha da Secretaria) */}
+            <div>
+              <Label className="text-xs flex items-center gap-1">
+                <FileSpreadsheet className="h-3 w-3 text-muted-foreground" /> Rota (Planilha)
+              </Label>
+              <Select value={filterRotaPlanilha} onValueChange={setFilterRotaPlanilha}>
+                <SelectTrigger className="h-9 mt-1 text-xs">
+                  <SelectValue placeholder="Todas da Planilha" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas da Planilha</SelectItem>
+                  {availableRotasPlanilha.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Filtro Rota Logística */}
+            <div>
+              <Label className="text-xs flex items-center gap-1">
+                <Truck className="h-3 w-3 text-amber-600" /> Rota Logística
+              </Label>
+              <Select value={filterRotaLogistica} onValueChange={setFilterRotaLogistica}>
+                <SelectTrigger className="h-9 mt-1 text-xs">
+                  <SelectValue placeholder="Todas as Logísticas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas as Logísticas</SelectItem>
+                  <SelectItem value="sem_rota_logistica">Sem rota logística</SelectItem>
+                  {availableRotasLogisticas.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      Rota Logística {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+
+          {(filterOrigem !== 'todos' ||
+            filterStatus !== 'todos' ||
+            filterValidacao !== 'todos' ||
+            filterRotaPlanilha !== 'todas' ||
+            filterRotaLogistica !== 'todas') && (
+            <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground">
+              <span>Filtros ativos refinando a visualização dos pedidos</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => {
+                  setFilterOrigem('todos')
+                  setFilterStatus('todos')
+                  setFilterValidacao('todos')
+                  setFilterRotaPlanilha('todas')
+                  setFilterRotaLogistica('todas')
+                }}
+              >
+                Limpar filtros
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -652,10 +769,11 @@ export default function Orders() {
                   <TableHead>Nº Pedido</TableHead>
                   <TableHead>Origem</TableHead>
                   <TableHead>Instituição Escolar</TableHead>
-                  <TableHead>Rota Logística / Planilha</TableHead>
+                  <TableHead>Rota (Planilha)</TableHead>
+                  <TableHead>Rota Logística</TableHead>
                   <TableHead>Data Prevista</TableHead>
                   <TableHead>Validação</TableHead>
-                  <TableHead>Motivo Cancelamento</TableHead>
+                  <TableHead>Cancelamento</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Total (R$)</TableHead>
                   <TableHead className="text-right">Ação</TableHead>
@@ -684,24 +802,41 @@ export default function Orders() {
                       </TableCell>
                       <TableCell>{getOrigemBadge(order.origem)}</TableCell>
                       <TableCell className="font-medium text-xs">{order.schoolName}</TableCell>
+                      {/* Coluna 1: Rota (Planilha) */}
                       <TableCell>
-                        <div className="flex flex-col gap-0.5">
-                          {order.rotaLogisticaNome ? (
-                            <Badge className="bg-primary/10 text-primary border-primary/30 text-[10px] w-fit font-semibold">
-                              {order.rotaLogisticaNome}
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30 w-fit"
-                            >
-                              Sem rota (Escola pendente)
-                            </Badge>
-                          )}
-                          <span className="text-[10px] text-muted-foreground">
-                            {order.rotaNome ? `Planilha: ${order.rotaNome}` : 'Sem rota ref.'}
+                        {order.rotaNome ? (
+                          <Badge
+                            variant="secondary"
+                            className="bg-muted text-foreground border border-border/80 text-[10px] font-normal gap-1"
+                            title="Aba de origem na planilha centralizada da secretaria"
+                          >
+                            <FileSpreadsheet className="h-2.5 w-2.5 text-muted-foreground" />
+                            Rota (Planilha): {order.rotaNome}
+                          </Badge>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground/60 italic">
+                            Sem ref.
                           </span>
-                        </div>
+                        )}
+                      </TableCell>
+                      {/* Coluna 2: Rota Logística */}
+                      <TableCell>
+                        {order.rotaLogisticaNome ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700 text-[10px] font-semibold gap-1"
+                          >
+                            <Truck className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                            Rota Logística: {order.rotaLogisticaNome}
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] text-muted-foreground border-dashed bg-muted/20"
+                          >
+                            Sem rota logística
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">
                         {new Date(order.date).toLocaleDateString('pt-BR')}
@@ -856,6 +991,18 @@ export default function Orders() {
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Status Atual:</span>
                   <span>{getStatusBadge(viewingOrder.status)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Rota (Planilha da Secretaria):</span>
+                  <span className="font-medium text-foreground">
+                    {viewingOrder.rotaNome || 'Sem referência de planilha'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Rota Logística (Distribuição):</span>
+                  <span className="font-medium text-amber-700 dark:text-amber-400">
+                    {viewingOrder.rotaLogisticaNome || 'Sem rota logística atribuída'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Status da Validação:</span>

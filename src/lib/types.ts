@@ -114,9 +114,12 @@ export interface ContratoEscolaRecord {
   contrato_id: string
   escola_id: string
   rota_id?: string
+  rota?: string
+  rota_logistica_id?: string
   expand?: {
     escola_id?: EscolaRecord
     rota_id?: RotaRecord
+    rota_logistica_id?: RotaLogisticaRecord
     contrato_id?: ContratoRecord
   }
   created?: string
@@ -262,13 +265,16 @@ export interface ContractSchoolLink {
   contratoId: string
   escolaId: string
   rotaId?: string
+  rotaPlanilha?: string
+  rotaLogisticaId?: string
+  rotaLogisticaNome?: string
   escolaNome?: string
   escolaEndereco?: string
   escolaTelefone?: string
   escolaEmail?: string
   escolaTipo?: string
   escolaAlunos?: number
-  rotaNome?: string
+  rotaNome?: string // compatibilidade (aponta para rota da planilha)
 }
 
 export interface Contract {

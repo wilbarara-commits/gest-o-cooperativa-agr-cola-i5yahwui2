@@ -344,18 +344,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const linkedSchools = links.map((ce) => {
           const sch = mappedSchools.find((s) => s.id === ce.escola_id)
           const rt = rawRotas.find((r) => r.id === ce.rota_id)
+          // Rota da planilha: prioridade ce.rota (texto direto gravado), depois expand?.rota_id?.nome, depois rt?.nome, depois sch?.route
+          const rotaPlanilhaNome =
+            ce.rota?.trim() || ce.expand?.rota_id?.nome || rt?.nome || sch?.route || 'Sem Rota'
+
+          // Rota logística da cooperativa associada a esta escola
+          const paradaEscola = rawParadasRota.find((p) => p.escola_id === ce.escola_id)
+          const rotaLogId = ce.rota_logistica_id || paradaEscola?.rota_logistica_id
+          const rotaLogObj = rawRotasLogisticas.find((r) => r.id === rotaLogId)
+          const rotaLogisticaNome = ce.expand?.rota_logistica_id?.nome || rotaLogObj?.nome
+
           return {
             id: ce.id,
             contratoId: ce.contrato_id,
             escolaId: ce.escola_id,
             rotaId: ce.rota_id,
+            rotaPlanilha: rotaPlanilhaNome,
+            rotaLogisticaId: rotaLogId,
+            rotaLogisticaNome: rotaLogisticaNome,
             escolaNome: ce.expand?.escola_id?.nome || sch?.name || 'Escola',
             escolaEndereco: ce.expand?.escola_id?.endereco || sch?.address || '',
             escolaTelefone: ce.expand?.escola_id?.telefone || sch?.contact || '',
             escolaEmail: ce.expand?.escola_id?.email || sch?.email || '',
             escolaTipo: ce.expand?.escola_id?.tipo || sch?.tipo || '',
             escolaAlunos: ce.expand?.escola_id?.alunos ?? sch?.alunos,
-            rotaNome: ce.expand?.rota_id?.nome || rt?.nome || 'Sem Rota',
+            rotaNome: rotaPlanilhaNome,
           }
         })
 
@@ -876,7 +889,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   // Sincronizar escolas atribuídas a uma rota logística:
-  // Preenche paradas_rota, atualiza pedidos pendentes dessas escolas e limpa as desatribuídas
+  // Preenche paradas_rota, atualiza contrato_escolas.rota_logistica_id (SEM tocar na rota da planilha!),
+  // atualiza pedidos pendentes dessas escolas e limpa as desatribuídas
   const sincronizarEscolasRotaLogistica = async (
     contratoId: string,
     rotaLogisticaId: string,
@@ -887,41 +901,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
       const nomeRota = rotaLog?.nome || 'Rota'
 
-      // Identificar escolas que estavam antes nesta rota
+      // Identificar escolas que estavam antes nesta rota logística
       const paradasAnteriores = paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId)
       const escolasAnterioresIds = paradasAnteriores.map((p) => p.escola_id)
       const novasEscolasSet = new Set(escolaIds)
       const escolasDesatribuidas = escolasAnterioresIds.filter((id) => !novasEscolasSet.has(id))
 
-      // Garantir ou buscar registro na collection `rotas` com esse nome no contrato para coerência de FK rota_id
-      let rotaRefId: string | undefined
-      const existingRotasContrato = rotas.filter((r) => r.contrato_id === contratoId)
-      const match = existingRotasContrato.find(
-        (r) => r.nome.trim().toLowerCase() === nomeRota.trim().toLowerCase(),
-      )
-      if (match) {
-        rotaRefId = match.id
-      } else {
+      // 1. Atualizar vínculo de rota logística em contrato_escolas.rota_logistica_id SEM alterar rota da planilha (rota_id/rota)
+      for (const escId of escolaIds) {
         try {
-          const createdRotaRef = await rotasService.create({
-            contrato_id: contratoId,
-            nome: nomeRota,
-            ordem: existingRotasContrato.length + 1,
-          })
-          rotaRefId = createdRotaRef.id
-        } catch (_) {
-          // Fallback se não conseguir criar na collection rotas
+          await contratosService.updateEscolaRotaLogisticaByContratoEscola(
+            contratoId,
+            escId,
+            rotaLogisticaId,
+          )
+        } catch (linkErr) {
+          console.warn(`Erro ao sincronizar rota_logistica_id para escola ${escId}:`, linkErr)
         }
       }
 
-      // 1. Atualizar vínculo no contrato (contrato_escolas.rota_id)
-      if (rotaRefId) {
-        for (const escId of escolaIds) {
-          try {
-            await contratosService.updateEscolaRotaByContratoEscola(contratoId, escId, rotaRefId)
-          } catch (linkErr) {
-            console.warn(`Erro ao sincronizar contrato_escolas para escola ${escId}:`, linkErr)
-          }
+      // Limpar rota_logistica_id das escolas desatribuídas
+      for (const escId of escolasDesatribuidas) {
+        try {
+          await contratosService.updateEscolaRotaLogisticaByContratoEscola(contratoId, escId, '')
+        } catch (linkErr) {
+          console.warn(`Erro ao limpar rota_logistica_id para escola ${escId}:`, linkErr)
         }
       }
 
@@ -966,7 +970,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       await loadAllData()
       toast.success(
-        `Rota "${nomeRota}" configurada com ${escolaIds.length} escola(s) e vínculos atualizados!`,
+        `Rota Logística "${nomeRota}" configurada com ${escolaIds.length} escola(s) e vínculos atualizados!`,
       )
       return true
     } catch (err: any) {
@@ -989,41 +993,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await pedidosService.atribuirRotaLogistica(pid, rotaLogisticaId)
       }
 
-      // COERÊNCIA DE DADOS: quando pedidos das escolas forem atribuídos a esta rota,
-      // sincronizar também o vínculo em contrato_escolas se houver contrato identificado
+      // COERÊNCIA DE DADOS: atualizar contrato_escolas.rota_logistica_id SEM alterar rota da planilha
       if (rotaLog && contratoId) {
         const pedEscolaIds = new Set(
           orders.filter((o) => pedidoIds.includes(o.id)).map((o) => o.schoolId),
         )
 
-        let rotaRefId: string | undefined
-        const match = rotas.find(
-          (r) =>
-            r.contrato_id === contratoId &&
-            r.nome.trim().toLowerCase() === rotaLog.nome.trim().toLowerCase(),
-        )
-        if (match) {
-          rotaRefId = match.id
-        } else {
+        for (const escId of pedEscolaIds) {
           try {
-            const created = await rotasService.create({
-              contrato_id: contratoId,
-              nome: rotaLog.nome,
-              ordem: rotas.filter((r) => r.contrato_id === contratoId).length + 1,
-            })
-            rotaRefId = created.id
+            await contratosService.updateEscolaRotaLogisticaByContratoEscola(
+              contratoId,
+              escId,
+              rotaLogisticaId,
+            )
           } catch {
             /* intentionally ignored */
-          }
-        }
-
-        if (rotaRefId) {
-          for (const escId of pedEscolaIds) {
-            try {
-              await contratosService.updateEscolaRotaByContratoEscola(contratoId, escId, rotaRefId)
-            } catch {
-              /* intentionally ignored */
-            }
           }
         }
       }

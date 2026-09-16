@@ -66,6 +66,7 @@ import {
   Link2,
   SlidersHorizontal,
   Truck,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { contratosService } from '@/services/contratos'
@@ -539,18 +540,25 @@ export default function Contracts() {
           }
         }
 
-        // Adicionar / Atualizar escolas marcadas com sua rota
+        // Adicionar / Atualizar escolas marcadas com sua rota da planilha (sem mexer na rota logística)
         for (const f of contractSchoolsForm) {
-          // Resolver id da rota (se o form tiver o nome ou id da rota)
+          // Resolver id da rota e nome da rota (se o form tiver o nome ou id da rota)
           let rId = f.rotaId
+          let rotaTexto = f.rotaId
           if (savedRotasMap.has(f.rotaId)) {
             rId = savedRotasMap.get(f.rotaId)!
+            rotaTexto = f.rotaId
+          } else {
+            // Se f.rotaId for um ID, achar o nome
+            const foundR = contractRotas.find((r) => r.id === f.rotaId)
+            if (foundR) rotaTexto = foundR.nome
           }
 
           await contratosService.linkEscola({
             contrato_id: contractId,
             escola_id: f.escolaId,
             rota_id: rId || undefined,
+            rota: rotaTexto || undefined,
           })
         }
 
@@ -1455,16 +1463,16 @@ export default function Contracts() {
 
                           {isSelected && (
                             <div className="flex items-center gap-2 shrink-0 pt-1 sm:pt-0">
-                              <div className="w-44">
+                              <div className="w-48">
                                 <Label className="text-[9px] text-muted-foreground block mb-0.5">
-                                  Rota Logística
+                                  Rota (Planilha da Secretaria)
                                 </Label>
                                 <Select
                                   value={assignedLink?.rotaId || contractRotas[0]?.nome || ''}
                                   onValueChange={(val) => handleSchoolRotaChange(sch.id, val)}
                                 >
                                   <SelectTrigger className="h-7 text-xs">
-                                    <SelectValue placeholder="Selecione rota" />
+                                    <SelectValue placeholder="Selecione rota da planilha" />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {contractRotas.map((cr, i) => (
@@ -1714,9 +1722,73 @@ export default function Contracts() {
                 </div>
               </div>
 
+              {/* Seção 1: Escolas por Rota (Planilha da Secretaria) */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <h4 className="font-semibold text-sm">Rotas Logísticas</h4>
+                  <h4 className="font-semibold text-sm flex items-center gap-1.5 text-foreground">
+                    <FileSpreadsheet className="h-4 w-4 text-primary" /> Escolas por Rota (Planilha)
+                  </h4>
+                  <Badge variant="outline" className="text-[10px]">
+                    Referência da Secretaria ({viewingContract.escolas.length} escolas)
+                  </Badge>
+                </div>
+                {(() => {
+                  // Agrupar escolas por rota da planilha
+                  const agrupadoPorPlanilha = new Map<string, typeof viewingContract.escolas>()
+                  for (const esc of viewingContract.escolas) {
+                    const rNome = esc.rotaPlanilha || esc.rotaNome || 'Sem Rota'
+                    const list = agrupadoPorPlanilha.get(rNome) || []
+                    list.push(esc)
+                    agrupadoPorPlanilha.set(rNome, list)
+                  }
+
+                  if (agrupadoPorPlanilha.size === 0) {
+                    return (
+                      <div className="p-2.5 rounded bg-muted/20 border text-muted-foreground text-center text-xs">
+                        Nenhuma escola vinculada ao contrato.
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="space-y-2">
+                      {Array.from(agrupadoPorPlanilha.entries()).map(
+                        ([rotaNome, escolasNaRota]) => (
+                          <div
+                            key={rotaNome}
+                            className="p-2.5 rounded bg-muted/20 border space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between text-xs font-semibold">
+                              <span className="text-foreground">Rota (Planilha): {rotaNome}</span>
+                              <Badge variant="secondary" className="text-[10px]">
+                                {escolasNaRota.length} escola(s)
+                              </Badge>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {escolasNaRota.map((e) => (
+                                <Badge
+                                  key={e.id}
+                                  variant="outline"
+                                  className="text-[10px] bg-background font-normal"
+                                >
+                                  {e.escolaNome}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Seção 2: Escolas por Rota Logística da Cooperativa */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h4 className="font-semibold text-sm flex items-center gap-1.5 text-foreground">
+                    <Truck className="h-4 w-4 text-amber-600" /> Escolas por Rota Logística
+                  </h4>
                   <Button
                     type="button"
                     variant="ghost"
@@ -1734,45 +1806,94 @@ export default function Contracts() {
                   const logRoutes = rotasLogisticas.filter(
                     (r) => r.contrato_id === viewingContract.id,
                   )
-                  if (logRoutes.length === 0) {
-                    return (
-                      <div className="p-2.5 rounded bg-muted/20 border text-muted-foreground text-center">
-                        Nenhuma rota logística configurada ainda.
-                      </div>
-                    )
-                  }
+                  // Identificar escolas sem rota logística neste contrato
+                  const escolasSemRotaLogistica = viewingContract.escolas.filter((e) => {
+                    const parada = paradasRota.find((p) => p.escola_id === e.escolaId)
+                    return !parada && !e.rotaLogisticaId
+                  })
+
                   return (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {logRoutes.map((r) => {
-                        const count = paradasRota.filter((p) => p.rota_logistica_id === r.id).length
+                        // Paradas desta rota
+                        const paradas = paradasRota
+                          .filter((p) => p.rota_logistica_id === r.id)
+                          .sort((a, b) => a.ordem - b.ordem)
+                        const count = paradas.length
+
                         return (
                           <div
                             key={r.id}
-                            className="flex items-center justify-between p-2 rounded bg-muted/20 border"
+                            className="p-2.5 rounded bg-amber-500/5 border border-amber-200/50 space-y-1.5"
                           >
-                            <span className="font-medium text-foreground">{r.nome}</span>
-                            <Badge variant="secondary">{count} parada(s)</Badge>
+                            <div className="flex items-center justify-between text-xs font-semibold">
+                              <span className="text-foreground flex items-center gap-1">
+                                <Truck className="h-3 w-3 text-amber-600" /> Rota Logística {r.nome}
+                              </span>
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] bg-amber-100 text-amber-800"
+                              >
+                                {count} parada(s)
+                              </Badge>
+                            </div>
+                            {count > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {paradas.map((p) => {
+                                  const escObj = viewingContract.escolas.find(
+                                    (e) => e.escolaId === p.escola_id,
+                                  )
+                                  const nomeEsc =
+                                    escObj?.escolaNome ||
+                                    schools.find((s) => s.id === p.escola_id)?.name ||
+                                    'Escola'
+                                  return (
+                                    <Badge
+                                      key={p.id}
+                                      variant="outline"
+                                      className="text-[10px] bg-background font-normal"
+                                    >
+                                      {p.ordem}ª {nomeEsc}
+                                    </Badge>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
                         )
                       })}
+
+                      {/* Entrada explícita: Sem rota logística */}
+                      <div className="p-2.5 rounded bg-muted/20 border space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-semibold">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            Sem rota logística atribuída
+                          </span>
+                          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                            {escolasSemRotaLogistica.length} escola(s)
+                          </Badge>
+                        </div>
+                        {escolasSemRotaLogistica.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {escolasSemRotaLogistica.map((e) => (
+                              <Badge
+                                key={e.id}
+                                variant="outline"
+                                className="text-[10px] bg-background text-muted-foreground font-normal"
+                              >
+                                {e.escolaNome} (Ref: {e.rotaPlanilha || e.rotaNome || 'Sem Rota'})
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-emerald-600">
+                            Todas as escolas deste contrato estão atribuídas a rotas logísticas.
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )
                 })()}
-              </div>
-
-              <div>
-                <h4 className="font-semibold text-sm mb-1.5">Escolas Participantes</h4>
-                <div className="space-y-1">
-                  {viewingContract.escolas.map((e) => (
-                    <div
-                      key={e.id}
-                      className="flex items-center justify-between p-2 rounded bg-muted/20 border"
-                    >
-                      <span>{e.escolaNome}</span>
-                      <Badge variant="outline">{e.rotaNome}</Badge>
-                    </div>
-                  ))}
-                </div>
               </div>
 
               <div>

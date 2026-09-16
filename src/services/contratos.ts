@@ -29,7 +29,7 @@ export const contratosService = {
     const filter = contratoId ? `contrato_id = "${contratoId}"` : ''
     return await pb.collection('contrato_escolas').getFullList<ContratoEscolaRecord>({
       filter,
-      expand: 'escola_id,rota_id,contrato_id',
+      expand: 'escola_id,rota_id,rota_logistica_id,contrato_id',
     })
   },
 
@@ -113,16 +113,29 @@ export const contratosService = {
     contrato_id: string
     escola_id: string
     rota_id?: string
+    rota?: string
+    rota_logistica_id?: string
   }): Promise<ContratoEscolaRecord> {
     // Check if link already exists
     const existing = await pb.collection('contrato_escolas').getFullList<ContratoEscolaRecord>({
       filter: `contrato_id = "${data.contrato_id}" && escola_id = "${data.escola_id}"`,
     })
     if (existing.length > 0) {
-      if (data.rota_id && existing[0].rota_id !== data.rota_id) {
-        return await pb.collection('contrato_escolas').update(existing[0].id, {
-          rota_id: data.rota_id,
-        })
+      const updateData: Partial<ContratoEscolaRecord> = {}
+      if (data.rota_id !== undefined && existing[0].rota_id !== data.rota_id) {
+        updateData.rota_id = data.rota_id
+      }
+      if (data.rota !== undefined && existing[0].rota !== data.rota) {
+        updateData.rota = data.rota
+      }
+      if (
+        data.rota_logistica_id !== undefined &&
+        existing[0].rota_logistica_id !== data.rota_logistica_id
+      ) {
+        updateData.rota_logistica_id = data.rota_logistica_id
+      }
+      if (Object.keys(updateData).length > 0) {
+        return await pb.collection('contrato_escolas').update(existing[0].id, updateData)
       }
       return existing[0]
     }
@@ -133,29 +146,69 @@ export const contratosService = {
     return await pb.collection('contrato_escolas').delete(contratoEscolaId)
   },
 
-  async updateEscolaRota(contratoEscolaId: string, rotaId: string): Promise<ContratoEscolaRecord> {
+  async updateEscolaRota(
+    contratoEscolaId: string,
+    data: { rotaId?: string; rotaPlanilha?: string },
+  ): Promise<ContratoEscolaRecord> {
+    const payload: Record<string, any> = {}
+    if (data.rotaId !== undefined) payload.rota_id = data.rotaId
+    if (data.rotaPlanilha !== undefined) payload.rota = data.rotaPlanilha
     return await pb
       .collection('contrato_escolas')
-      .update<ContratoEscolaRecord>(contratoEscolaId, { rota_id: rotaId })
+      .update<ContratoEscolaRecord>(contratoEscolaId, payload)
+  },
+
+  async updateEscolaRotaLogistica(
+    contratoEscolaId: string,
+    rotaLogisticaId: string,
+  ): Promise<ContratoEscolaRecord> {
+    return await pb.collection('contrato_escolas').update<ContratoEscolaRecord>(contratoEscolaId, {
+      rota_logistica_id: rotaLogisticaId || '',
+    })
   },
 
   async updateEscolaRotaByContratoEscola(
     contratoId: string,
     escolaId: string,
     rotaId: string,
+    rotaPlanilha?: string,
+  ): Promise<ContratoEscolaRecord | null> {
+    const existing = await pb.collection('contrato_escolas').getFullList<ContratoEscolaRecord>({
+      filter: `contrato_id = "${contratoId}" && escola_id = "${escolaId}"`,
+    })
+    const payload: Record<string, any> = { rota_id: rotaId }
+    if (rotaPlanilha !== undefined) payload.rota = rotaPlanilha
+
+    if (existing.length > 0) {
+      return await pb
+        .collection('contrato_escolas')
+        .update<ContratoEscolaRecord>(existing[0].id, payload)
+    } else {
+      return await pb.collection('contrato_escolas').create<ContratoEscolaRecord>({
+        contrato_id: contratoId,
+        escola_id: escolaId,
+        ...payload,
+      })
+    }
+  },
+
+  async updateEscolaRotaLogisticaByContratoEscola(
+    contratoId: string,
+    escolaId: string,
+    rotaLogisticaId: string,
   ): Promise<ContratoEscolaRecord | null> {
     const existing = await pb.collection('contrato_escolas').getFullList<ContratoEscolaRecord>({
       filter: `contrato_id = "${contratoId}" && escola_id = "${escolaId}"`,
     })
     if (existing.length > 0) {
       return await pb.collection('contrato_escolas').update<ContratoEscolaRecord>(existing[0].id, {
-        rota_id: rotaId,
+        rota_logistica_id: rotaLogisticaId || '',
       })
     } else {
       return await pb.collection('contrato_escolas').create<ContratoEscolaRecord>({
         contrato_id: contratoId,
         escola_id: escolaId,
-        rota_id: rotaId,
+        rota_logistica_id: rotaLogisticaId || '',
       })
     }
   },

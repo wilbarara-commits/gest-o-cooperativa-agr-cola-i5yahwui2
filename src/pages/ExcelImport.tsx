@@ -144,7 +144,14 @@ export default function ExcelImport() {
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       setRawWorkbook(workbook)
 
-      const result = parseSecretaryExcel(workbook, schools, selectedContract.escolas, products)
+      const contractRotas = rotas.filter((r) => r.contrato_id === selectedContract.id)
+      const result = parseSecretaryExcel(
+        workbook,
+        schools,
+        selectedContract.escolas,
+        products,
+        contractRotas,
+      )
 
       setParsedData(result)
       if (result.anomalies.length > 0) {
@@ -219,7 +226,14 @@ export default function ExcelImport() {
     currentLinks: typeof selectedContract.escolas,
   ) => {
     if (!rawWorkbook || !selectedContract) return
-    const result = parseSecretaryExcel(rawWorkbook, currentSchools, currentLinks, products)
+    const contractRotas = rotas.filter((r) => r.contrato_id === selectedContract.id)
+    const result = parseSecretaryExcel(
+      rawWorkbook,
+      currentSchools,
+      currentLinks,
+      products,
+      contractRotas,
+    )
     setParsedData(result)
   }
 
@@ -704,17 +718,23 @@ export default function ExcelImport() {
                 </Card>
               </div>
 
-              {/* Alertas de Anomalias de Duplicidade */}
+              {/* Alertas de Anomalias de Duplicidade ou Abas não Cadastradas */}
               {parsedData.anomalies.length > 0 && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-900 dark:text-rose-200 text-xs space-y-1">
-                  <p className="font-semibold flex items-center gap-1.5 text-rose-700 dark:text-rose-300">
-                    <ShieldAlert className="h-4 w-4" /> Anomalias Detectadas na Planilha:
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs space-y-1">
+                  <p className="font-semibold flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+                    <ShieldAlert className="h-4 w-4" /> Alertas / Pendências Detectadas na Planilha:
                   </p>
                   {parsedData.anomalies.map((anom, idx) => (
                     <p key={idx} className="pl-5">
                       • {anom}
                     </p>
                   ))}
+                  {parsedData.unmatchedSheets && parsedData.unmatchedSheets.length > 0 && (
+                    <p className="pl-5 pt-1 text-[11px] text-muted-foreground italic">
+                      Dica: Você pode cadastrar o nome dessas rotas na aba &quot;Escolas&quot; do
+                      Contrato para que o sistema reconheça automaticamente as abas importadas.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -738,7 +758,18 @@ export default function ExcelImport() {
                       return (
                         <TableRow key={idx} className={hasIssues ? 'bg-amber-500/5' : ''}>
                           <TableCell className="font-semibold text-xs text-primary">
-                            {po.routeRaw}
+                            <div className="flex flex-col gap-0.5">
+                              <span>{po.routeRaw}</span>
+                              {po.sheetMatchedContractRota ? (
+                                <span className="text-[10px] text-emerald-600 font-normal">
+                                  ✓ Rota: {po.sheetMatchedContractRota}
+                                </span>
+                              ) : po.isSheetUnmatchedInContract ? (
+                                <span className="text-[10px] text-amber-600 font-normal">
+                                  Aba não cadastrada no contrato
+                                </span>
+                              ) : null}
+                            </div>
                           </TableCell>
                           <TableCell className="font-medium text-xs">{po.schoolNameRaw}</TableCell>
                           <TableCell className="text-xs">
@@ -941,18 +972,17 @@ export default function ExcelImport() {
 
               <div className="space-y-2">
                 <Label htmlFor="link-rota" className="text-xs">
-                  Rota Logística neste Contrato <span className="text-destructive">*</span>
+                  Rota (Planilha) neste Contrato <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="link-rota"
                   value={linkRotaNome}
                   onChange={(e) => setLinkRotaNome(e.target.value)}
-                  placeholder="Ex: ROTA A"
+                  placeholder="Ex: ROTA A, ZONA SUL..."
                   className="h-8 text-xs"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Pré-preenchida automaticamente com base na aba da planilha (
-                  {pendingLinkOrder.routeRaw}).
+                  Sugerida com base na aba da planilha ({pendingLinkOrder.routeRaw}).
                 </p>
               </div>
             </div>

@@ -171,10 +171,8 @@ export default function Contracts() {
     setValorTotal('')
     setStatus('Ativo')
     setContractSchoolsForm([])
-    setContractRotas([
-      { nome: 'ROTA A', ordem: 1 },
-      { nome: 'ROTA B', ordem: 2 },
-    ])
+    setContractRotas([])
+    setDeletedRotaIds([])
     setContractRotasLogisticas([])
     setContractItems([])
     setDialogOpen(true)
@@ -182,6 +180,7 @@ export default function Contracts() {
 
   const handleOpenEdit = async (contract: Contract) => {
     setEditingContract(contract)
+    setDeletedRotaIds([])
     setNumero(contract.numero)
     setNumeroChamada(contract.numero_chamada || '')
     setTipo(contract.tipo || 'PNAE')
@@ -202,16 +201,9 @@ export default function Contracts() {
       })),
     )
 
-    // Rotas da planilha da secretaria
+    // Rotas da planilha da secretaria (sem defaults fixos)
     const existingRotas = rotas.filter((r) => r.contrato_id === contract.id)
-    setContractRotas(
-      existingRotas.length > 0
-        ? existingRotas.map((r) => ({ id: r.id, nome: r.nome, ordem: r.ordem || 1 }))
-        : [
-            { nome: 'ROTA A', ordem: 1 },
-            { nome: 'ROTA B', ordem: 2 },
-          ],
-    )
+    setContractRotas(existingRotas.map((r) => ({ id: r.id, nome: r.nome, ordem: r.ordem || 1 })))
 
     // Rotas logísticas da cooperativa (com dedup defensivo por id e nome)
     const existingLog = rotasLogisticas.filter((r) => r.contrato_id === contract.id)
@@ -284,7 +276,9 @@ export default function Contracts() {
     }
   }
 
-  // Rotas da planilha
+  // Rotas da planilha (definidas por contrato para casar com abas da planilha e alimentar o seletor das escolas)
+  const [deletedRotaIds, setDeletedRotaIds] = useState<string[]>([])
+
   const handleAddRota = () => {
     const trimmed = newRotaNome.trim()
     if (!trimmed) return
@@ -297,6 +291,10 @@ export default function Contracts() {
   }
 
   const handleRemoveRota = (index: number) => {
+    const rotaAlvo = contractRotas[index]
+    if (rotaAlvo?.id) {
+      setDeletedRotaIds((prev) => [...prev, rotaAlvo.id!])
+    }
     setContractRotas((prev) => prev.filter((_, i) => i !== index))
   }
 
@@ -398,15 +396,14 @@ export default function Contracts() {
     }
   }
 
-  // Adicionar e remover escolas do contrato
+  // Adicionar e remover escolas do contrato (sem preenchimento automático de rota — operador escolhe explicitamente)
   const handleToggleSchool = (schoolId: string) => {
     setContractSchoolsForm((prev) => {
       const exists = prev.find((s) => s.escolaId === schoolId)
       if (exists) {
         return prev.filter((s) => s.escolaId !== schoolId)
       } else {
-        const defaultRota = contractRotas[0]?.nome || ''
-        return [...prev, { escolaId: schoolId, rotaId: defaultRota }]
+        return [...prev, { escolaId: schoolId, rotaId: '' }]
       }
     })
   }
@@ -416,8 +413,7 @@ export default function Contracts() {
       toast.info('Esta escola já está vinculada ao contrato.')
       return
     }
-    const defaultRota = contractRotas[0]?.nome || ''
-    setContractSchoolsForm((prev) => [...prev, { escolaId: schoolId, rotaId: defaultRota }])
+    setContractSchoolsForm((prev) => [...prev, { escolaId: schoolId, rotaId: '' }])
     toast.success('Escola vinculada ao contrato!')
   }
 
@@ -468,13 +464,13 @@ export default function Contracts() {
         await refreshData()
       }
 
-      // 2. Vincular ao formulário do contrato com a Rota (Planilha) especificada
-      const assignedRota = quickSchoolRotaPlanilha.trim() || contractRotas[0]?.nome || ''
+      // 2. Vincular ao formulário do contrato com a Rota (Planilha) especificada (ou vazia se não escolhida)
+      const assignedRota = quickSchoolRotaPlanilha.trim()
 
       setContractSchoolsForm((prev) => {
         if (prev.some((s) => s.escolaId === targetSchoolId)) {
           return prev.map((s) =>
-            s.escolaId === targetSchoolId ? { ...s, rotaId: assignedRota } : s,
+            s.escolaId === targetSchoolId ? { ...s, rotaId: assignedRota || s.rotaId } : s,
           )
         }
         return [...prev, { escolaId: targetSchoolId, rotaId: assignedRota }]
@@ -558,13 +554,22 @@ export default function Contracts() {
       }
 
       if (contractId) {
-        // 1. Salvar / Atualizar Rotas do contrato
+        // 1. Salvar / Atualizar / Remover Rotas da planilha do contrato
         const savedRotasMap = new Map<string, string>() // rotaNome -> rotaId
+
+        for (const rId of deletedRotaIds) {
+          try {
+            await rotasService.delete(rId)
+          } catch (err) {
+            console.warn('Erro ao deletar rota da planilha:', err)
+          }
+        }
 
         for (const cr of contractRotas) {
           if (cr.id) {
             await rotasService.update(cr.id, { nome: cr.nome, ordem: cr.ordem })
             savedRotasMap.set(cr.nome, cr.id)
+            savedRotasMap.set(cr.id, cr.id)
           } else {
             const newR = await rotasService.create({
               contrato_id: contractId,
@@ -572,6 +577,7 @@ export default function Contracts() {
               ordem: cr.ordem,
             })
             savedRotasMap.set(cr.nome, newR.id)
+            savedRotasMap.set(newR.id, newR.id)
           }
         }
 
@@ -1301,61 +1307,76 @@ export default function Contracts() {
                     </div>
                   )}
                 </div>
+              </TabsContent>
 
-                {/* Seção Referência: Rotas da Planilha da Secretaria */}
+              {/* Aba 3: Escolas Participantes (Cadastro Mestre Global + Vínculo com Rota da Planilha) */}
+              <TabsContent value="escolas" className="space-y-4 pt-3">
+                {/* Gestão das Rotas da Planilha deste Contrato */}
                 <div className="space-y-3 p-3.5 rounded-lg border bg-muted/20">
                   <div>
-                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Rotas da Planilha da Secretaria (Referência de Agrupamento)
+                    <Label className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <FileSpreadsheet className="h-3.5 w-3.5" /> Rotas da Planilha a Importar
+                      (Nomes Livres deste Contrato)
                     </Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Nomes livres de agrupamento importados ou referenciados da planilha da
-                      secretaria (ex: ROTA A, ROTA B).
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Cadastre os nomes das rotas/abas da planilha deste contrato (ex.: ROTA A, ROTA
+                      B, ZONA SUL, CIRCUITO 1...). Esses nomes serão casados na importação Excel e
+                      atribuídos às escolas participantes abaixo.
                     </p>
                   </div>
 
                   <div className="flex gap-2">
                     <Input
-                      placeholder="Nome livre da rota da planilha (ex.: ROTA A, Setor 1...)"
+                      placeholder="Nome livre da rota/aba da planilha (ex.: ROTA A, ZONA NORTE...)"
                       value={newRotaNome}
                       onChange={(e) => setNewRotaNome(e.target.value)}
-                      className="h-8 text-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleAddRota()
+                        }
+                      }}
+                      className="h-8 text-xs bg-background"
                     />
                     <Button
                       type="button"
                       variant="outline"
                       onClick={handleAddRota}
-                      className="h-8 gap-1 text-xs"
+                      className="h-8 gap-1 text-xs shrink-0"
                     >
-                      <Plus className="h-3.5 w-3.5" /> Adicionar Rota da Planilha
+                      <Plus className="h-3.5 w-3.5 text-primary" /> Adicionar Rota
                     </Button>
                   </div>
 
-                  <div className="space-y-1.5 max-h-[120px] overflow-y-auto">
-                    {contractRotas.map((r, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between p-1.5 rounded border bg-background text-xs"
-                      >
-                        <span className="font-medium">{r.nome}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-destructive"
-                          onClick={() => handleRemoveRota(idx)}
+                  {contractRotas.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground italic">
+                      Nenhuma rota de planilha cadastrada ainda para este contrato. Cadastre acima
+                      para selecionar nas escolas.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 max-h-[110px] overflow-y-auto">
+                      {contractRotas.map((r, idx) => (
+                        <Badge
+                          key={idx}
+                          variant="secondary"
+                          className="pl-2.5 pr-1 py-1 text-xs font-medium flex items-center gap-1.5 bg-background border"
                         >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+                          <span>{r.nome}</span>
+                          <button
+                            type="button"
+                            className="rounded-full hover:bg-destructive/20 text-muted-foreground hover:text-destructive p-0.5 transition-colors"
+                            title="Remover rota da planilha"
+                            onClick={() => handleRemoveRota(idx)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </TabsContent>
 
-              {/* Aba 3: Escolas Participantes (Cadastro Mestre Global + Vínculo com Rota) */}
-              <TabsContent value="escolas" className="space-y-3 pt-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-t pt-3">
                   <div>
                     <Label className="text-sm font-semibold flex items-center gap-1.5">
                       <Globe className="h-4 w-4 text-primary" /> Vínculo de Escolas (Cadastro Mestre
@@ -1432,18 +1453,24 @@ export default function Contracts() {
                           Rota (Planilha) no Vínculo do Contrato
                         </Label>
                         <Select
-                          value={quickSchoolRotaPlanilha || contractRotas[0]?.nome || ''}
+                          value={quickSchoolRotaPlanilha || ''}
                           onValueChange={setQuickSchoolRotaPlanilha}
                         >
                           <SelectTrigger id="qk-rota" className="h-8 text-xs">
-                            <SelectValue placeholder="Selecione rota da planilha" />
+                            <SelectValue placeholder="Selecione rota da planilha (opcional)" />
                           </SelectTrigger>
                           <SelectContent>
-                            {contractRotas.map((cr, i) => (
-                              <SelectItem key={i} value={cr.id || cr.nome}>
-                                {cr.nome}
+                            {contractRotas.length === 0 ? (
+                              <SelectItem value="none" disabled>
+                                Nenhuma rota cadastrada no contrato
                               </SelectItem>
-                            ))}
+                            ) : (
+                              contractRotas.map((cr, i) => (
+                                <SelectItem key={i} value={cr.nome}>
+                                  {cr.nome}
+                                </SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1615,15 +1642,20 @@ export default function Contracts() {
                                   Rota (Planilha da Secretaria)
                                 </Label>
                                 <Select
-                                  value={assignedLink?.rotaId || contractRotas[0]?.nome || ''}
-                                  onValueChange={(val) => handleSchoolRotaChange(sch.id, val)}
+                                  value={assignedLink?.rotaId || ''}
+                                  onValueChange={(val) =>
+                                    handleSchoolRotaChange(sch.id, val === 'none' ? '' : val)
+                                  }
                                 >
                                   <SelectTrigger className="h-7 text-xs">
-                                    <SelectValue placeholder="Selecione rota da planilha" />
+                                    <SelectValue placeholder="Selecione a rota da planilha..." />
                                   </SelectTrigger>
                                   <SelectContent>
+                                    <SelectItem value="none">
+                                      <em>Sem rota atribuída</em>
+                                    </SelectItem>
                                     {contractRotas.map((cr, i) => (
-                                      <SelectItem key={i} value={cr.id || cr.nome}>
+                                      <SelectItem key={i} value={cr.nome}>
                                         {cr.nome}
                                       </SelectItem>
                                     ))}

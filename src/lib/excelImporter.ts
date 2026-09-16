@@ -41,6 +41,8 @@ export interface ParsedSchoolOrder {
   schoolId?: string
   schoolNameMatched?: string
   routeRaw: string
+  sheetMatchedContractRota?: string
+  isSheetUnmatchedInContract?: boolean
   rotaId?: string
   rotaNomeMatched?: string
   isLinkedToContract: boolean
@@ -58,6 +60,7 @@ export interface ParsedSchoolOrder {
 
 export interface ParsedExcelResult {
   routesFound: string[]
+  unmatchedSheets?: string[]
   orders: ParsedSchoolOrder[]
   totalItemsCount: number
   totalWeight: number
@@ -204,34 +207,92 @@ export function matchProductName(rawName: string, allProducts: Product[]): Produ
 }
 
 /**
+ * Casa tolerante do nome de uma aba da planilha com as rotas cadastradas no contrato.
+ * Normaliza acentos, pontuação, múltiplos espaços e caixa alta/baixa.
+ */
+export function matchSheetToContractRota(
+  sheetName: string,
+  contractRotas: Array<{ nome: string } | string>,
+): string | null {
+  const normSheet = normalizeName(sheetName)
+  if (!normSheet) return null
+
+  for (const r of contractRotas) {
+    const rotaNome = typeof r === 'string' ? r : r.nome
+    const normRota = normalizeName(rotaNome)
+    if (!normRota) continue
+
+    if (normSheet === normRota) {
+      return rotaNome
+    }
+    // Tolerância para sufixos/prefixos equivalentes (ex.: "ROTA A" vs "ROTA - A")
+    if (
+      normSheet.replace(/\s+/g, '') === normRota.replace(/\s+/g, '') ||
+      normSheet === normRota.replace(/^rota\s+/, '') ||
+      normRota === normSheet.replace(/^rota\s+/, '')
+    ) {
+      return rotaNome
+    }
+  }
+
+  return null
+}
+
+/**
  * Parser principal do arquivo Excel (.xlsx)
+ * Agora recebe opcionalmente a lista de rotas cadastradas do contrato selecionado.
+ * Remove a heurística fixa 'ROTA' e casa os nomes das abas com tolerância a acentos, maiúsculas e espaços.
  */
 export function parseSecretaryExcel(
   workbook: XLSX.WorkBook,
   availableSchools: School[],
   contractSchools: ContractSchoolLink[],
   allProducts: Product[],
+  contractRotas?: Array<{ nome: string } | string>,
 ): ParsedExcelResult {
   const sheetNames = workbook.SheetNames
   const routesToImport: string[] = []
   const ignoredSheets: string[] = []
+  const unmatchedSheets: string[] = []
 
-  // Filtrar abas: ROTA A, ROTA B, ROTA C a importar; TOTAL e TODAS UNIDADES a ignorar
+  // Normalizar lista de rotas do contrato se fornecida
+  const hasContractRotas = Boolean(contractRotas && contractRotas.length > 0)
+
+  // Filtrar abas: ignorar abas de consolidado/totalizador comuns
   for (const name of sheetNames) {
-    const upper = name.trim().toUpperCase()
-    if (upper === 'TOTAL' || upper === 'TODAS UNIDADES' || upper === 'TODAS AS UNIDADES') {
+    const norm = normalizeName(name)
+    if (
+      norm === 'total' ||
+      norm === 'totais' ||
+      norm === 'todas unidades' ||
+      norm === 'todas as unidades' ||
+      norm === 'consolidado' ||
+      norm === 'resumo'
+    ) {
       ignoredSheets.push(name)
-    } else if (upper.includes('ROTA')) {
-      routesToImport.push(name)
     } else {
-      // Caso a aba tenha outro nome mas não seja totalizador
       routesToImport.push(name)
     }
   }
 
   const parsedOrders: ParsedSchoolOrder[] = []
   const schoolSheetOccurrence = new Map<string, string[]>() // escolaNorm -> sheetNames[]
+  const sheetMatchedMap = new Map<string, string | null>() // sheetName -> matchedContractRotaNome
   const anomalies: string[] = []
+
+  // Verificar casamentos de aba com as rotas cadastradas no contrato
+  if (hasContractRotas && contractRotas) {
+    for (const sheetName of routesToImport) {
+      const matched = matchSheetToContractRota(sheetName, contractRotas)
+      sheetMatchedMap.set(sheetName, matched)
+      if (!matched) {
+        unmatchedSheets.push(sheetName)
+        anomalies.push(
+          `Aba "${sheetName}" da planilha não corresponde a nenhuma rota cadastrada nas configurações deste contrato.`,
+        )
+      }
+    }
+  }
 
   for (const sheetName of routesToImport) {
     const worksheet = workbook.Sheets[sheetName]
@@ -280,12 +341,25 @@ export function parseSecretaryExcel(
 
       const issues: string[] = []
 
+      // Checar se a aba casou com as rotas do contrato
+      const matchedContractRota = sheetMatchedMap.has(sheetName)
+        ? sheetMatchedMap.get(sheetName) || undefined
+        : undefined
+      const isSheetUnmatched = hasContractRotas && !matchedContractRota
+
+      if (isSheetUnmatched) {
+        issues.push(
+          `Aba "${sheetName}" não cadastrada nas rotas deste contrato. Cadastre-a no contrato ou revise a aba.`,
+        )
+      }
+
       // Matching da escola contra o CADASTRO MESTRE GLOBAL
       const matchResult = matchSchoolName(sc.schoolNameRaw, availableSchools, contractSchools)
       const matchedSchool = matchResult.school
       const isLinked = matchResult.isLinked
 
       let matchStatus: SchoolMatchStatus = 'ok'
+      const suggestedRotaName = matchedContractRota || sheetName
       let prefilledLink: { escolaId: string; escolaNome: string; rotaSugerida: string } | undefined
 
       if (!matchedSchool) {
@@ -300,7 +374,7 @@ export function parseSecretaryExcel(
         prefilledLink = {
           escolaId: matchedSchool.id,
           escolaNome: matchedSchool.name,
-          rotaSugerida: sheetName,
+          rotaSugerida: suggestedRotaName,
         }
         issues.push(
           `Vincular ao contrato: Escola "${matchedSchool.name}" existe no cadastro mestre, mas não está vinculada ao contrato.`,
@@ -352,6 +426,9 @@ export function parseSecretaryExcel(
         schoolId: matchedSchool?.id,
         schoolNameMatched: matchedSchool?.name,
         routeRaw: sheetName,
+        sheetMatchedContractRota: matchedContractRota,
+        isSheetUnmatchedInContract: isSheetUnmatched,
+        rotaNomeMatched: matchedContractRota,
         isLinkedToContract: isLinked,
         matchStatus,
         prefilledLink,
@@ -396,6 +473,7 @@ export function parseSecretaryExcel(
 
   return {
     routesFound: routesToImport,
+    unmatchedSheets: unmatchedSheets.length > 0 ? unmatchedSheets : undefined,
     orders: parsedOrders,
     totalItemsCount,
     totalWeight: Math.round(totalWeight * 100) / 100,

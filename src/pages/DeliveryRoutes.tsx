@@ -47,6 +47,7 @@ import {
   FileCheck2,
   Plus,
   Trash2,
+  Pencil,
   Route as RouteIcon,
   Sparkles,
 } from 'lucide-react'
@@ -68,6 +69,7 @@ export default function DeliveryRoutes() {
     paradasRota,
     despachos,
     criarRotaLogistica,
+    atualizarRotaLogistica,
     excluirRotaLogistica,
     sincronizarEscolasRotaLogistica,
     despacharRotaInteira,
@@ -86,6 +88,12 @@ export default function DeliveryRoutes() {
   const [createRouteDialogOpen, setCreateRouteDialogOpen] = useState(false)
   const [newRouteName, setNewRouteName] = useState('')
   const [isCreatingRoute, setIsCreatingRoute] = useState(false)
+
+  // Estado para edição / renomeação de rota logística
+  const [editRouteDialogOpen, setEditRouteDialogOpen] = useState(false)
+  const [routeToEdit, setRouteToEdit] = useState<RotaLogisticaRecord | null>(null)
+  const [editRouteName, setEditRouteName] = useState('')
+  const [isEditingRoute, setIsEditingRoute] = useState(false)
 
   // Estado para exclusão de rota logística
   const [routeToDelete, setRouteToDelete] = useState<RotaLogisticaRecord | null>(null)
@@ -320,6 +328,19 @@ export default function DeliveryRoutes() {
       return
     }
 
+    // Validação local no frontend: checar duplicata case-insensitive e trim no mesmo contrato
+    const cleanNome = trimmed.replace(/\s+/g, ' ')
+    const normalizedTarget = cleanNome.toLowerCase()
+    const existeDuplicata = rotasLogisticas.some(
+      (r) =>
+        r.contrato_id === currentContrato.id &&
+        (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedTarget,
+    )
+    if (existeDuplicata) {
+      toast.error('Já existe uma rota logística com este nome neste contrato.')
+      return
+    }
+
     // Verificar se já atingiu o limite se num_rotas_logisticas estiver definido
     if (
       currentContrato.num_rotas_logisticas &&
@@ -345,6 +366,50 @@ export default function DeliveryRoutes() {
       }
     } finally {
       setIsCreatingRoute(false)
+    }
+  }
+
+  // Abrir modal de edição/renomeação de rota logística
+  const handleOpenEditRoute = (rota: RotaLogisticaRecord) => {
+    setRouteToEdit(rota)
+    setEditRouteName(rota.nome)
+    setEditRouteDialogOpen(true)
+  }
+
+  // Confirmar edição/renomeação de rota logística
+  const handleConfirmEditRoute = async () => {
+    if (!routeToEdit) return
+    const trimmed = editRouteName.trim()
+    if (!trimmed) {
+      toast.error('Informe um nome para a rota logística.')
+      return
+    }
+
+    // Validação local no frontend: bloquear nome duplicado no mesmo contrato (exceto ela própria)
+    const normalizedTarget = trimmed.replace(/\s+/g, ' ').toLowerCase()
+    const existeDuplicata = rotasLogisticas.some(
+      (r) =>
+        r.id !== routeToEdit.id &&
+        r.contrato_id === routeToEdit.contrato_id &&
+        (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedTarget,
+    )
+    if (existeDuplicata) {
+      toast.error('Já existe uma rota logística com este nome neste contrato.')
+      return
+    }
+
+    setIsEditingRoute(true)
+    try {
+      const updated = await atualizarRotaLogistica(routeToEdit.id, {
+        nome: trimmed,
+      })
+      if (updated) {
+        setEditRouteDialogOpen(false)
+        setRouteToEdit(null)
+        setEditRouteName('')
+      }
+    } finally {
+      setIsEditingRoute(false)
     }
   }
 
@@ -623,6 +688,16 @@ export default function DeliveryRoutes() {
                       >
                         <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
                         Roteamento ({item.paradasOrdenadas.length} escolas)
+                      </Button>
+                      {/* Opção para renomear rota logística */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        title="Renomear rota logística"
+                        onClick={() => handleOpenEditRoute(item.rota)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       {/* Opção para excluir rota vazia */}
                       {item.pedidosEmRota.length === 0 && (
@@ -919,6 +994,76 @@ export default function DeliveryRoutes() {
                 </>
               ) : (
                 'Criar Rota'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Renomear / Editar Rota Logística */}
+      <Dialog
+        open={editRouteDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRouteToEdit(null)
+            setEditRouteName('')
+          }
+          setEditRouteDialogOpen(open)
+        }}
+      >
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-primary" /> Renomear Rota Logística
+            </DialogTitle>
+            <DialogDescription>
+              Altere o nome da rota logística. A alteração será refletida em todas as paradas e
+              pedidos vinculados.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-route-name" className="font-semibold">
+                Nome da Rota Logística <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="edit-route-name"
+                placeholder="Ex: Rota Centro-Sul, Rota Rural 1..."
+                value={editRouteName}
+                onChange={(e) => setEditRouteName(e.target.value)}
+                autoFocus
+              />
+              <p className="text-[10px] text-muted-foreground">
+                O nome deve ser único para este contrato.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isEditingRoute}
+              onClick={() => {
+                setEditRouteDialogOpen(false)
+                setRouteToEdit(null)
+                setEditRouteName('')
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={isEditingRoute || !editRouteName.trim()}
+              onClick={handleConfirmEditRoute}
+            >
+              {isEditingRoute ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...
+                </>
+              ) : (
+                'Salvar Alterações'
               )}
             </Button>
           </DialogFooter>

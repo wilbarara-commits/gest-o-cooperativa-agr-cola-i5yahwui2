@@ -1,6 +1,6 @@
 // Hook de validação de unicidade de nome para rotas_logisticas dentro do mesmo contrato
-// Disparado antes de criar ou atualizar registros em rotas_logisticas.
-// A comparação é case-insensitive e ignora espaços extras nas pontas e internos múltiplos.
+// Garante a regra no servidor mesmo sob concorrência (race conditions)
+// e formata o nome com trim e espaços normalizados.
 
 onRecordCreate((e) => {
   const record = e.record
@@ -21,10 +21,10 @@ onRecordCreate((e) => {
     throw new BadRequestError('O contrato da rota logística é obrigatório.')
   }
 
-  // Normalizar para gravação limpa
+  // Normaliza o nome gravado no banco
   record.set('nome', cleanNome)
 
-  // Buscar todas as rotas do mesmo contrato para comparar case-insensitive e trim
+  // Checa unicidade case-insensitive dentro do contrato
   const existingRotas = $app.findRecordsByFilter(
     'rotas_logisticas',
     'contrato_id = {:contratoId}',
@@ -39,7 +39,10 @@ onRecordCreate((e) => {
     const existing = existingRotas[i]
     if (existing.id === record.id) continue
 
-    const existingNomeNorm = (existing.getString('nome') || '').trim().replace(/\s+/g, ' ').toLowerCase()
+    const existingNomeNorm = (existing.getString('nome') || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
     if (existingNomeNorm === lowerTarget) {
       throw new BadRequestError('Já existe uma rota logística com este nome neste contrato.')
     }
@@ -67,10 +70,10 @@ onRecordUpdate((e) => {
     throw new BadRequestError('O contrato da rota logística é obrigatório.')
   }
 
-  // Normalizar para gravação limpa
+  // Normaliza o nome gravado no banco
   record.set('nome', cleanNome)
 
-  // Buscar todas as rotas do mesmo contrato para comparar case-insensitive e trim
+  // Checa unicidade case-insensitive dentro do contrato
   const existingRotas = $app.findRecordsByFilter(
     'rotas_logisticas',
     'contrato_id = {:contratoId}',
@@ -85,7 +88,10 @@ onRecordUpdate((e) => {
     const existing = existingRotas[i]
     if (existing.id === record.id) continue
 
-    const existingNomeNorm = (existing.getString('nome') || '').trim().replace(/\s+/g, ' ').toLowerCase()
+    const existingNomeNorm = (existing.getString('nome') || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
     if (existingNomeNorm === lowerTarget) {
       throw new BadRequestError('Já existe uma rota logística com este nome neste contrato.')
     }

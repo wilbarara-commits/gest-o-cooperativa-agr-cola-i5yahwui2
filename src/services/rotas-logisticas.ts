@@ -21,14 +21,20 @@ export const rotasLogisticasService = {
     ordem?: number
     ativa?: boolean
   }): Promise<RotaLogisticaRecord> {
+    const cleanNome = (data.nome || '').trim().replace(/\s+/g, ' ')
     return await pb.collection('rotas_logisticas').create<RotaLogisticaRecord>({
       ...data,
+      nome: cleanNome,
       ativa: data.ativa ?? true,
     })
   },
 
   async update(id: string, data: Partial<RotaLogisticaRecord>): Promise<RotaLogisticaRecord> {
-    return await pb.collection('rotas_logisticas').update<RotaLogisticaRecord>(id, data)
+    const payload = { ...data }
+    if (payload.nome !== undefined) {
+      payload.nome = (payload.nome || '').trim().replace(/\s+/g, ' ')
+    }
+    return await pb.collection('rotas_logisticas').update<RotaLogisticaRecord>(id, payload)
   },
 
   async delete(id: string): Promise<boolean> {

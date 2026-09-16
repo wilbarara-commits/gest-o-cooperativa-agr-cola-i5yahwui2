@@ -106,6 +106,14 @@ interface AppState {
     ordem?: number
     ativa?: boolean
   }) => Promise<RotaLogisticaRecord | null>
+  atualizarRotaLogistica: (
+    id: string,
+    data: {
+      nome?: string
+      ordem?: number
+      ativa?: boolean
+    },
+  ) => Promise<RotaLogisticaRecord | null>
   excluirRotaLogistica: (id: string) => Promise<boolean>
   sincronizarEscolasRotaLogistica: (
     contratoId: string,
@@ -1297,11 +1305,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ordem?: number
     ativa?: boolean
   }): Promise<RotaLogisticaRecord | null> => {
+    const cleanNome = (data.nome || '').trim().replace(/\s+/g, ' ')
+    if (!cleanNome) {
+      toast.error('Informe um nome para a rota logística.')
+      return null
+    }
+
+    // Validação de unicidade no frontend contra o estado já carregado/realtime
+    const normalizedTarget = cleanNome.toLowerCase()
+    const existeDuplicata = rotasLogisticas.some(
+      (r) =>
+        r.contrato_id === data.contrato_id &&
+        (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedTarget,
+    )
+    if (existeDuplicata) {
+      toast.error('Já existe uma rota logística com este nome neste contrato.')
+      return null
+    }
+
     const tempId = `temp-rota-${Date.now()}`
     const tempRecord: RotaLogisticaRecord = {
       id: tempId,
       contrato_id: data.contrato_id,
-      nome: data.nome,
+      nome: cleanNome,
       ordem: data.ordem || rotasLogisticas.length + 1,
       ativa: data.ativa ?? true,
       created: new Date().toISOString(),
@@ -1312,14 +1338,111 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRotasLogisticas((prev) => [...prev, tempRecord])
 
     try {
-      const created = await rotasLogisticasService.create(data)
+      const created = await rotasLogisticasService.create({
+        ...data,
+        nome: cleanNome,
+      })
       setRotasLogisticas((prev) => prev.map((r) => (r.id === tempId ? created : r)))
-      toast.success(`Rota logística "${data.nome}" criada com sucesso!`)
+      toast.success(`Rota logística "${cleanNome}" criada com sucesso!`)
       return created
     } catch (err: any) {
       console.error('Erro ao criar rota logística:', err)
       setRotasLogisticas((prev) => prev.filter((r) => r.id !== tempId))
-      toast.error('Falha ao criar rota logística.')
+      const serverMsg = err?.data?.message || err?.message || ''
+      if (serverMsg.includes('Já existe uma rota logística com este nome')) {
+        toast.error('Já existe uma rota logística com este nome neste contrato.')
+      } else {
+        toast.error(
+          serverMsg ? `Falha ao criar rota: ${serverMsg}` : 'Falha ao criar rota logística.',
+        )
+      }
+      return null
+    }
+  }
+
+  // Atualizar / Renomear rota logística existente
+  const atualizarRotaLogistica = async (
+    id: string,
+    data: {
+      nome?: string
+      ordem?: number
+      ativa?: boolean
+    },
+  ): Promise<RotaLogisticaRecord | null> => {
+    const rotaAtual = rotasLogisticas.find((r) => r.id === id)
+    if (!rotaAtual) {
+      toast.error('Rota logística não encontrada.')
+      return null
+    }
+
+    let cleanNome: string | undefined = undefined
+    if (data.nome !== undefined) {
+      cleanNome = data.nome.trim().replace(/\s+/g, ' ')
+      if (!cleanNome) {
+        toast.error('Informe um nome para a rota logística.')
+        return null
+      }
+
+      // Validação de unicidade no frontend contra o mesmo contrato (exceto ela própria)
+      const normalizedTarget = cleanNome.toLowerCase()
+      const existeDuplicata = rotasLogisticas.some(
+        (r) =>
+          r.id !== id &&
+          r.contrato_id === rotaAtual.contrato_id &&
+          (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedTarget,
+      )
+      if (existeDuplicata) {
+        toast.error('Já existe uma rota logística com este nome neste contrato.')
+        return null
+      }
+    }
+
+    const prevRotas = [...rotasLogisticas]
+    const prevOrders = [...orders]
+
+    // Optimistic update
+    setRotasLogisticas((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              nome: cleanNome ?? r.nome,
+              ordem: data.ordem ?? r.ordem,
+              ativa: data.ativa ?? r.ativa,
+            }
+          : r,
+      ),
+    )
+
+    if (cleanNome) {
+      const novoNome = cleanNome
+      setOrders((prev) =>
+        prev.map((o) => (o.rotaLogisticaId === id ? { ...o, rotaLogisticaNome: novoNome } : o)),
+      )
+    }
+
+    try {
+      const updated = await rotasLogisticasService.update(id, {
+        ...data,
+        nome: cleanNome,
+      })
+      setRotasLogisticas((prev) => prev.map((r) => (r.id === id ? updated : r)))
+      toast.success(`Rota logística "${updated.nome}" atualizada com sucesso!`)
+      return updated
+    } catch (err: any) {
+      console.error('Erro ao atualizar rota logística:', err)
+      setRotasLogisticas(prevRotas)
+      setOrders(prevOrders)
+      const serverMsg = err?.data?.message || err?.message || ''
+      if (serverMsg.includes('Já existe uma rota logística com este nome')) {
+        toast.error('Já existe uma rota logística com este nome neste contrato.')
+      } else {
+        toast.error(
+          serverMsg
+            ? `Falha ao atualizar rota: ${serverMsg}`
+            : 'Falha ao atualizar rota logística.',
+        )
+      }
       return null
     }
   }
@@ -1780,6 +1903,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         confirmarEntregaPedido,
         cancelarPedido,
         criarRotaLogistica,
+        atualizarRotaLogistica,
         excluirRotaLogistica,
         sincronizarEscolasRotaLogistica,
         despacharRotaInteira,

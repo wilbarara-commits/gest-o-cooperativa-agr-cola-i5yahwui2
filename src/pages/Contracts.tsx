@@ -135,6 +135,8 @@ export default function Contracts() {
     ContractRotaLogisticaForm[]
   >([])
   const [newRotaLogisticaNome, setNewRotaLogisticaNome] = useState('')
+  const [editRotaIndex, setEditRotaIndex] = useState<number | null>(null)
+  const [editRotaNome, setEditRotaNome] = useState('')
 
   // Autocomplete e busca de escolas mestre no diálogo
   const [schoolSearchQuery, setSchoolSearchQuery] = useState('')
@@ -292,16 +294,68 @@ export default function Contracts() {
 
     const trimmed = newRotaLogisticaNome.trim()
     if (!trimmed) return
-    if (contractRotasLogisticas.some((r) => r.nome.toLowerCase() === trimmed.toLowerCase())) {
-      toast.warning('Já existe uma rota logística com este nome.')
+    const normalizedTarget = trimmed.replace(/\s+/g, ' ').toLowerCase()
+    if (
+      contractRotasLogisticas.some(
+        (r) => (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedTarget,
+      )
+    ) {
+      toast.error('Já existe uma rota logística com este nome neste contrato.')
       return
     }
 
     setContractRotasLogisticas((prev) => [
       ...prev,
-      { nome: trimmed, ordem: prev.length + 1, ativa: true },
+      { nome: trimmed.replace(/\s+/g, ' '), ordem: prev.length + 1, ativa: true },
     ])
     setNewRotaLogisticaNome('')
+  }
+
+  const handleStartEditRotaLogistica = (index: number) => {
+    setEditRotaIndex(index)
+    setEditRotaNome(contractRotasLogisticas[index].nome)
+  }
+
+  const handleSaveEditRotaLogistica = () => {
+    if (editRotaIndex === null || !contractRotasLogisticas[editRotaIndex]) return
+    const cleanNome = editRotaNome.trim().replace(/\s+/g, ' ')
+    if (!cleanNome) {
+      toast.error('Informe o nome da rota logística.')
+      return
+    }
+
+    const normTarget = cleanNome.toLowerCase()
+    const jaExiste = contractRotasLogisticas.some(
+      (r, idx) =>
+        idx !== editRotaIndex &&
+        r.nome.trim().replace(/\s+/g, ' ').toLowerCase() === normTarget,
+    )
+    if (jaExiste) {
+      toast.error('Já existe uma rota logística com este nome neste contrato.')
+      return
+    }
+
+    const targetOldNome = contractRotasLogisticas[editRotaIndex].nome
+    const targetId = contractRotasLogisticas[editRotaIndex].id
+
+    setContractRotasLogisticas((prev) =>
+      prev.map((r, idx) => (idx === editRotaIndex ? { ...r, nome: cleanNome } : r)),
+    )
+
+    if (targetId) {
+      setContractSchoolsForm((prev) =>
+        prev.map((s) => (s.rotaLogisticaId === targetId ? { ...s, rotaLogisticaNome: cleanNome } : s)),
+      )
+    } else {
+      setContractSchoolsForm((prev) =>
+        prev.map((s) =>
+          s.rotaLogisticaNome === targetOldNome ? { ...s, rotaLogisticaNome: cleanNome } : s,
+        ),
+      )
+    }
+
+    setEditRotaIndex(null)
+    setEditRotaNome('')
   }
 
   const handleRemoveRotaLogistica = (index: number) => {
@@ -518,10 +572,22 @@ export default function Contracts() {
 
         // 1.1 Em edição, apenas atualiza/mantém rotas logísticas caso o modal tenha sido usado para renomear
         if (editingContract && contractRotasLogisticas.length > 0) {
+          // Checar se há nomes duplicados internamente entre as rotas logísticas
+          const seenLogNames = new Set<string>()
+          for (const crl of contractRotasLogisticas) {
+            const norm = (crl.nome || '').trim().replace(/\s+/g, ' ').toLowerCase()
+            if (seenLogNames.has(norm)) {
+              toast.error('Já existe uma rota logística com este nome neste contrato.')
+              setIsSubmitting(false)
+              return
+            }
+            seenLogNames.add(norm)
+          }
+
           for (const crl of contractRotasLogisticas) {
             if (crl.id) {
               await rotasLogisticasService.update(crl.id, {
-                nome: crl.nome,
+                nome: (crl.nome || '').trim().replace(/\s+/g, ' '),
                 ordem: crl.ordem,
                 ativa: crl.ativa !== false,
               })

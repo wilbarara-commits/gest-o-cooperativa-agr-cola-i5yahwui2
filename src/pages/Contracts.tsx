@@ -146,7 +146,7 @@ export default function Contracts() {
   const [quickSchoolContact, setQuickSchoolContact] = useState('')
   const [quickSchoolEmail, setQuickSchoolEmail] = useState('')
   const [quickSchoolTipo, setQuickSchoolTipo] = useState('')
-  const [quickSchoolRota, setQuickSchoolRota] = useState('')
+  const [quickSchoolRotaPlanilha, setQuickSchoolRotaPlanilha] = useState('')
   const [isCreatingQuickSchool, setIsCreatingQuickSchool] = useState(false)
 
   // Rotas da Planilha / Secretaria (referência)
@@ -437,22 +437,21 @@ export default function Contracts() {
           `A escola "${existing.name}" já existia no cadastro mestre e foi reutilizada (sem duplicar).`,
         )
       } else {
-        // Criar nova escola no cadastro mestre
+        // Criar nova escola no cadastro mestre (sem rota no mestre)
         const created = await escolasService.create({
           nome: trimmedName,
           endereco: quickSchoolAddress.trim(),
           telefone: quickSchoolContact.trim(),
           email: quickSchoolEmail.trim() || undefined,
           tipo: quickSchoolTipo || undefined,
-          rota: quickSchoolRota.trim() || contractRotas[0]?.nome || 'Sem Rota',
         })
         targetSchoolId = created.id
         toast.success(`Escola "${trimmedName}" cadastrada no cadastro mestre global!`)
         await refreshData()
       }
 
-      // 2. Vincular ao formulário do contrato com a rota especificada
-      const assignedRota = quickSchoolRota.trim() || contractRotas[0]?.nome || ''
+      // 2. Vincular ao formulário do contrato com a Rota (Planilha) especificada
+      const assignedRota = quickSchoolRotaPlanilha.trim() || contractRotas[0]?.nome || ''
 
       setContractSchoolsForm((prev) => {
         if (prev.some((s) => s.escolaId === targetSchoolId)) {
@@ -466,6 +465,8 @@ export default function Contracts() {
       // Resetar form rápido
       setShowQuickCreateSchool(false)
       setQuickSchoolName('')
+      setQuickSchoolTipo('')
+      setQuickSchoolRotaPlanilha('')
       setQuickSchoolAddress('')
       setQuickSchoolContact('')
       setQuickSchoolEmail('')
@@ -1267,8 +1268,8 @@ export default function Contracts() {
                       Global)
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Busque no cadastro mestre global para vincular à rota logística, ou cadastre
-                      uma nova escola sem duplicar.
+                      Busque no cadastro mestre global para vincular ao contrato com a Rota da
+                      Planilha correspondente, ou cadastre uma nova escola sem duplicar.
                     </p>
                   </div>
                   <Button
@@ -1334,14 +1335,14 @@ export default function Contracts() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <Label htmlFor="qk-rota" className="text-[11px]">
-                          Rota no Contrato
+                          Rota (Planilha) no Vínculo do Contrato
                         </Label>
                         <Select
-                          value={quickSchoolRota || contractRotas[0]?.nome || ''}
-                          onValueChange={setQuickSchoolRota}
+                          value={quickSchoolRotaPlanilha || contractRotas[0]?.nome || ''}
+                          onValueChange={setQuickSchoolRotaPlanilha}
                         >
                           <SelectTrigger id="qk-rota" className="h-8 text-xs">
-                            <SelectValue placeholder="Selecione rota" />
+                            <SelectValue placeholder="Selecione rota da planilha" />
                           </SelectTrigger>
                           <SelectContent>
                             {contractRotas.map((cr, i) => (
@@ -1508,7 +1509,7 @@ export default function Contracts() {
                                 )}
                               </div>
                               <p className="text-[11px] text-muted-foreground truncate">
-                                {sch.address || 'Endereço não informado'} • Padrão: {sch.route}
+                                {sch.address || 'Endereço não informado'}
                               </p>
                             </div>
                           </div>

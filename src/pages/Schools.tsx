@@ -43,7 +43,6 @@ import {
   Phone,
   Mail,
   Search,
-  Map as MapIcon,
   Loader2,
   Plus,
   Pencil,
@@ -68,15 +67,6 @@ import { toast } from 'sonner'
 import { escolasService } from '@/services/escolas'
 import { SchoolImportDialog } from '@/components/SchoolImportDialog'
 import type { School, EscolaTipo } from '@/lib/types'
-
-const PRESET_ROUTES = [
-  'Rota Norte',
-  'Rota Sul',
-  'Rota Leste',
-  'Rota Oeste',
-  'Rota Central',
-  'Outra',
-]
 
 const ESCOLA_TIPOS: EscolaTipo[] = ['CMEI', 'CRECHE', 'INTEGRAL', 'FUNDAMENTAL']
 
@@ -116,8 +106,6 @@ export default function Schools() {
   const [email, setEmail] = useState('')
   const [tipo, setTipo] = useState<string>('')
   const [alunos, setAlunos] = useState<string>('')
-  const [routeType, setRouteType] = useState('Rota Norte')
-  const [customRoute, setCustomRoute] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Delete dialog state
@@ -325,8 +313,6 @@ export default function Schools() {
     setEmail('')
     setTipo('')
     setAlunos('')
-    setRouteType('Rota Norte')
-    setCustomRoute('')
     setDialogOpen(true)
   }
 
@@ -338,13 +324,6 @@ export default function Schools() {
     setEmail(school.email || '')
     setTipo(school.tipo || '')
     setAlunos(school.alunos !== undefined ? String(school.alunos) : '')
-    if (PRESET_ROUTES.slice(0, 5).includes(school.route)) {
-      setRouteType(school.route)
-      setCustomRoute('')
-    } else {
-      setRouteType('Outra')
-      setCustomRoute(school.route || '')
-    }
     setDialogOpen(true)
   }
 
@@ -357,7 +336,6 @@ export default function Schools() {
       return
     }
 
-    const finalRoute = routeType === 'Outra' ? customRoute.trim() || 'Sem Rota' : routeType
     const parsedAlunos = alunos.trim() ? parseInt(alunos.trim(), 10) : undefined
 
     setIsSubmitting(true)
@@ -379,7 +357,6 @@ export default function Schools() {
           telefone: contact.trim(),
           email: email.trim() || undefined,
           tipo: tipo || undefined,
-          rota: finalRoute,
           alunos: parsedAlunos,
         })
         toast.success(`Escola "${trimmedName}" atualizada com sucesso!`)
@@ -400,7 +377,6 @@ export default function Schools() {
           telefone: contact.trim(),
           email: email.trim() || undefined,
           tipo: tipo || undefined,
-          rota: finalRoute,
           alunos: parsedAlunos,
         })
         toast.success(`Escola "${trimmedName}" cadastrada no cadastro mestre global!`)
@@ -1014,10 +990,6 @@ export default function Schools() {
                       {detailsSchool.alunos} alunos matriculados
                     </Badge>
                   )}
-                  <Badge variant="outline" className="text-xs gap-1 border-muted-foreground/30">
-                    <MapIcon className="h-3 w-3 text-muted-foreground" />
-                    Rota padrão: {detailsSchool.route || 'Sem rota padrão'}
-                  </Badge>
                 </div>
 
                 {/* Bloco de Informações Cadastrais */}
@@ -1207,7 +1179,7 @@ export default function Schools() {
             <DialogTitle>{editingSchool ? 'Editar Escola' : 'Cadastrar Nova Escola'}</DialogTitle>
             <DialogDescription>
               {editingSchool
-                ? 'Atualize as informações cadastrais e rota de entrega da instituição.'
+                ? 'Atualize as informações cadastrais da instituição no cadastro mestre.'
                 : 'Preencha os dados da nova escola parceira atendida pela cooperativa.'}
             </DialogDescription>
           </DialogHeader>
@@ -1293,35 +1265,6 @@ export default function Schools() {
                 onChange={(e) => setAddress(e.target.value)}
               />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="school-route">Rota Logística Padrão</Label>
-              <Select value={routeType} onValueChange={setRouteType}>
-                <SelectTrigger id="school-route">
-                  <SelectValue placeholder="Selecione a rota" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRESET_ROUTES.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {routeType === 'Outra' && (
-              <div className="space-y-2">
-                <Label htmlFor="custom-route">Nome da Nova Rota</Label>
-                <Input
-                  id="custom-route"
-                  placeholder="Ex: Rota Rural 3, Linha 2..."
-                  value={customRoute}
-                  onChange={(e) => setCustomRoute(e.target.value)}
-                  required
-                />
-              </div>
-            )}
 
             <DialogFooter className="pt-2">
               <Button

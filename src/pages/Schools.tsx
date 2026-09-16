@@ -56,7 +56,6 @@ import {
   FilterX,
   ChevronLeft,
   ChevronRight,
-  Route as RouteIcon,
   Briefcase,
   Info,
   Truck,
@@ -894,7 +893,7 @@ export default function Schools() {
 
                 {filteredSchools.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                       <div className="space-y-2">
                         <p className="text-sm">
                           {hasActiveFilters

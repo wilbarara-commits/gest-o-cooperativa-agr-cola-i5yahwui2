@@ -17,7 +17,7 @@ export interface EscolaRecord {
   nome: string
   endereco: string
   telefone: string
-  rota: string
+  rota?: string
   email?: string
   tipo?: EscolaTipo | string
   alunos?: number

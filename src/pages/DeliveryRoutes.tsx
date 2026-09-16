@@ -135,18 +135,37 @@ export default function DeliveryRoutes() {
     return contracts.find((c) => c.id === selectedContratoId) || null
   }, [contracts, selectedContratoId])
 
-  // Rotas logísticas filtradas pelo contrato selecionado
+  // Rotas logísticas filtradas pelo contrato selecionado com deduplicação defensiva por ID e por Nome
   const filteredRotasLogisticas = useMemo(() => {
     let list = rotasLogisticas
     if (selectedContratoId !== 'todos') {
       list = list.filter((r) => r.contrato_id === selectedContratoId)
     }
 
+    // Deduplicação defensiva por ID e por Nome normalizado no mesmo contrato
+    const seenIds = new Set<string>()
+    const seenNames = new Set<string>()
+    const dedupedList: RotaLogisticaRecord[] = []
+
+    for (const r of list) {
+      if (seenIds.has(r.id)) continue
+      seenIds.add(r.id)
+
+      const normName = (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase()
+      // Se for temporário e já existir rota salva com o mesmo nome, ou duplicata de nome:
+      const keyName = `${r.contrato_id}:${normName}`
+      if (seenNames.has(keyName)) {
+        continue
+      }
+      seenNames.add(keyName)
+      dedupedList.push(r)
+    }
+
     // Regra 3: O despacho e o sequenciamento só operam sobre rotas dentro do limite definido no contrato
     if (currentContrato?.num_rotas_logisticas) {
-      list = list.slice(0, currentContrato.num_rotas_logisticas)
+      return dedupedList.slice(0, currentContrato.num_rotas_logisticas)
     }
-    return list
+    return dedupedList
   }, [rotasLogisticas, selectedContratoId, currentContrato])
 
   // Pedidos que pertencem ao contrato selecionado (via escolas do contrato)

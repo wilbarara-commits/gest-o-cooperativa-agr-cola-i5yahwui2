@@ -213,16 +213,26 @@ export default function Contracts() {
           ],
     )
 
-    // Rotas logísticas da cooperativa
+    // Rotas logísticas da cooperativa (com dedup defensivo por id e nome)
     const existingLog = rotasLogisticas.filter((r) => r.contrato_id === contract.id)
-    setContractRotasLogisticas(
-      existingLog.map((r) => ({
+    const seenLogIds = new Set<string>()
+    const seenLogNames = new Set<string>()
+    const dedupedLog: Array<{ id?: string; nome: string; ordem: number; ativa: boolean }> = []
+
+    for (const r of existingLog) {
+      if (seenLogIds.has(r.id)) continue
+      seenLogIds.add(r.id)
+      const norm = (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase()
+      if (seenLogNames.has(norm)) continue
+      seenLogNames.add(norm)
+      dedupedLog.push({
         id: r.id,
         nome: r.nome,
         ordem: r.ordem || 1,
         ativa: r.ativa !== false,
-      })),
-    )
+      })
+    }
+    setContractRotasLogisticas(dedupedLog)
 
     setDialogOpen(true)
     setIsLoadingItems(true)
@@ -959,7 +969,17 @@ export default function Contracts() {
                   <TabsTrigger value="geral">Dados Gerais</TabsTrigger>
                   <TabsTrigger value="rotas">
                     Rotas Logísticas (
-                    {rotasLogisticas.filter((r) => r.contrato_id === editingContract.id).length})
+                    {(() => {
+                      const seen = new Set<string>()
+                      return rotasLogisticas.filter((r) => {
+                        if (r.contrato_id !== editingContract.id) return false
+                        const norm = (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase()
+                        if (seen.has(norm)) return false
+                        seen.add(norm)
+                        return true
+                      }).length
+                    })()}
+                    )
                   </TabsTrigger>
                   <TabsTrigger value="escolas">Escolas ({contractSchoolsForm.length})</TabsTrigger>
                   <TabsTrigger value="produtos">
@@ -1196,9 +1216,20 @@ export default function Contracts() {
 
                   {editingContract ? (
                     (() => {
-                      const contractLogRoutes = rotasLogisticas.filter(
+                      const rawRoutes = rotasLogisticas.filter(
                         (r) => r.contrato_id === editingContract.id,
                       )
+                      // Deduplicar defensivamente por ID e por Nome
+                      const seenIds = new Set<string>()
+                      const seenNames = new Set<string>()
+                      const contractLogRoutes = rawRoutes.filter((r) => {
+                        if (seenIds.has(r.id)) return false
+                        seenIds.add(r.id)
+                        const norm = (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase()
+                        if (seenNames.has(norm)) return false
+                        seenNames.add(norm)
+                        return true
+                      })
 
                       if (contractLogRoutes.length === 0) {
                         return (
@@ -1964,9 +1995,19 @@ export default function Contracts() {
                   </Button>
                 </div>
                 {(() => {
-                  const logRoutes = rotasLogisticas.filter(
+                  const rawLogRoutes = rotasLogisticas.filter(
                     (r) => r.contrato_id === viewingContract.id,
                   )
+                  const seenIds = new Set<string>()
+                  const seenNames = new Set<string>()
+                  const logRoutes = rawLogRoutes.filter((r) => {
+                    if (seenIds.has(r.id)) return false
+                    seenIds.add(r.id)
+                    const norm = (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase()
+                    if (seenNames.has(norm)) return false
+                    seenNames.add(norm)
+                    return true
+                  })
                   // Identificar escolas sem rota logística neste contrato
                   const escolasSemRotaLogistica = viewingContract.escolas.filter((e) => {
                     const parada = paradasRota.find((p) => p.escola_id === e.escolaId)

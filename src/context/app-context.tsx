@@ -485,40 +485,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const copy = [...prev]
           copy[idx] = updated
           return copy
-        } else {
-          // Novo pedido via SSE
-          const newOrder: Order = {
-            id: rec.id,
-            numero: rec.numero || 'ORD-NEW',
-            schoolId: rec.escola_id,
-            schoolName,
-            schoolAlunos: schoolObj?.alunos,
-            cicloId: rec.ciclo_id,
-            origem: rec.origem || 'manual',
-            rotaId: rec.rota_id,
-            rotaNome,
-            rotaLogisticaId: effectiveRotaLogisticaId,
-            rotaLogisticaNome,
-            validacao: (rec.validacao as PedidoValidacao) || {
-              status: 'validado',
-              motivo: 'Registrado',
-            },
-            date:
-              rec.data_prevista ||
-              rec.created?.split('T')[0] ||
-              new Date().toISOString().split('T')[0],
-            status: rec.status || 'Pendente',
-            entregue_em: rec.entregue_em,
-            entregue_por: rec.entregue_por,
-            entreguePorNome: '',
-            cancelamento_motivo: rec.motivo_cancelamento || rec.cancelamento_motivo,
-            motivo_cancelamento: rec.motivo_cancelamento || rec.cancelamento_motivo,
-            cancelado_em: rec.cancelado_em,
-            total: 0,
-            items: [],
-          }
-          return [newOrder, ...prev]
         }
+
+        // Se houver um pedido temporário com mesmo número ou mesma escola no mesmo ciclo, substitui
+        const tempIdx = prev.findIndex(
+          (o) =>
+            o.id.startsWith('temp-') &&
+            ((rec.numero && o.numero === rec.numero) ||
+              (o.schoolId === rec.escola_id && o.cicloId === rec.ciclo_id)),
+        )
+
+        // Novo pedido via SSE
+        const newOrder: Order = {
+          id: rec.id,
+          numero: rec.numero || 'ORD-NEW',
+          schoolId: rec.escola_id,
+          schoolName,
+          schoolAlunos: schoolObj?.alunos,
+          cicloId: rec.ciclo_id,
+          origem: rec.origem || 'manual',
+          rotaId: rec.rota_id,
+          rotaNome,
+          rotaLogisticaId: effectiveRotaLogisticaId,
+          rotaLogisticaNome,
+          validacao: (rec.validacao as PedidoValidacao) || {
+            status: 'validado',
+            motivo: 'Registrado',
+          },
+          date:
+            rec.data_prevista ||
+            rec.created?.split('T')[0] ||
+            new Date().toISOString().split('T')[0],
+          status: rec.status || 'Pendente',
+          entregue_em: rec.entregue_em,
+          entregue_por: rec.entregue_por,
+          entreguePorNome: '',
+          cancelamento_motivo: rec.motivo_cancelamento || rec.cancelamento_motivo,
+          motivo_cancelamento: rec.motivo_cancelamento || rec.cancelamento_motivo,
+          cancelado_em: rec.cancelado_em,
+          total: tempIdx !== -1 ? prev[tempIdx].total : 0,
+          items: tempIdx !== -1 ? prev[tempIdx].items : [],
+        }
+
+        if (tempIdx !== -1) {
+          const copy = [...prev]
+          copy[tempIdx] = newOrder
+          return copy
+        }
+
+        return [newOrder, ...prev]
       })
     }
   })
@@ -526,54 +541,123 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useRealtime<any>('rotas_logisticas', (e) => {
     if (e.action === 'delete') {
       setRotasLogisticas((prev) => prev.filter((r) => r.id !== e.record.id))
-    } else if (e.action === 'create') {
+    } else if (e.action === 'create' || e.action === 'update') {
+      const rec = e.record as RotaLogisticaRecord
       setRotasLogisticas((prev) => {
-        if (prev.some((r) => r.id === e.record.id)) return prev
-        const rec = e.record as RotaLogisticaRecord
+        const existingIdx = prev.findIndex((r) => r.id === rec.id)
+        if (existingIdx !== -1) {
+          const copy = [...prev]
+          copy[existingIdx] = { ...copy[existingIdx], ...rec }
+          return copy.sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        }
+
+        // Se houver um registro temporário otimista com mesmo contrato e nome correspondente, substitui
+        const cleanNome = (rec.nome || '').trim().replace(/\s+/g, ' ').toLowerCase()
+        const tempIdx = prev.findIndex(
+          (r) =>
+            r.id.startsWith('temp-') &&
+            r.contrato_id === rec.contrato_id &&
+            (r.nome || '').trim().replace(/\s+/g, ' ').toLowerCase() === cleanNome,
+        )
+
+        if (tempIdx !== -1) {
+          const copy = [...prev]
+          copy[tempIdx] = rec
+          return copy.sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        }
+
         return [...prev, rec].sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
       })
-    } else if (e.action === 'update') {
-      setRotasLogisticas((prev) =>
-        prev.map((r) => (r.id === e.record.id ? { ...r, ...e.record } : r)),
-      )
     }
   })
 
   useRealtime<any>('paradas_rota', (e) => {
     if (e.action === 'delete') {
       setParadasRota((prev) => prev.filter((p) => p.id !== e.record.id))
-    } else if (e.action === 'create') {
+    } else if (e.action === 'create' || e.action === 'update') {
+      const rec = e.record as ParadaRotaRecord
       setParadasRota((prev) => {
-        if (prev.some((p) => p.id === e.record.id)) return prev
-        return [...prev, e.record as ParadaRotaRecord].sort(
-          (a, b) => (a.ordem || 0) - (b.ordem || 0),
+        const existingIdx = prev.findIndex((p) => p.id === rec.id)
+        if (existingIdx !== -1) {
+          const copy = [...prev]
+          copy[existingIdx] = { ...copy[existingIdx], ...rec }
+          return copy.sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        }
+
+        // Se houver parada temporária para a mesma rota e mesma escola, substitui
+        const tempIdx = prev.findIndex(
+          (p) =>
+            p.id.startsWith('temp-') &&
+            p.rota_logistica_id === rec.rota_logistica_id &&
+            p.escola_id === rec.escola_id,
         )
+        if (tempIdx !== -1) {
+          const copy = [...prev]
+          copy[tempIdx] = rec
+          return copy.sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        }
+
+        return [...prev, rec].sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
       })
-    } else if (e.action === 'update') {
-      setParadasRota((prev) => prev.map((p) => (p.id === e.record.id ? { ...p, ...e.record } : p)))
     }
   })
 
   useRealtime<any>('despachos', (e) => {
     if (e.action === 'delete') {
       setDespachos((prev) => prev.filter((d) => d.id !== e.record.id))
-    } else if (e.action === 'create') {
+    } else if (e.action === 'create' || e.action === 'update') {
+      const rec = e.record as DespachoRecord
       setDespachos((prev) => {
-        if (prev.some((d) => d.id === e.record.id)) return prev
-        return [e.record as DespachoRecord, ...prev]
+        const existingIdx = prev.findIndex((d) => d.id === rec.id)
+        if (existingIdx !== -1) {
+          const copy = [...prev]
+          copy[existingIdx] = { ...copy[existingIdx], ...rec }
+          return copy
+        }
+
+        // Checar temporário otimista
+        const tempIdx = prev.findIndex(
+          (d) =>
+            d.id.startsWith('temp-') &&
+            d.contrato_id === rec.contrato_id &&
+            d.rota_logistica_id === rec.rota_logistica_id,
+        )
+        if (tempIdx !== -1) {
+          const copy = [...prev]
+          copy[tempIdx] = rec
+          return copy
+        }
+
+        return [rec, ...prev]
       })
-    } else if (e.action === 'update') {
-      setDespachos((prev) => prev.map((d) => (d.id === e.record.id ? { ...d, ...e.record } : d)))
     }
   })
 
   useRealtime<any>('produtos', (e) => {
     if (e.action === 'delete') {
       setProducts((prev) => prev.filter((p) => p.id !== e.record.id))
-    } else if (e.action === 'create') {
+    } else if (e.action === 'create' || e.action === 'update') {
+      const p = e.record
       setProducts((prev) => {
-        if (prev.some((p) => p.id === e.record.id)) return prev
-        const p = e.record
+        const existingIdx = prev.findIndex((prod) => prod.id === p.id)
+        if (existingIdx !== -1) {
+          const copy = [...prev]
+          copy[existingIdx] = {
+            ...copy[existingIdx],
+            name: p.nome !== undefined ? p.nome : copy[existingIdx].name,
+            category: p.categoria !== undefined ? p.categoria : copy[existingIdx].category,
+            stock: p.estoque !== undefined ? Number(p.estoque) : copy[existingIdx].stock,
+            unit: p.unidade !== undefined ? p.unidade : copy[existingIdx].unit,
+            price:
+              p.preco_unitario !== undefined ? Number(p.preco_unitario) : copy[existingIdx].price,
+            disponibilidade:
+              p.disponibilidade !== undefined
+                ? p.disponibilidade
+                : copy[existingIdx].disponibilidade,
+          }
+          return copy
+        }
+
         const item: Product = {
           id: p.id,
           name: p.nome,
@@ -585,33 +669,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return [...prev, item]
       })
-    } else if (e.action === 'update') {
-      setProducts((prev) =>
-        prev.map((p) => {
-          if (p.id !== e.record.id) return p
-          const rec = e.record
-          return {
-            ...p,
-            name: rec.nome !== undefined ? rec.nome : p.name,
-            category: rec.categoria !== undefined ? rec.categoria : p.category,
-            stock: rec.estoque !== undefined ? Number(rec.estoque) : p.stock,
-            unit: rec.unidade !== undefined ? rec.unidade : p.unit,
-            price: rec.preco_unitario !== undefined ? Number(rec.preco_unitario) : p.price,
-            disponibilidade:
-              rec.disponibilidade !== undefined ? rec.disponibilidade : p.disponibilidade,
-          }
-        }),
-      )
     }
   })
 
   useRealtime<any>('escolas', (e) => {
     if (e.action === 'delete') {
       setSchools((prev) => prev.filter((s) => s.id !== e.record.id))
-    } else if (e.action === 'create') {
+    } else if (e.action === 'create' || e.action === 'update') {
+      const s = e.record
       setSchools((prev) => {
-        if (prev.some((s) => s.id === e.record.id)) return prev
-        const s = e.record
+        const existingIdx = prev.findIndex((sch) => sch.id === s.id)
+        if (existingIdx !== -1) {
+          const copy = [...prev]
+          copy[existingIdx] = {
+            ...copy[existingIdx],
+            name: s.nome !== undefined ? s.nome : copy[existingIdx].name,
+            address: s.endereco !== undefined ? s.endereco : copy[existingIdx].address,
+            contact: s.telefone !== undefined ? s.telefone : copy[existingIdx].contact,
+            route: s.rota !== undefined ? s.rota : copy[existingIdx].route,
+            email: s.email !== undefined ? s.email : copy[existingIdx].email,
+            tipo: s.tipo !== undefined ? s.tipo : copy[existingIdx].tipo,
+            alunos:
+              s.alunos !== undefined && s.alunos !== null
+                ? Number(s.alunos)
+                : copy[existingIdx].alunos,
+          }
+          return copy
+        }
+
         const mapped: School = {
           id: s.id,
           name: s.nome,
@@ -624,23 +709,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return [...prev, mapped]
       })
-    } else if (e.action === 'update') {
-      setSchools((prev) =>
-        prev.map((s) => {
-          if (s.id !== e.record.id) return s
-          const rec = e.record
-          return {
-            ...s,
-            name: rec.nome !== undefined ? rec.nome : s.name,
-            address: rec.endereco !== undefined ? rec.endereco : s.address,
-            contact: rec.telefone !== undefined ? rec.telefone : s.contact,
-            route: rec.rota !== undefined ? rec.rota : s.route,
-            email: rec.email !== undefined ? rec.email : s.email,
-            tipo: rec.tipo !== undefined ? rec.tipo : s.tipo,
-            alunos: rec.alunos !== undefined && rec.alunos !== null ? Number(rec.alunos) : s.alunos,
-          }
-        }),
-      )
     }
   })
 
@@ -672,6 +740,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           copy[idx] = mapped
           return copy
         }
+
+        // Substituir temporário se houver
+        const tempIdx = prev.findIndex(
+          (a) => a.id.startsWith('temp-') && a.orderId === rec.pedido_id,
+        )
+        if (tempIdx !== -1) {
+          const copy = [...prev]
+          copy[tempIdx] = mapped
+          return copy
+        }
+
         return [mapped, ...prev]
       })
     }
@@ -680,17 +759,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useRealtime<any>('ciclos', (e) => {
     if (e.action === 'delete') {
       setCiclos((prev) => prev.filter((c) => c.id !== e.record.id))
-    } else if (e.action === 'create') {
+    } else if (e.action === 'create' || e.action === 'update') {
+      const rec = e.record as CicloRecord
       setCiclos((prev) => {
-        if (prev.some((c) => c.id === e.record.id)) return prev
-        return [...prev, e.record as CicloRecord]
-      })
-    } else if (e.action === 'update') {
-      setCiclos((prev) => {
-        const updated = prev.map((c) => (c.id === e.record.id ? { ...c, ...e.record } : c))
+        const existingIdx = prev.findIndex((c) => c.id === rec.id)
+        let updated: CicloRecord[]
+        if (existingIdx !== -1) {
+          const copy = [...prev]
+          copy[existingIdx] = { ...copy[existingIdx], ...rec }
+          updated = copy
+        } else {
+          // Substituir se houver temporário com mesmo nome
+          const tempIdx = prev.findIndex((c) => c.id.startsWith('temp-') && c.nome === rec.nome)
+          if (tempIdx !== -1) {
+            const copy = [...prev]
+            copy[tempIdx] = rec
+            updated = copy
+          } else {
+            updated = [...prev, rec]
+          }
+        }
+
         setActiveCiclo((current) => {
-          if (current?.id === e.record.id) {
-            return { ...current, ...e.record }
+          if (
+            current?.id === rec.id ||
+            (current?.id.startsWith('temp-') && current?.nome === rec.nome)
+          ) {
+            return { ...current, ...rec }
           }
           return current
         })
@@ -809,10 +904,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })),
       })
 
-      // Substituir o pedido temporário pelo definitivo
-      setOrders((prev) =>
-        prev.map((o) => (o.id === tempId ? { ...o, id: created.id, numero: created.numero } : o)),
-      )
+      // Substituir o pedido temporário pelo definitivo (com proteção contra evento SSE já ter inserido)
+      setOrders((prev) => {
+        const alreadyHasCreated = prev.some((o) => o.id === created.id)
+        if (alreadyHasCreated) {
+          return prev.filter((o) => o.id !== tempId)
+        }
+        return prev.map((o) =>
+          o.id === tempId ? { ...o, id: created.id, numero: created.numero } : o,
+        )
+      })
 
       if (validationResult.status === 'invalido') {
         toast.warning(`Pedido cadastrado com pendência de validação: ${validationResult.motivo}`)
@@ -1114,11 +1215,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         user_id: userId,
       })
 
-      // Substituir o despacho temporário pelo real
+      // Substituir o despacho temporário pelo real (com proteção contra SSE)
       if (res.despacho) {
-        setDespachos((prev) =>
-          prev.map((d) => (d.id === tempDespacho.id ? (res.despacho as DespachoRecord) : d)),
-        )
+        const realDespacho = res.despacho as DespachoRecord
+        setDespachos((prev) => {
+          const alreadyHasReal = prev.some((d) => d.id === realDespacho.id)
+          if (alreadyHasReal) {
+            return prev.filter((d) => d.id !== tempDespacho.id)
+          }
+          return prev.map((d) => (d.id === tempDespacho.id ? realDespacho : d))
+        })
       }
 
       toast.success(
@@ -1335,14 +1441,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     // Optimistic update
-    setRotasLogisticas((prev) => [...prev, tempRecord])
+    setRotasLogisticas((prev) => {
+      // Evita duplicatas se já houver um registro com este id temporário
+      if (prev.some((r) => r.id === tempId)) return prev
+      return [...prev, tempRecord]
+    })
 
     try {
       const created = await rotasLogisticasService.create({
         ...data,
         nome: cleanNome,
       })
-      setRotasLogisticas((prev) => prev.map((r) => (r.id === tempId ? created : r)))
+      setRotasLogisticas((prev) => {
+        // Se o evento SSE já tiver inserido ou substituído pelo created.id:
+        const alreadyHasCreated = prev.some((r) => r.id === created.id)
+        if (alreadyHasCreated) {
+          // Remove o tempId para não deixar item fantasma
+          return prev.filter((r) => r.id !== tempId).sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        }
+        // Substitui o tempId pelo registro real criado
+        return prev
+          .map((r) => (r.id === tempId ? created : r))
+          .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+      })
       toast.success(`Rota logística "${cleanNome}" criada com sucesso!`)
       return created
     } catch (err: any) {
@@ -1783,7 +1904,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       const created = await ciclosService.create(data)
-      setCiclos((prev) => prev.map((c) => (c.id === tempId ? created : c)))
+      setCiclos((prev) => {
+        const alreadyHasCreated = prev.some((c) => c.id === created.id)
+        if (alreadyHasCreated) {
+          return prev.filter((c) => c.id !== tempId)
+        }
+        return prev.map((c) => (c.id === tempId ? created : c))
+      })
       toast.success(`Ciclo "${data.nome}" criado com sucesso!`)
       return created
     } catch (err: any) {
@@ -1836,8 +1963,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         arquivo: pdfBlob,
       })
 
-      setAtestos((prev) =>
-        prev.map((a) =>
+      setAtestos((prev) => {
+        const alreadyHasCreated = prev.some((a) => a.id === created.id)
+        if (alreadyHasCreated) {
+          return prev.filter((a) => a.id !== tempId)
+        }
+        return prev.map((a) =>
           a.id === tempId
             ? {
                 ...a,
@@ -1845,8 +1976,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 arquivo: created.arquivo,
               }
             : a,
-        ),
-      )
+        )
+      })
 
       return created
     } catch (err: any) {

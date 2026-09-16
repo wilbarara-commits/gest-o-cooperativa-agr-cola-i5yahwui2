@@ -327,8 +327,7 @@ export default function Contracts() {
     const normTarget = cleanNome.toLowerCase()
     const jaExiste = contractRotasLogisticas.some(
       (r, idx) =>
-        idx !== editRotaIndex &&
-        r.nome.trim().replace(/\s+/g, ' ').toLowerCase() === normTarget,
+        idx !== editRotaIndex && r.nome.trim().replace(/\s+/g, ' ').toLowerCase() === normTarget,
     )
     if (jaExiste) {
       toast.error('Já existe uma rota logística com este nome neste contrato.')
@@ -342,22 +341,9 @@ export default function Contracts() {
       prev.map((r, idx) => (idx === editRotaIndex ? { ...r, nome: cleanNome } : r)),
     )
 
-    if (targetId) {
-      setContractSchoolsForm((prev) =>
-        prev.map((s) => (s.rotaLogisticaId === targetId ? { ...s, rotaLogisticaNome: cleanNome } : s)),
-      )
-    } else {
-      setContractSchoolsForm((prev) =>
-        prev.map((s) =>
-          s.rotaLogisticaNome === targetOldNome ? { ...s, rotaLogisticaNome: cleanNome } : s,
-        ),
-      )
-    }
-
     setEditRotaIndex(null)
     setEditRotaNome('')
   }
-
   const handleRemoveRotaLogistica = (index: number) => {
     const rotaAlvo = contractRotasLogisticas[index]
     if (rotaAlvo?.id) {

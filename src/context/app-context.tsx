@@ -433,75 +433,358 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadAllData()
   }, [loadAllData])
 
-  // Realtime subscriptions
-  useRealtime('produtos', () => loadAllData())
-  useRealtime('escolas', () => loadAllData())
-  useRealtime('contratos', () => loadAllData())
-  useRealtime('contrato_escolas', () => loadAllData())
-  useRealtime('contrato_itens', () => loadAllData())
-  useRealtime('pedidos', () => loadAllData())
-  useRealtime('pedido_itens', () => loadAllData())
-  useRealtime('atestos', () => loadAllData())
-  useRealtime('ciclos', () => loadAllData())
-  useRealtime('rotas', () => loadAllData())
-  useRealtime('rotas_logisticas', () => loadAllData())
-  useRealtime('paradas_rota', () => loadAllData())
-  useRealtime('despachos', () => loadAllData())
-  useRealtime('configuracoes', () => loadAllData())
+  // Realtime granular subscriptions
+  useRealtime<any>('pedidos', (e) => {
+    if (e.action === 'delete') {
+      setOrders((prev) => prev.filter((o) => o.id !== e.record.id))
+    } else if (e.action === 'create' || e.action === 'update') {
+      const rec = e.record
+      setOrders((prev) => {
+        const idx = prev.findIndex((o) => o.id === rec.id)
+        const schoolObj = schools.find((s) => s.id === rec.escola_id)
+        const schoolName = rec.expand?.escola_id?.nome || schoolObj?.name || 'Escola'
+        const paradaEscola = paradasRota.find((p) => p.escola_id === rec.escola_id)
+        const effectiveRotaLogisticaId = paradaEscola?.rota_logistica_id || rec.rota_logistica_id
+        const rotaLogObj = rotasLogisticas.find((r) => r.id === effectiveRotaLogisticaId)
+        const rotaLogisticaNome = rotaLogObj?.nome || rec.expand?.rota_logistica_id?.nome
+        const rotaObj = rotas.find((r) => r.id === rec.rota_id)
+        const rotaNome = rec.expand?.rota_id?.nome || rotaObj?.nome || schoolObj?.route
+
+        if (idx !== -1) {
+          const existing = prev[idx]
+          const updated: Order = {
+            ...existing,
+            numero: rec.numero || existing.numero,
+            schoolId: rec.escola_id || existing.schoolId,
+            schoolName: schoolName || existing.schoolName,
+            cicloId: rec.ciclo_id || existing.cicloId,
+            origem: rec.origem || existing.origem,
+            rotaId: rec.rota_id || existing.rotaId,
+            rotaNome: rotaNome || existing.rotaNome,
+            rotaLogisticaId: effectiveRotaLogisticaId || existing.rotaLogisticaId,
+            rotaLogisticaNome: rotaLogisticaNome || existing.rotaLogisticaNome,
+            date: rec.data_prevista || existing.date,
+            status: rec.status || existing.status,
+            entregue_em: rec.entregue_em ?? existing.entregue_em,
+            entregue_por: rec.entregue_por ?? existing.entregue_por,
+            cancelamento_motivo:
+              rec.motivo_cancelamento || rec.cancelamento_motivo || existing.cancelamento_motivo,
+            motivo_cancelamento:
+              rec.motivo_cancelamento || rec.cancelamento_motivo || existing.motivo_cancelamento,
+            cancelado_em: rec.cancelado_em ?? existing.cancelado_em,
+            validacao: rec.validacao || existing.validacao,
+          }
+          const copy = [...prev]
+          copy[idx] = updated
+          return copy
+        } else {
+          // Novo pedido via SSE
+          const newOrder: Order = {
+            id: rec.id,
+            numero: rec.numero || 'ORD-NEW',
+            schoolId: rec.escola_id,
+            schoolName,
+            schoolAlunos: schoolObj?.alunos,
+            cicloId: rec.ciclo_id,
+            origem: rec.origem || 'manual',
+            rotaId: rec.rota_id,
+            rotaNome,
+            rotaLogisticaId: effectiveRotaLogisticaId,
+            rotaLogisticaNome,
+            validacao: (rec.validacao as PedidoValidacao) || {
+              status: 'validado',
+              motivo: 'Registrado',
+            },
+            date:
+              rec.data_prevista ||
+              rec.created?.split('T')[0] ||
+              new Date().toISOString().split('T')[0],
+            status: rec.status || 'Pendente',
+            entregue_em: rec.entregue_em,
+            entregue_por: rec.entregue_por,
+            entreguePorNome: '',
+            cancelamento_motivo: rec.motivo_cancelamento || rec.cancelamento_motivo,
+            motivo_cancelamento: rec.motivo_cancelamento || rec.cancelamento_motivo,
+            cancelado_em: rec.cancelado_em,
+            total: 0,
+            items: [],
+          }
+          return [newOrder, ...prev]
+        }
+      })
+    }
+  })
+
+  useRealtime<any>('rotas_logisticas', (e) => {
+    if (e.action === 'delete') {
+      setRotasLogisticas((prev) => prev.filter((r) => r.id !== e.record.id))
+    } else if (e.action === 'create') {
+      setRotasLogisticas((prev) => {
+        if (prev.some((r) => r.id === e.record.id)) return prev
+        const rec = e.record as RotaLogisticaRecord
+        return [...prev, rec].sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+      })
+    } else if (e.action === 'update') {
+      setRotasLogisticas((prev) =>
+        prev.map((r) => (r.id === e.record.id ? { ...r, ...e.record } : r)),
+      )
+    }
+  })
+
+  useRealtime<any>('paradas_rota', (e) => {
+    if (e.action === 'delete') {
+      setParadasRota((prev) => prev.filter((p) => p.id !== e.record.id))
+    } else if (e.action === 'create') {
+      setParadasRota((prev) => {
+        if (prev.some((p) => p.id === e.record.id)) return prev
+        return [...prev, e.record as ParadaRotaRecord].sort(
+          (a, b) => (a.ordem || 0) - (b.ordem || 0),
+        )
+      })
+    } else if (e.action === 'update') {
+      setParadasRota((prev) => prev.map((p) => (p.id === e.record.id ? { ...p, ...e.record } : p)))
+    }
+  })
+
+  useRealtime<any>('despachos', (e) => {
+    if (e.action === 'delete') {
+      setDespachos((prev) => prev.filter((d) => d.id !== e.record.id))
+    } else if (e.action === 'create') {
+      setDespachos((prev) => {
+        if (prev.some((d) => d.id === e.record.id)) return prev
+        return [e.record as DespachoRecord, ...prev]
+      })
+    } else if (e.action === 'update') {
+      setDespachos((prev) => prev.map((d) => (d.id === e.record.id ? { ...d, ...e.record } : d)))
+    }
+  })
+
+  useRealtime<any>('produtos', (e) => {
+    if (e.action === 'delete') {
+      setProducts((prev) => prev.filter((p) => p.id !== e.record.id))
+    } else if (e.action === 'create') {
+      setProducts((prev) => {
+        if (prev.some((p) => p.id === e.record.id)) return prev
+        const p = e.record
+        const item: Product = {
+          id: p.id,
+          name: p.nome,
+          category: p.categoria,
+          stock: Number(p.estoque) || 0,
+          unit: p.unidade,
+          price: Number(p.preco_unitario) || 0,
+          disponibilidade: p.disponibilidade || 'normal',
+        }
+        return [...prev, item]
+      })
+    } else if (e.action === 'update') {
+      setProducts((prev) =>
+        prev.map((p) => {
+          if (p.id !== e.record.id) return p
+          const rec = e.record
+          return {
+            ...p,
+            name: rec.nome !== undefined ? rec.nome : p.name,
+            category: rec.categoria !== undefined ? rec.categoria : p.category,
+            stock: rec.estoque !== undefined ? Number(rec.estoque) : p.stock,
+            unit: rec.unidade !== undefined ? rec.unidade : p.unit,
+            price: rec.preco_unitario !== undefined ? Number(rec.preco_unitario) : p.price,
+            disponibilidade:
+              rec.disponibilidade !== undefined ? rec.disponibilidade : p.disponibilidade,
+          }
+        }),
+      )
+    }
+  })
+
+  useRealtime<any>('escolas', (e) => {
+    if (e.action === 'delete') {
+      setSchools((prev) => prev.filter((s) => s.id !== e.record.id))
+    } else if (e.action === 'create') {
+      setSchools((prev) => {
+        if (prev.some((s) => s.id === e.record.id)) return prev
+        const s = e.record
+        const mapped: School = {
+          id: s.id,
+          name: s.nome,
+          address: s.endereco || '',
+          contact: s.telefone || '',
+          route: s.rota || 'Sem Rota',
+          email: s.email || '',
+          tipo: s.tipo || '',
+          alunos: s.alunos !== undefined && s.alunos !== null ? Number(s.alunos) : undefined,
+        }
+        return [...prev, mapped]
+      })
+    } else if (e.action === 'update') {
+      setSchools((prev) =>
+        prev.map((s) => {
+          if (s.id !== e.record.id) return s
+          const rec = e.record
+          return {
+            ...s,
+            name: rec.nome !== undefined ? rec.nome : s.name,
+            address: rec.endereco !== undefined ? rec.endereco : s.address,
+            contact: rec.telefone !== undefined ? rec.telefone : s.contact,
+            route: rec.rota !== undefined ? rec.rota : s.route,
+            email: rec.email !== undefined ? rec.email : s.email,
+            tipo: rec.tipo !== undefined ? rec.tipo : s.tipo,
+            alunos: rec.alunos !== undefined && rec.alunos !== null ? Number(rec.alunos) : s.alunos,
+          }
+        }),
+      )
+    }
+  })
+
+  useRealtime<any>('atestos', (e) => {
+    if (e.action === 'delete') {
+      setAtestos((prev) => prev.filter((a) => a.id !== e.record.id))
+    } else if (e.action === 'create' || e.action === 'update') {
+      setAtestos((prev) => {
+        const rec = e.record
+        const relatedOrder = orders.find((o) => o.id === rec.pedido_id)
+        const schoolName = relatedOrder?.schoolName || 'Escola'
+        const mapped: Atesto = {
+          id: rec.id,
+          numero: rec.numero,
+          orderId: rec.pedido_id,
+          orderNumber: relatedOrder?.numero || rec.pedido_id,
+          schoolName,
+          date:
+            rec.data_emissao ||
+            rec.created?.split('T')[0] ||
+            new Date().toISOString().split('T')[0],
+          status: rec.status,
+          signatureFile: rec.assinatura_file,
+          arquivo: rec.arquivo,
+        }
+        const idx = prev.findIndex((a) => a.id === rec.id)
+        if (idx !== -1) {
+          const copy = [...prev]
+          copy[idx] = mapped
+          return copy
+        }
+        return [mapped, ...prev]
+      })
+    }
+  })
+
+  useRealtime<any>('ciclos', (e) => {
+    if (e.action === 'delete') {
+      setCiclos((prev) => prev.filter((c) => c.id !== e.record.id))
+    } else if (e.action === 'create') {
+      setCiclos((prev) => {
+        if (prev.some((c) => c.id === e.record.id)) return prev
+        return [...prev, e.record as CicloRecord]
+      })
+    } else if (e.action === 'update') {
+      setCiclos((prev) => {
+        const updated = prev.map((c) => (c.id === e.record.id ? { ...c, ...e.record } : c))
+        setActiveCiclo((current) => {
+          if (current?.id === e.record.id) {
+            return { ...current, ...e.record }
+          }
+          return current
+        })
+        return updated
+      })
+    }
+  })
 
   const addOrder = async (orderData: CreateOrderData): Promise<boolean> => {
+    const orderCount = orders.length + 1
+    const numero = `ORD-${String(orderCount).padStart(3, '0')}`
+
+    const formattedItens = orderData.items.map((it) => {
+      const prod = products.find((p) => p.id === it.productId)
+      return {
+        id: it.productId,
+        productId: it.productId,
+        name: prod?.name || 'Produto',
+        quantidade: it.quantity,
+        preco_unitario: prod?.price || 0,
+        price: prod?.price || 0,
+      }
+    })
+
+    // Validation
+    const cicloStatus = activeCiclo?.status || 'coletando'
+    const validationResult = validateOrder({
+      items: formattedItens.map((i) => ({
+        productId: i.productId,
+        name: i.name,
+        quantity: i.quantidade,
+        price: i.preco_unitario,
+      })),
+      allProducts: products,
+      cicloStatus,
+    })
+
+    // Find route if not provided
+    let rotaId = orderData.rotaId
+    if (!rotaId) {
+      const ce = contractSchools.find((c) => c.escola_id === orderData.schoolId && c.rota_id)
+      if (ce) {
+        rotaId = ce.rota_id
+      }
+    }
+
+    const datePrevista = orderData.date.includes('T')
+      ? orderData.date
+      : `${orderData.date} 12:00:00.000Z`
+
+    // Herança automática da Rota Logística da Escola
+    let rotaLogisticaIdFinal = orderData.rotaLogisticaId
+    if (!rotaLogisticaIdFinal) {
+      const paradaDaEscola = paradasRota.find((p) => p.escola_id === orderData.schoolId)
+      if (paradaDaEscola) {
+        rotaLogisticaIdFinal = paradaDaEscola.rota_logistica_id
+      }
+    }
+
+    const tempId = `temp-${Date.now()}`
+    const schoolObj = schools.find((s) => s.id === orderData.schoolId)
+    const schoolName = schoolObj?.name || 'Escola'
+    const rotaLogObj = rotasLogisticas.find((r) => r.id === rotaLogisticaIdFinal)
+    const rotaLogisticaNome = rotaLogObj?.nome
+    const rotaObj = rotas.find((r) => r.id === rotaId)
+    const rotaNome = rotaObj?.nome || schoolObj?.route
+
+    let total = 0
+    formattedItens.forEach((it) => {
+      total += it.preco_unitario * it.quantidade
+    })
+
+    // Optimistic Update local imediato
+    const optimisticOrder: Order = {
+      id: tempId,
+      numero,
+      schoolId: orderData.schoolId,
+      schoolName,
+      schoolAlunos: schoolObj?.alunos,
+      cicloId: orderData.cicloId || activeCiclo?.id,
+      origem: orderData.origem || 'manual',
+      rotaId,
+      rotaNome,
+      rotaLogisticaId: rotaLogisticaIdFinal,
+      rotaLogisticaNome,
+      validacao: validationResult,
+      date: datePrevista.split(' ')[0],
+      status: 'Pendente',
+      total: Math.round(total * 100) / 100,
+      items: formattedItens.map((it) => ({
+        id: it.id,
+        productId: it.productId,
+        name: it.name,
+        quantity: it.quantidade,
+        price: it.preco_unitario,
+      })),
+    }
+
+    setOrders((prev) => [optimisticOrder, ...prev])
+
     try {
-      const orderCount = orders.length + 1
-      const numero = `ORD-${String(orderCount).padStart(3, '0')}`
-
-      const formattedItens = orderData.items.map((it) => {
-        const prod = products.find((p) => p.id === it.productId)
-        return {
-          id: it.productId,
-          productId: it.productId,
-          name: prod?.name || 'Produto',
-          quantidade: it.quantity,
-          preco_unitario: prod?.price || 0,
-          price: prod?.price || 0,
-        }
-      })
-
-      // Validation
-      const cicloStatus = activeCiclo?.status || 'coletando'
-      const validationResult = validateOrder({
-        items: formattedItens.map((i) => ({
-          productId: i.productId,
-          name: i.name,
-          quantity: i.quantidade,
-          price: i.preco_unitario,
-        })),
-        allProducts: products,
-        cicloStatus,
-      })
-
-      // Find route if not provided
-      let rotaId = orderData.rotaId
-      if (!rotaId) {
-        const ce = contractSchools.find((c) => c.escola_id === orderData.schoolId && c.rota_id)
-        if (ce) {
-          rotaId = ce.rota_id
-        }
-      }
-
-      const datePrevista = orderData.date.includes('T')
-        ? orderData.date
-        : `${orderData.date} 12:00:00.000Z`
-
-      // Herança automática da Rota Logística da Escola
-      let rotaLogisticaIdFinal = orderData.rotaLogisticaId
-      if (!rotaLogisticaIdFinal) {
-        const paradaDaEscola = paradasRota.find((p) => p.escola_id === orderData.schoolId)
-        if (paradaDaEscola) {
-          rotaLogisticaIdFinal = paradaDaEscola.rota_logistica_id
-        }
-      }
-
-      await pedidosService.create({
+      const created = await pedidosService.create({
         numero,
         escola_id: orderData.schoolId,
         ciclo_id: orderData.cicloId || activeCiclo?.id,
@@ -518,16 +801,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })),
       })
 
+      // Substituir o pedido temporário pelo definitivo
+      setOrders((prev) =>
+        prev.map((o) => (o.id === tempId ? { ...o, id: created.id, numero: created.numero } : o)),
+      )
+
       if (validationResult.status === 'invalido') {
         toast.warning(`Pedido cadastrado com pendência de validação: ${validationResult.motivo}`)
       } else {
         toast.success('Pedido registrado com sucesso!')
       }
 
-      await loadAllData()
       return true
     } catch (err: any) {
       console.error('Erro ao criar pedido:', err)
+      // Rollback do optimistic update
+      setOrders((prev) => prev.filter((o) => o.id !== tempId))
       toast.error('Falha ao salvar pedido no banco.')
       return false
     }
@@ -545,74 +834,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
       rota_logistica_id?: string
     },
   ): Promise<boolean> => {
+    const targetOrder = orders.find((o) => o.id === id)
+    if (!targetOrder) {
+      toast.error('Pedido não encontrado.')
+      return false
+    }
+
+    // Regra: Pedido Cancelado não pode voltar
+    if (targetOrder.status === 'Cancelado') {
+      toast.error('Pedidos cancelados não podem ter seu status alterado.')
+      return false
+    }
+
+    // Se a transição for para Entregue, chamar método especializado com baixa de estoque
+    if (status === 'Entregue') {
+      return await confirmarEntregaPedido(id, options?.entregue_por)
+    }
+
+    // Se a transição for para Cancelado, motivo é obrigatório
+    if (status === 'Cancelado') {
+      const motivo = (options?.motivo_cancelamento || options?.cancelamento_motivo)?.trim()
+      if (!motivo) {
+        toast.error('Motivo do cancelamento é obrigatório.')
+        return false
+      }
+      const isEmRota = targetOrder.status === 'Em Rota'
+      return await cancelarPedido(id, motivo, isEmRota)
+    }
+
+    // Optimistic update local imediato
+    const prevOrders = [...orders]
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              status,
+              entregue_em: options?.entregue_em ?? o.entregue_em,
+              entregue_por: options?.entregue_por ?? o.entregue_por,
+              cancelamento_motivo: options?.cancelamento_motivo ?? o.cancelamento_motivo,
+              motivo_cancelamento: options?.motivo_cancelamento ?? o.motivo_cancelamento,
+              cancelado_em: options?.cancelado_em ?? o.cancelado_em,
+              rotaLogisticaId: options?.rota_logistica_id ?? o.rotaLogisticaId,
+            }
+          : o,
+      ),
+    )
+
     try {
-      const targetOrder = orders.find((o) => o.id === id)
-      if (!targetOrder) {
-        toast.error('Pedido não encontrado.')
-        return false
-      }
-
-      // Regra: Pedido Cancelado não pode voltar
-      if (targetOrder.status === 'Cancelado') {
-        toast.error('Pedidos cancelados não podem ter seu status alterado.')
-        return false
-      }
-
-      // Se a transição for para Entregue, chamar método especializado com baixa de estoque
-      if (status === 'Entregue') {
-        return await confirmarEntregaPedido(id, options?.entregue_por)
-      }
-
-      // Se a transição for para Cancelado, motivo é obrigatório
-      if (status === 'Cancelado') {
-        const motivo = (options?.motivo_cancelamento || options?.cancelamento_motivo)?.trim()
-        if (!motivo) {
-          toast.error('Motivo do cancelamento é obrigatório.')
-          return false
-        }
-        const isEmRota = targetOrder.status === 'Em Rota'
-        return await cancelarPedido(id, motivo, isEmRota)
-      }
-
-      // Transição padrão (ex: Pendente -> Em Rota)
-      await pedidosService.updateStatus(id, status, options)
-      await loadAllData()
+      const updated = await pedidosService.updateStatus(id, status, options)
+      // Ajusta com dados retornados pelo servidor
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === id
+            ? {
+                ...o,
+                status: updated.status,
+                entregue_em: updated.entregue_em,
+                entregue_por: updated.entregue_por,
+                cancelamento_motivo: updated.cancelamento_motivo || updated.motivo_cancelamento,
+                motivo_cancelamento: updated.motivo_cancelamento || updated.cancelamento_motivo,
+                cancelado_em: updated.cancelado_em,
+              }
+            : o,
+        ),
+      )
       toast.success(`Status do pedido atualizado para "${status}".`)
       return true
     } catch (err: any) {
       console.error('Erro ao atualizar status do pedido:', err)
+      // Rollback do optimistic update
+      setOrders(prevOrders)
       toast.error('Falha ao atualizar status.')
       return false
     }
   }
 
   const confirmarEntregaPedido = async (id: string, userId?: string): Promise<boolean> => {
+    const targetOrder = orders.find((o) => o.id === id)
+    if (!targetOrder) {
+      toast.error('Pedido não encontrado.')
+      return false
+    }
+
+    if (targetOrder.status === 'Cancelado') {
+      toast.error('Não é possível entregar um pedido cancelado.')
+      return false
+    }
+
+    if (targetOrder.status === 'Entregue') {
+      toast.info('Este pedido já foi confirmado como entregue anteriormente.')
+      return true
+    }
+
+    const nowIso = new Date().toISOString()
+    const prevOrders = [...orders]
+    const prevProducts = [...products]
+
+    // Optimistic update: marca pedido como entregue e baixa estoque na UI
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === id ? { ...o, status: 'Entregue', entregue_em: nowIso, entregue_por: userId } : o,
+      ),
+    )
+
+    const itensToDec = targetOrder.items.filter((i) => i.productId && i.quantity > 0)
+    if (itensToDec.length > 0) {
+      setProducts((prev) =>
+        prev.map((p) => {
+          const matchItem = itensToDec.find((it) => it.productId === p.id)
+          if (!matchItem) return p
+          return { ...p, stock: Math.max(0, p.stock - matchItem.quantity) }
+        }),
+      )
+    }
+
     try {
-      const targetOrder = orders.find((o) => o.id === id)
-      if (!targetOrder) {
-        toast.error('Pedido não encontrado.')
-        return false
-      }
-
-      if (targetOrder.status === 'Cancelado') {
-        toast.error('Não é possível entregar um pedido cancelado.')
-        return false
-      }
-
-      if (targetOrder.status === 'Entregue') {
-        toast.info('Este pedido já foi confirmado como entregue anteriormente.')
-        return true
-      }
-
-      const nowIso = new Date().toISOString()
-
-      // 1. Atualizar pedido para Entregue registrando entregue_em e entregue_por
+      // 1. Atualizar pedido para Entregue
       await pedidosService.updateStatus(id, 'Entregue', {
         entregue_em: nowIso,
         entregue_por: userId || undefined,
       })
 
-      // 2. Dar baixa no estoque dos produtos do pedido (idempotente: só executa quando não estava Entregue)
+      // 2. Dar baixa no estoque no banco
       for (const item of targetOrder.items) {
         if (item.productId && item.quantity > 0) {
           try {
@@ -623,198 +967,310 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      await loadAllData()
       toast.success(`Pedido ${targetOrder.numero} entregue com sucesso! Estoque atualizado.`)
       return true
     } catch (err: any) {
       console.error('Erro ao confirmar entrega do pedido:', err)
+      // Rollback
+      setOrders(prevOrders)
+      setProducts(prevProducts)
       toast.error('Falha ao confirmar entrega do pedido.')
       return false
     }
   }
 
-  const cancelarPedido = async (id: string, motivo: string, isEmRota = false): Promise<boolean> => {
+  const cancelarPedido = async (
+    id: string,
+    motivo: string,
+    _isEmRota = false,
+  ): Promise<boolean> => {
+    const targetOrder = orders.find((o) => o.id === id)
+    if (!targetOrder) {
+      toast.error('Pedido não encontrado.')
+      return false
+    }
+
+    if (targetOrder.status === 'Cancelado') {
+      toast.info('Este pedido já está cancelado.')
+      return true
+    }
+
+    if (targetOrder.status === 'Entregue') {
+      toast.error('Não é possível cancelar um pedido já entregue.')
+      return false
+    }
+
+    if (!motivo || !motivo.trim()) {
+      toast.error('Informe obrigatoriamente o motivo do cancelamento.')
+      return false
+    }
+
+    const nowIso = new Date().toISOString()
+    const cleanMotivo = motivo.trim()
+    const prevOrders = [...orders]
+
+    // Optimistic update
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              status: 'Cancelado',
+              cancelamento_motivo: cleanMotivo,
+              motivo_cancelamento: cleanMotivo,
+              cancelado_em: nowIso,
+            }
+          : o,
+      ),
+    )
+
     try {
-      const targetOrder = orders.find((o) => o.id === id)
-      if (!targetOrder) {
-        toast.error('Pedido não encontrado.')
-        return false
-      }
-
-      if (targetOrder.status === 'Cancelado') {
-        toast.info('Este pedido já está cancelado.')
-        return true
-      }
-
-      if (targetOrder.status === 'Entregue') {
-        toast.error('Não é possível cancelar um pedido já entregue.')
-        return false
-      }
-
-      if (!motivo || !motivo.trim()) {
-        toast.error('Informe obrigatoriamente o motivo do cancelamento.')
-        return false
-      }
-
-      const nowIso = new Date().toISOString()
-      const cleanMotivo = motivo.trim()
-
       await pedidosService.updateStatus(id, 'Cancelado', {
         motivo_cancelamento: cleanMotivo,
         cancelamento_motivo: cleanMotivo,
         cancelado_em: nowIso,
       })
 
-      await loadAllData()
       toast.success(`Pedido ${targetOrder.numero} foi cancelado definitivamente.`)
       return true
     } catch (err: any) {
       console.error('Erro ao cancelar pedido:', err)
+      setOrders(prevOrders)
       toast.error('Falha ao cancelar pedido.')
       return false
     }
   }
 
   // 6. DESPACHO: Botão "Colocar em Rota" por rota logística que despacha a rota inteira
-  // Despacha TODOS os pedidos do ciclo ativo cujas ESCOLAS estão na rota (via paradas_rota)
+  // Operação em BATCH ÚNICO via backend hook transacional + Optimistic Update
   const despacharRotaInteira = async (
     rotaLogisticaId: string,
     contratoId: string,
     userId?: string,
   ): Promise<boolean> => {
+    // Escolas que pertencem a esta rota logística (via paradas_rota)
+    const escolasDaRota = new Set(
+      paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId).map((p) => p.escola_id),
+    )
+
+    // Identificar pedidos pendentes do ciclo ativo (ou pendentes em geral)
+    const pedidosDaRota = orders.filter((o) => {
+      if (o.status !== 'Pendente') return false
+      if (activeCiclo?.id && o.cicloId && o.cicloId !== activeCiclo.id) return false
+      return escolasDaRota.has(o.schoolId) || o.rotaLogisticaId === rotaLogisticaId
+    })
+
+    if (pedidosDaRota.length === 0) {
+      toast.info('Não há pedidos pendentes no ciclo ativo para as escolas desta rota.')
+      return false
+    }
+
+    const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
+    const prevOrders = [...orders]
+    const prevDespachos = [...despachos]
+    const nowIso = new Date().toISOString()
+    const pedidosIdsSet = new Set(pedidosDaRota.map((p) => p.id))
+
+    // Optimistic Update imediato: apenas os pedidos afetados passam para 'Em Rota'
+    setOrders((prev) =>
+      prev.map((o) =>
+        pedidosIdsSet.has(o.id)
+          ? {
+              ...o,
+              status: 'Em Rota',
+              rotaLogisticaId,
+              rotaLogisticaNome: rotaLog?.nome || o.rotaLogisticaNome,
+            }
+          : o,
+      ),
+    )
+
+    const tempDespacho: DespachoRecord = {
+      id: `temp-desp-${Date.now()}`,
+      contrato_id: contratoId,
+      ciclo_id: activeCiclo?.id,
+      rota_logistica_id: rotaLogisticaId,
+      usuario_id: userId,
+      data_despacho: nowIso,
+      status: 'Em Rota',
+      created: nowIso,
+      updated: nowIso,
+    }
+    setDespachos((prev) => [tempDespacho, ...prev])
+
     try {
-      // Escolas que pertencem a esta rota logística (via paradas_rota)
-      const escolasDaRota = new Set(
-        paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId).map((p) => p.escola_id),
-      )
-
-      // Identificar pedidos pendentes do ciclo ativo (ou pendentes em geral) cujas escolas estão na rota
-      const pedidosDaRota = orders.filter((o) => {
-        if (o.status !== 'Pendente') return false
-        // Se pertencer ao ciclo ativo quando houver ciclo ativo
-        if (activeCiclo?.id && o.cicloId && o.cicloId !== activeCiclo.id) return false
-        // Escola da parada OU rotaLogisticaId explicitamente configurado
-        return escolasDaRota.has(o.schoolId) || o.rotaLogisticaId === rotaLogisticaId
-      })
-
-      if (pedidosDaRota.length === 0) {
-        toast.info('Não há pedidos pendentes no ciclo ativo para as escolas desta rota.')
-        return false
-      }
-
-      const nowIso = new Date().toISOString()
-
-      // 1. Criar registro na collection despachos
-      await rotasLogisticasService.criarDespacho({
+      const res = await rotasLogisticasService.despacharRotaBatch({
+        rota_logistica_id: rotaLogisticaId,
         contrato_id: contratoId,
         ciclo_id: activeCiclo?.id || undefined,
-        rota_logistica_id: rotaLogisticaId,
-        usuario_id: userId,
-        data_despacho: nowIso,
-        status: 'Em Rota',
+        user_id: userId,
       })
 
-      // 2. Passar todos os pedidos pendentes dela para "Em Rota"
-      for (const p of pedidosDaRota) {
-        await pedidosService.updateStatus(p.id, 'Em Rota')
+      // Substituir o despacho temporário pelo real
+      if (res.despacho) {
+        setDespachos((prev) =>
+          prev.map((d) => (d.id === tempDespacho.id ? (res.despacho as DespachoRecord) : d)),
+        )
       }
 
-      await loadAllData()
       toast.success(
         `Rota logística despachada com sucesso! ${pedidosDaRota.length} pedido(s) colocados "Em Rota".`,
       )
       return true
     } catch (err: any) {
-      console.error('Erro ao despachar rota inteira:', err)
+      console.error('Erro ao despachar rota em lote:', err)
+      // Rollback
+      setOrders(prevOrders)
+      setDespachos(prevDespachos)
       toast.error('Falha ao despachar rota logística.')
       return false
     }
   }
 
-  // 7. ENTREGA POR ROTA INTEIRA (operação offline): botão "Rota Entregue" marca TODOS os pedidos "Em Rota" dela como Entregue
+  // 7. ENTREGA POR ROTA INTEIRA (operação offline): botão "Rota Entregue"
+  // Executa em BATCH ÚNICO no servidor e atualiza apenas o estado local afetado
   const confirmarEntregaRotaInteira = async (
     rotaLogisticaId: string,
     userId?: string,
   ): Promise<boolean> => {
-    try {
-      const escolasDaRota = new Set(
-        paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId).map((p) => p.escola_id),
-      )
+    const escolasDaRota = new Set(
+      paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId).map((p) => p.escola_id),
+    )
 
-      const pedidosEmRota = orders.filter((o) => {
-        if (o.status !== 'Em Rota') return false
-        return escolasDaRota.has(o.schoolId) || o.rotaLogisticaId === rotaLogisticaId
-      })
+    const pedidosEmRota = orders.filter((o) => {
+      if (o.status !== 'Em Rota') return false
+      return escolasDaRota.has(o.schoolId) || o.rotaLogisticaId === rotaLogisticaId
+    })
 
-      if (pedidosEmRota.length === 0) {
-        toast.info('Não há pedidos "Em Rota" nesta rota logística para confirmar entrega.')
-        return false
-      }
+    if (pedidosEmRota.length === 0) {
+      toast.info('Não há pedidos "Em Rota" nesta rota logística para confirmar entrega.')
+      return false
+    }
 
-      const nowIso = new Date().toISOString()
+    const nowIso = new Date().toISOString()
+    const prevOrders = [...orders]
+    const prevProducts = [...products]
+    const prevDespachos = [...despachos]
+    const pedidosEmRotaIds = new Set(pedidosEmRota.map((p) => p.id))
 
-      // Para cada pedido "Em Rota", marcar como Entregue e dar baixa no estoque dos itens
-      for (const ped of pedidosEmRota) {
-        await pedidosService.updateStatus(ped.id, 'Entregue', {
-          entregue_em: nowIso,
-          entregue_por: userId,
-        })
-
-        // Baixa no estoque
-        for (const it of ped.items) {
-          if (it.productId && it.quantity > 0) {
-            try {
-              await produtosService.decrementarEstoque(it.productId, it.quantity)
-            } catch (stkErr) {
-              console.error(`Erro ao baixar estoque do produto ${it.productId}:`, stkErr)
+    // Optimistic Update: pedidos afetados -> Entregue
+    setOrders((prev) =>
+      prev.map((o) =>
+        pedidosEmRotaIds.has(o.id)
+          ? {
+              ...o,
+              status: 'Entregue',
+              entregue_em: nowIso,
+              entregue_por: userId,
             }
-          }
+          : o,
+      ),
+    )
+
+    // Optimistic Update: despachos da rota -> Entregue
+    setDespachos((prev) =>
+      prev.map((d) =>
+        d.rota_logistica_id === rotaLogisticaId && d.status === 'Em Rota'
+          ? { ...d, status: 'Entregue' }
+          : d,
+      ),
+    )
+
+    // Optimistic Update: estoque dos produtos dos pedidos da rota
+    const estoqueBaixasLocal = new Map<string, number>()
+    for (const ped of pedidosEmRota) {
+      for (const it of ped.items) {
+        if (it.productId && it.quantity > 0) {
+          estoqueBaixasLocal.set(
+            it.productId,
+            (estoqueBaixasLocal.get(it.productId) || 0) + it.quantity,
+          )
         }
       }
+    }
 
-      // Atualizar status do despacho ativo se existir
-      const despachosAtivos = despachos.filter(
-        (d) => d.rota_logistica_id === rotaLogisticaId && d.status === 'Em Rota',
+    if (estoqueBaixasLocal.size > 0) {
+      setProducts((prev) =>
+        prev.map((p) => {
+          const qtd = estoqueBaixasLocal.get(p.id)
+          if (!qtd) return p
+          return { ...p, stock: Math.max(0, p.stock - qtd) }
+        }),
       )
-      for (const d of despachosAtivos) {
-        await rotasLogisticasService.atualizarStatusDespacho(d.id, 'Entregue')
+    }
+
+    try {
+      const res = await rotasLogisticasService.entregarRotaBatch({
+        rota_logistica_id: rotaLogisticaId,
+        user_id: userId,
+      })
+
+      // Se o backend retornou produtos atualizados com precisão
+      if (res.produtos && res.produtos.length > 0) {
+        const prodMap = new Map(res.produtos.map((pr: any) => [pr.id, pr]))
+        setProducts((prev) =>
+          prev.map((p) => {
+            const up = prodMap.get(p.id)
+            return up ? { ...p, stock: Number(up.estoque) || 0 } : p
+          }),
+        )
       }
 
-      await loadAllData()
       toast.success(
         `Rota confirmada como entregue! ${pedidosEmRota.length} pedido(s) finalizados e estoque baixado.`,
       )
       return true
     } catch (err: any) {
       console.error('Erro ao confirmar entrega da rota inteira:', err)
+      // Rollback
+      setOrders(prevOrders)
+      setProducts(prevProducts)
+      setDespachos(prevDespachos)
       toast.error('Falha ao confirmar entrega da rota logística.')
       return false
     }
   }
 
-  // 8. CANCELAMENTO: botão "Não entregue" após despacho (Em Rota) -> Cancelado DEFINITIVAMENTE com motivo logístico
+  // 8. CANCELAMENTO: botão "Não entregue" após despacho (Em Rota) -> Cancelado DEFINITIVAMENTE por motivo logístico
   const marcarNaoEntreguePedido = async (
     pedidoId: string,
     motivoLogistico: string,
     userId?: string,
   ): Promise<boolean> => {
+    const targetOrder = orders.find((o) => o.id === pedidoId)
+    if (!targetOrder) {
+      toast.error('Pedido não encontrado.')
+      return false
+    }
+
+    if (targetOrder.status !== 'Em Rota') {
+      toast.error(
+        'A marcação de "Não entregue" aplica-se apenas a pedidos despachados ("Em Rota").',
+      )
+      return false
+    }
+
+    const nowIso = new Date().toISOString()
+    const cleanMotivo = motivoLogistico.trim()
+    const prevOrders = [...orders]
+
+    // Optimistic Update
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === pedidoId
+          ? {
+              ...o,
+              status: 'Cancelado',
+              motivo_cancelamento: cleanMotivo,
+              cancelamento_motivo: cleanMotivo,
+              cancelado_em: nowIso,
+              entregue_por: userId,
+            }
+          : o,
+      ),
+    )
+
     try {
-      const targetOrder = orders.find((o) => o.id === pedidoId)
-      if (!targetOrder) {
-        toast.error('Pedido não encontrado.')
-        return false
-      }
-
-      if (targetOrder.status !== 'Em Rota') {
-        toast.error(
-          'A marcação de "Não entregue" aplica-se apenas a pedidos despachados ("Em Rota").',
-        )
-        return false
-      }
-
-      const nowIso = new Date().toISOString()
-      const cleanMotivo = motivoLogistico.trim()
-
       await pedidosService.updateStatus(pedidoId, 'Cancelado', {
         motivo_cancelamento: cleanMotivo,
         cancelamento_motivo: cleanMotivo,
@@ -822,13 +1278,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         entregue_por: userId,
       })
 
-      await loadAllData()
       toast.success(
         `Pedido ${targetOrder.numero} marcado como "Não entregue" e cancelado definitivamente por motivo logístico.`,
       )
       return true
     } catch (err: any) {
       console.error('Erro ao marcar pedido como não entregue:', err)
+      setOrders(prevOrders)
       toast.error('Falha ao processar não entrega.')
       return false
     }
@@ -841,13 +1297,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ordem?: number
     ativa?: boolean
   }): Promise<RotaLogisticaRecord | null> => {
+    const tempId = `temp-rota-${Date.now()}`
+    const tempRecord: RotaLogisticaRecord = {
+      id: tempId,
+      contrato_id: data.contrato_id,
+      nome: data.nome,
+      ordem: data.ordem || rotasLogisticas.length + 1,
+      ativa: data.ativa ?? true,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+    }
+
+    // Optimistic update
+    setRotasLogisticas((prev) => [...prev, tempRecord])
+
     try {
       const created = await rotasLogisticasService.create(data)
-      await loadAllData()
+      setRotasLogisticas((prev) => prev.map((r) => (r.id === tempId ? created : r)))
       toast.success(`Rota logística "${data.nome}" criada com sucesso!`)
       return created
     } catch (err: any) {
       console.error('Erro ao criar rota logística:', err)
+      setRotasLogisticas((prev) => prev.filter((r) => r.id !== tempId))
       toast.error('Falha ao criar rota logística.')
       return null
     }
@@ -855,16 +1326,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Excluir rota logística
   const excluirRotaLogistica = async (id: string): Promise<boolean> => {
-    try {
-      // Checar se há pedidos com status Em Rota ou Entregue vinculados a esta rota
-      const pedidosComEstaRota = orders.filter((o) => o.rotaLogisticaId === id)
-      const impedemExclusao = pedidosComEstaRota.filter((o) => o.status === 'Em Rota')
-      if (impedemExclusao.length > 0) {
-        toast.error('Não é possível excluir uma rota com pedidos em andamento ("Em Rota").')
-        return false
-      }
+    // Checar se há pedidos com status Em Rota ou Entregue vinculados a esta rota
+    const pedidosComEstaRota = orders.filter((o) => o.rotaLogisticaId === id)
+    const impedemExclusao = pedidosComEstaRota.filter((o) => o.status === 'Em Rota')
+    if (impedemExclusao.length > 0) {
+      toast.error('Não é possível excluir uma rota com pedidos em andamento ("Em Rota").')
+      return false
+    }
 
-      // Desvincular paradas cadastradas
+    const prevRotas = [...rotasLogisticas]
+    const prevParadas = [...paradasRota]
+    const prevOrders = [...orders]
+
+    // Optimistic update
+    setRotasLogisticas((prev) => prev.filter((r) => r.id !== id))
+    setParadasRota((prev) => prev.filter((p) => p.rota_logistica_id !== id))
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.rotaLogisticaId === id
+          ? { ...o, rotaLogisticaId: undefined, rotaLogisticaNome: undefined }
+          : o,
+      ),
+    )
+
+    try {
+      // Desvincular paradas cadastradas no backend
       const paradas = paradasRota.filter((p) => p.rota_logistica_id === id)
       for (const p of paradas) {
         await rotasLogisticasService.removerParada(p.id)
@@ -878,11 +1364,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       await rotasLogisticasService.delete(id)
-      await loadAllData()
       toast.success('Rota logística excluída com sucesso!')
       return true
     } catch (err: any) {
       console.error('Erro ao excluir rota logística:', err)
+      setRotasLogisticas(prevRotas)
+      setParadasRota(prevParadas)
+      setOrders(prevOrders)
       toast.error('Falha ao excluir rota logística.')
       return false
     }
@@ -897,17 +1385,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
     escolaIds: string[],
     _pedidoIdsIgnorado?: string[],
   ): Promise<boolean> => {
+    const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
+    const nomeRota = rotaLog?.nome || 'Rota'
+
+    const paradasAnteriores = paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId)
+    const escolasAnterioresIds = paradasAnteriores.map((p) => p.escola_id)
+    const novasEscolasSet = new Set(escolaIds)
+    const escolasDesatribuidas = escolasAnterioresIds.filter((id) => !novasEscolasSet.has(id))
+
+    const prevParadas = [...paradasRota]
+    const prevOrders = [...orders]
+    const prevContractSchools = [...contractSchools]
+
+    // 1. Optimistic Update das Paradas
+    const novasParadasOptimistic: ParadaRotaRecord[] = escolaIds.map((escId, idx) => ({
+      id: `temp-parada-${escId}`,
+      rota_logistica_id: rotaLogisticaId,
+      escola_id: escId,
+      ordem: idx + 1,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+    }))
+
+    setParadasRota((prev) => [
+      ...prev.filter((p) => p.rota_logistica_id !== rotaLogisticaId),
+      ...novasParadasOptimistic,
+    ])
+
+    // 2. Optimistic Update dos Pedidos Pendentes
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.status !== 'Pendente') return o
+        if (escolaIds.includes(o.schoolId)) {
+          return { ...o, rotaLogisticaId, rotaLogisticaNome: nomeRota }
+        }
+        if (escolasDesatribuidas.includes(o.schoolId) && o.rotaLogisticaId === rotaLogisticaId) {
+          return { ...o, rotaLogisticaId: undefined, rotaLogisticaNome: undefined }
+        }
+        return o
+      }),
+    )
+
+    // 3. Optimistic Update em contractSchools
+    setContractSchools((prev) =>
+      prev.map((ce) => {
+        if (ce.contrato_id !== contratoId) return ce
+        if (escolaIds.includes(ce.escola_id)) {
+          return { ...ce, rota_logistica_id: rotaLogisticaId }
+        }
+        if (
+          escolasDesatribuidas.includes(ce.escola_id) &&
+          ce.rota_logistica_id === rotaLogisticaId
+        ) {
+          return { ...ce, rota_logistica_id: '' }
+        }
+        return ce
+      }),
+    )
+
     try {
-      const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
-      const nomeRota = rotaLog?.nome || 'Rota'
-
-      // Identificar escolas que estavam antes nesta rota logística
-      const paradasAnteriores = paradasRota.filter((p) => p.rota_logistica_id === rotaLogisticaId)
-      const escolasAnterioresIds = paradasAnteriores.map((p) => p.escola_id)
-      const novasEscolasSet = new Set(escolaIds)
-      const escolasDesatribuidas = escolasAnterioresIds.filter((id) => !novasEscolasSet.has(id))
-
-      // 1. Atualizar vínculo de rota logística em contrato_escolas.rota_logistica_id SEM alterar rota da planilha (rota_id/rota)
+      // Atualizar vínculo de rota logística em contrato_escolas.rota_logistica_id
       for (const escId of escolaIds) {
         try {
           await contratosService.updateEscolaRotaLogisticaByContratoEscola(
@@ -920,7 +1457,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Limpar rota_logistica_id das escolas desatribuídas
       for (const escId of escolasDesatribuidas) {
         try {
           await contratosService.updateEscolaRotaLogisticaByContratoEscola(contratoId, escId, '')
@@ -929,7 +1465,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 2. Salvar paradas na collection paradas_rota mantendo ordem existente se houver, ou sequencial
+      // Salvar paradas em batch no servidor
       const ordemExistenteMap = new Map<string, number>()
       paradasAnteriores.forEach((p) => ordemExistenteMap.set(p.escola_id, p.ordem))
 
@@ -937,15 +1473,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         escola_id: escolaId,
         ordem: ordemExistenteMap.get(escolaId) || idx + 1,
       }))
-      // Normalizar ordem 1..N
       paradasPayload.sort((a, b) => a.ordem - b.ordem)
       const paradasPayloadNormalizadas = paradasPayload.map((p, idx) => ({
         escola_id: p.escola_id,
         ordem: idx + 1,
       }))
-      await rotasLogisticasService.reordenarParadas(rotaLogisticaId, paradasPayloadNormalizadas)
 
-      // 3. Atualizar pedidos pendentes das escolas atribuídas: recebem rota_logistica_id
+      const savedParadas = await rotasLogisticasService.reordenarParadas(
+        rotaLogisticaId,
+        paradasPayloadNormalizadas,
+      )
+
+      if (savedParadas && savedParadas.length > 0) {
+        setParadasRota((prev) => [
+          ...prev.filter((p) => p.rota_logistica_id !== rotaLogisticaId),
+          ...savedParadas,
+        ])
+      }
+
+      // Atualizar pedidos pendentes no banco
       const pedidosPendentesAtribuidos = orders.filter(
         (o) => o.status === 'Pendente' && escolaIds.includes(o.schoolId),
       )
@@ -955,7 +1501,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 4. Limpar rota_logistica_id dos pedidos pendentes das escolas desatribuídas
       if (escolasDesatribuidas.length > 0) {
         const pedidosPendentesDesatribuidos = orders.filter(
           (o) =>
@@ -968,13 +1513,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      await loadAllData()
       toast.success(
         `Rota Logística "${nomeRota}" configurada com ${escolaIds.length} escola(s) e vínculos atualizados!`,
       )
       return true
     } catch (err: any) {
       console.error('Erro ao sincronizar escolas da rota logística:', err)
+      // Rollback
+      setParadasRota(prevParadas)
+      setOrders(prevOrders)
+      setContractSchools(prevContractSchools)
       toast.error('Falha ao sincronizar escolas e rotas.')
       return false
     }
@@ -985,15 +1533,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pedidoIds: string[],
     rotaLogisticaId: string,
   ): Promise<boolean> => {
-    try {
-      const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
-      const contratoId = rotaLog?.contrato_id
+    const rotaLog = rotasLogisticas.find((r) => r.id === rotaLogisticaId)
+    const contratoId = rotaLog?.contrato_id
+    const prevOrders = [...orders]
 
+    // Optimistic Update
+    setOrders((prev) =>
+      prev.map((o) =>
+        pedidoIds.includes(o.id)
+          ? { ...o, rotaLogisticaId, rotaLogisticaNome: rotaLog?.nome || o.rotaLogisticaNome }
+          : o,
+      ),
+    )
+
+    try {
       for (const pid of pedidoIds) {
         await pedidosService.atribuirRotaLogistica(pid, rotaLogisticaId)
       }
 
-      // COERÊNCIA DE DADOS: atualizar contrato_escolas.rota_logistica_id SEM alterar rota da planilha
       if (rotaLog && contratoId) {
         const pedEscolaIds = new Set(
           orders.filter((o) => pedidoIds.includes(o.id)).map((o) => o.schoolId),
@@ -1012,27 +1569,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      await loadAllData()
       toast.success(`${pedidoIds.length} pedido(s) atribuído(s) à rota logística com sucesso!`)
       return true
     } catch (err: any) {
       console.error('Erro ao atribuir pedidos à rota logística:', err)
+      setOrders(prevOrders)
       toast.error('Falha ao salvar atribuição de rota.')
       return false
     }
   }
 
-  // 5. SEQUENCIAMENTO DAS PARADAS: Salvar paradas ordenadas
+  // 5. SEQUENCIAMENTO DAS PARADAS: Salvar paradas ordenadas em BATCH ÚNICO
   const salvarSequenciamentoParadas = async (
     rotaLogisticaId: string,
     paradas: Array<{ escola_id: string; ordem: number }>,
   ): Promise<boolean> => {
+    const prevParadas = [...paradasRota]
+
+    // Optimistic update das ordens das paradas locais
+    const paradaOrdemMap = new Map(paradas.map((p) => [p.escola_id, p.ordem]))
+    setParadasRota((prev) =>
+      prev.map((p) => {
+        if (p.rota_logistica_id !== rotaLogisticaId) return p
+        const novaOrdem = paradaOrdemMap.get(p.escola_id)
+        return novaOrdem !== undefined ? { ...p, ordem: novaOrdem } : p
+      }),
+    )
+
     try {
-      await rotasLogisticasService.reordenarParadas(rotaLogisticaId, paradas)
-      await loadAllData()
+      const saved = await rotasLogisticasService.reordenarParadas(rotaLogisticaId, paradas)
+      if (saved && saved.length > 0) {
+        setParadasRota((prev) => [
+          ...prev.filter((p) => p.rota_logistica_id !== rotaLogisticaId),
+          ...saved,
+        ])
+      }
       return true
     } catch (err: any) {
       console.error('Erro ao salvar sequenciamento de paradas:', err)
+      setParadasRota(prevParadas)
       toast.error('Falha ao salvar sequência de paradas.')
       return false
     }
@@ -1042,13 +1617,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     cicloId: string,
     status: 'coletando' | 'correcao' | 'fechado',
   ): Promise<boolean> => {
+    const prevCiclos = [...ciclos]
+    const prevActive = activeCiclo
+
+    // Optimistic update
+    setCiclos((prev) => prev.map((c) => (c.id === cicloId ? { ...c, status } : c)))
+    if (activeCiclo?.id === cicloId) {
+      setActiveCiclo({ ...activeCiclo, status })
+    }
+
     try {
       await ciclosService.setStatus(cicloId, status)
-      await loadAllData()
       toast.success(`Fase do ciclo alterada para "${status}" com sucesso!`)
       return true
     } catch (err: any) {
       console.error('Erro ao alterar status do ciclo:', err)
+      setCiclos(prevCiclos)
+      setActiveCiclo(prevActive)
       toast.error('Erro ao atualizar status do ciclo.')
       return false
     }
@@ -1060,13 +1645,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     data_fim: string
     status: 'coletando' | 'correcao' | 'fechado'
   }): Promise<CicloRecord | null> => {
+    const tempId = `temp-ciclo-${Date.now()}`
+    const tempCiclo: CicloRecord = {
+      id: tempId,
+      nome: data.nome,
+      data_inicio: data.data_inicio,
+      data_fim: data.data_fim,
+      status: data.status,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+    }
+
+    setCiclos((prev) => [...prev, tempCiclo])
+
     try {
       const created = await ciclosService.create(data)
-      await loadAllData()
+      setCiclos((prev) => prev.map((c) => (c.id === tempId ? created : c)))
       toast.success(`Ciclo "${data.nome}" criado com sucesso!`)
       return created
     } catch (err: any) {
       console.error('Erro ao criar ciclo:', err)
+      setCiclos((prev) => prev.filter((c) => c.id !== tempId))
       toast.error('Falha ao criar novo ciclo.')
       return null
     }
@@ -1077,23 +1676,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pdfBlob?: Blob,
     customNumero?: string,
   ): Promise<AtestoRecord | null> => {
+    const order = orders.find((o) => o.id === orderId)
+    if (!order) {
+      toast.error('Pedido não encontrado.')
+      return null
+    }
+
+    const existing = atestos.find((a) => a.orderId === orderId)
+    if (existing) {
+      toast.info('Já existe atesto emitido para este pedido.')
+      return null
+    }
+
+    const atestoCount = atestos.length + 1
+    const numero = customNumero || `AT-${String(atestoCount).padStart(3, '0')}`
+    const now = new Date().toISOString()
+    const tempId = `temp-atesto-${Date.now()}`
+
+    const tempAtesto: Atesto = {
+      id: tempId,
+      numero,
+      orderId,
+      orderNumber: order.numero,
+      schoolName: order.schoolName,
+      date: now.split('T')[0],
+      status: 'Pendente Assinatura',
+    }
+    setAtestos((prev) => [tempAtesto, ...prev])
+
     try {
-      const order = orders.find((o) => o.id === orderId)
-      if (!order) {
-        toast.error('Pedido não encontrado.')
-        return null
-      }
-
-      const existing = atestos.find((a) => a.orderId === orderId)
-      if (existing) {
-        toast.info('Já existe atesto emitido para este pedido.')
-        return null
-      }
-
-      const atestoCount = atestos.length + 1
-      const numero = customNumero || `AT-${String(atestoCount).padStart(3, '0')}`
-      const now = new Date().toISOString()
-
       const created = await atestosService.create({
         numero,
         pedido_id: orderId,
@@ -1102,10 +1713,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         arquivo: pdfBlob,
       })
 
-      await loadAllData()
+      setAtestos((prev) =>
+        prev.map((a) =>
+          a.id === tempId
+            ? {
+                ...a,
+                id: created.id,
+                arquivo: created.arquivo,
+              }
+            : a,
+        ),
+      )
+
       return created
     } catch (err: any) {
       console.error('Erro ao gerar atesto:', err)
+      setAtestos((prev) => prev.filter((a) => a.id !== tempId))
       const detailMsg =
         err?.data?.message ||
         err?.response?.message ||
@@ -1117,12 +1740,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const confirmAtesto = async (atestoId: string): Promise<boolean> => {
+    const prevAtestos = [...atestos]
+    setAtestos((prev) => prev.map((a) => (a.id === atestoId ? { ...a, status: 'Confirmado' } : a)))
+
     try {
       await atestosService.confirm(atestoId)
-      await loadAllData()
       return true
     } catch (err: any) {
       console.error('Erro ao confirmar atesto:', err)
+      setAtestos(prevAtestos)
       toast.error('Falha ao confirmar atesto.')
       return false
     }

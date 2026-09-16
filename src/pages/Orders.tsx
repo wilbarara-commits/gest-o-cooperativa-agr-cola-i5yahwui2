@@ -798,7 +798,17 @@ export default function Orders() {
                   filteredOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-semibold text-primary text-xs">
-                        {order.numero}
+                        <div className="flex items-center gap-1.5">
+                          {order.numero}
+                          {order.id.startsWith('temp-') && (
+                            <span
+                              className="inline-flex items-center text-[10px] text-amber-600 gap-0.5"
+                              title="Sincronizando com o servidor"
+                            >
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>{getOrigemBadge(order.origem)}</TableCell>
                       <TableCell className="font-medium text-xs">{order.schoolName}</TableCell>

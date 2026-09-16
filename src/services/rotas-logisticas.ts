@@ -64,14 +64,57 @@ export const rotasLogisticasService = {
   async reordenarParadas(
     rotaLogisticaId: string,
     paradas: Array<{ escola_id: string; ordem: number }>,
-  ): Promise<void> {
-    for (const p of paradas) {
-      await this.salvarParada({
-        rota_logistica_id: rotaLogisticaId,
-        escola_id: p.escola_id,
-        ordem: p.ordem,
-      })
+  ): Promise<ParadaRotaRecord[]> {
+    try {
+      const res = await pb.send<{ success: boolean; paradas: ParadaRotaRecord[] }>(
+        '/backend/v1/rotas-logisticas/salvar-paradas',
+        {
+          method: 'POST',
+          body: { rota_logistica_id: rotaLogisticaId, paradas },
+        },
+      )
+      return res.paradas
+    } catch {
+      // Fallback local se o hook falhar
+      const results: ParadaRotaRecord[] = []
+      for (const p of paradas) {
+        const saved = await this.salvarParada({
+          rota_logistica_id: rotaLogisticaId,
+          escola_id: p.escola_id,
+          ordem: p.ordem,
+        })
+        results.push(saved)
+      }
+      return results
     }
+  },
+
+  async despacharRotaBatch(data: {
+    rota_logistica_id: string
+    contrato_id: string
+    ciclo_id?: string
+    user_id?: string
+  }): Promise<{ despacho: DespachoRecord; pedidos: any[] }> {
+    return await pb.send<{ success: boolean; despacho: DespachoRecord; pedidos: any[] }>(
+      '/backend/v1/rotas-logisticas/despachar',
+      {
+        method: 'POST',
+        body: data,
+      },
+    )
+  },
+
+  async entregarRotaBatch(data: {
+    rota_logistica_id: string
+    user_id?: string
+  }): Promise<{ pedidos: any[]; produtos: any[] }> {
+    return await pb.send<{ success: boolean; pedidos: any[]; produtos: any[] }>(
+      '/backend/v1/rotas-logisticas/entregar',
+      {
+        method: 'POST',
+        body: data,
+      },
+    )
   },
 
   async removerParada(id: string): Promise<boolean> {

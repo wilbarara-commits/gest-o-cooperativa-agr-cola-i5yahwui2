@@ -436,10 +436,10 @@ export default function DeliveryRoutes() {
       ordem: idx + 1,
     }))
 
-    // Salvar automaticamente no banco
+    // Salvar automaticamente no banco em transação/batch único com update otimista local imediato
     const ok = await salvarSequenciamentoParadas(rotaId, payload)
     if (ok) {
-      toast.success('Sequência de paradas atualizada e gravada com sucesso!')
+      toast.success('Sequência de paradas atualizada com sucesso!')
     }
   }
 
@@ -604,8 +604,16 @@ export default function DeliveryRoutes() {
                         • Modalidade: <span className="capitalize">{item.modalidade}</span>
                       </CardDescription>
                     </div>
-
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Indicador de persistência de rota temporária */}
+                      {item.rota.id.startsWith('temp-') && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-amber-600 border-amber-400 gap-1 animate-pulse"
+                        >
+                          <Loader2 className="h-2.5 w-2.5 animate-spin" /> Salvando...
+                        </Badge>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -628,7 +636,7 @@ export default function DeliveryRoutes() {
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                    </div>
+                    </div>{' '}
                   </div>
                 </CardHeader>
 
@@ -795,6 +803,14 @@ export default function DeliveryRoutes() {
                                           <span className="font-bold text-primary">
                                             {ped.numero}
                                           </span>
+                                          {ped.id.startsWith('temp-') && (
+                                            <span
+                                              className="inline-flex items-center text-[9px] text-amber-600 dark:text-amber-400 gap-0.5"
+                                              title="Sincronizando com o servidor"
+                                            >
+                                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                            </span>
+                                          )}
                                           <Badge
                                             className={`text-[9px] px-1.5 py-0 ${
                                               ped.status === 'Em Rota'

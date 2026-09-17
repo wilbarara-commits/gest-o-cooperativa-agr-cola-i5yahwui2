@@ -753,10 +753,15 @@ export default function ExcelImport() {
                   </TableHeader>
                   <TableBody>
                     {parsedData.orders.map((po, idx) => {
-                      const hasIssues = po.issues.length > 0
+                      const hasBlockingIssues =
+                        po.matchStatus !== 'ok' ||
+                        !po.isLinkedToContract ||
+                        po.isDuplicateInOtherSheets ||
+                        po.isSheetUnmatchedInContract ||
+                        po.items.some((it) => !it.productId)
 
                       return (
-                        <TableRow key={idx} className={hasIssues ? 'bg-amber-500/5' : ''}>
+                        <TableRow key={idx} className={hasBlockingIssues ? 'bg-amber-500/5' : ''}>
                           <TableCell className="font-semibold text-xs text-primary">
                             <div className="flex flex-col gap-0.5">
                               <span>{po.routeRaw}</span>
@@ -771,7 +776,19 @@ export default function ExcelImport() {
                               ) : null}
                             </div>
                           </TableCell>
-                          <TableCell className="font-medium text-xs">{po.schoolNameRaw}</TableCell>
+                          <TableCell className="font-medium text-xs">
+                            <div className="flex flex-col gap-1">
+                              <span>{po.schoolNameRaw}</span>
+                              {po.mergedColumnsCount && po.mergedColumnsCount > 1 && (
+                                <Badge
+                                  variant="secondary"
+                                  className="w-fit text-[10px] bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 font-normal border border-sky-300"
+                                >
+                                  {po.mergedColumnsCount} colunas somadas
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-xs">
                             {po.isLinkedToContract ? (
                               <span className="text-emerald-600 flex items-center gap-1 font-medium">

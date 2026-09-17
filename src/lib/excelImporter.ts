@@ -56,6 +56,7 @@ export interface ParsedSchoolOrder {
   items: ParsedOrderItem[]
   totalCalculated: number
   issues: string[]
+  mergedColumnsCount?: number
 }
 
 export interface ParsedExcelResult {
@@ -484,11 +485,36 @@ export function parseSecretaryExcel(
       })
     }
 
-    // Para cada coluna de escola identificada, montar o pedido
+    // Agrupar colunas por escola para consolidar ocorrências na mesma aba.
+    // Regra: "Em caso de anomalia de duplicidade na mesma aba, some as quantidades e considere o pedido válido."
+    // Chave de agrupamento: escola resolvida (matchedSchool.id) quando identificada,
+    // ou nome normalizado (normSchool) caso ainda não esteja cadastrada/identificada.
+    interface ExtractedColumnData {
+      colIndex: number
+      schoolNameRaw: string
+      matchedSchool: School | null
+      isLinked: boolean
+      matchStatus: SchoolMatchStatus
+      prefilledLink?: { escolaId: string; escolaNome: string; rotaSugerida: string }
+      matchedContractRota?: string
+      isSheetUnmatched: boolean
+      baseIssues: string[]
+      items: ParsedOrderItem[]
+    }
+
+    const matchedContractRota = sheetMatchedMap.has(sheetName)
+      ? sheetMatchedMap.get(sheetName) || undefined
+      : undefined
+    const isSheetUnmatched = hasContractRotas && !matchedContractRota
+    const suggestedRotaName = matchedContractRota || sheetName
+
+    // Extrair dados de cada coluna individual
+    const extractedCols: ExtractedColumnData[] = []
+
     for (const sc of schoolColumns) {
       const normSchool = normalizeName(sc.schoolNameRaw)
 
-      // Rastrear ocorrência por aba e coluna para detectar anomalias
+      // Rastrear contagem de colunas por aba (para estatística / auditoria / rastreio)
       let sheetMap = schoolSheetOccurrences.get(normSchool)
       if (!sheetMap) {
         sheetMap = new Map<string, number>()
@@ -496,16 +522,9 @@ export function parseSecretaryExcel(
       }
       sheetMap.set(sheetName, (sheetMap.get(sheetName) || 0) + 1)
 
-      const issues: string[] = []
-
-      // Checar se a aba casou com as rotas do contrato
-      const matchedContractRota = sheetMatchedMap.has(sheetName)
-        ? sheetMatchedMap.get(sheetName) || undefined
-        : undefined
-      const isSheetUnmatched = hasContractRotas && !matchedContractRota
-
+      const baseIssues: string[] = []
       if (isSheetUnmatched) {
-        issues.push(
+        baseIssues.push(
           `Aba "${sheetName}" não cadastrada nas rotas deste contrato. Cadastre-a no contrato ou revise a aba.`,
         )
       }
@@ -516,39 +535,33 @@ export function parseSecretaryExcel(
       const isLinked = matchResult.isLinked
 
       let matchStatus: SchoolMatchStatus = 'ok'
-      const suggestedRotaName = matchedContractRota || sheetName
       let prefilledLink: { escolaId: string; escolaNome: string; rotaSugerida: string } | undefined
 
       if (!matchedSchool) {
-        // NÃO existe no cadastro mestre
         matchStatus = 'needs_register'
-        issues.push(
+        baseIssues.push(
           `Cadastrar escola: "${sc.schoolNameRaw}" não existe no cadastro mestre global de escolas.`,
         )
       } else if (!isLinked) {
-        // EXISTE no cadastro mestre, mas NÃO está vinculada ao contrato atual
         matchStatus = 'needs_link'
         prefilledLink = {
           escolaId: matchedSchool.id,
           escolaNome: matchedSchool.name,
           rotaSugerida: suggestedRotaName,
         }
-        issues.push(
+        baseIssues.push(
           `Vincular ao contrato: Escola "${matchedSchool.name}" existe no cadastro mestre, mas não está vinculada ao contrato.`,
         )
       }
 
       // Ler os produtos da linha 10 à linha 34 para esta coluna
       const items: ParsedOrderItem[] = []
-      let totalCalculated = 0
 
       for (let r = startProductRow; r <= endProductRow; r++) {
         const row = data[r] || []
-        // Descrição do produto: coluna C (índice 2) ou B (índice 1)
         const productDescRaw = String(row[2] || row[1] || '').trim()
         if (!productDescRaw) continue
 
-        // Quantidade da escola nesta coluna
         const rawQtd = row[sc.colIndex]
         let qty = 0
         if (typeof rawQtd === 'number') {
@@ -557,18 +570,14 @@ export function parseSecretaryExcel(
           qty = parseFloat(rawQtd.replace(',', '.')) || 0
         }
 
-        // Regra: Quantidade 0 ou vazia não gera item de pedido
         if (qty <= 0 || isNaN(qty)) continue
 
-        // Matching do produto
         const matchedProd = matchProductName(productDescRaw, allProducts)
         if (!matchedProd) {
-          issues.push(`Produto "${productDescRaw}" não encontrado no catálogo de produtos.`)
+          baseIssues.push(`Produto "${productDescRaw}" não encontrado no catálogo de produtos.`)
         }
 
         const price = matchedProd?.price || 0
-        totalCalculated += qty * price
-
         items.push({
           productNameRaw: productDescRaw,
           productId: matchedProd?.id,
@@ -578,59 +587,135 @@ export function parseSecretaryExcel(
         })
       }
 
-      parsedOrders.push({
+      extractedCols.push({
+        colIndex: sc.colIndex,
         schoolNameRaw: sc.schoolNameRaw,
-        schoolId: matchedSchool?.id,
-        schoolNameMatched: matchedSchool?.name,
-        routeRaw: sheetName,
-        sheetMatchedContractRota: matchedContractRota,
-        isSheetUnmatchedInContract: isSheetUnmatched,
-        rotaNomeMatched: matchedContractRota,
-        isLinkedToContract: isLinked,
+        matchedSchool,
+        isLinked,
         matchStatus,
         prefilledLink,
+        matchedContractRota,
+        isSheetUnmatched,
+        baseIssues,
         items,
+      })
+    }
+
+    // Agrupar por escola na mesma aba e consolidar somando quantidades
+    const groupsInSheet = new Map<string, ExtractedColumnData[]>()
+    for (const ec of extractedCols) {
+      // Chave: ID da escola se matched, caso contrário nome normalizado
+      const groupKey = ec.matchedSchool
+        ? `id:${ec.matchedSchool.id}`
+        : `raw:${normalizeName(ec.schoolNameRaw)}`
+      const existing = groupsInSheet.get(groupKey)
+      if (existing) {
+        existing.push(ec)
+      } else {
+        groupsInSheet.set(groupKey, [ec])
+      }
+    }
+
+    for (const cols of groupsInSheet.values()) {
+      const firstCol = cols[0]
+      const colCount = cols.length
+
+      // Consolidar itens somando quantidades de produtos correspondentes
+      // Chave do produto: productId se matched, ou productNameRaw normalizado
+      const itemMap = new Map<string, ParsedOrderItem>()
+      for (const col of cols) {
+        for (const item of col.items) {
+          const prodKey = item.productId
+            ? `id:${item.productId}`
+            : `raw:${normalizeName(item.productNameRaw)}`
+          const existingItem = itemMap.get(prodKey)
+          if (existingItem) {
+            existingItem.quantity =
+              Math.round((existingItem.quantity + item.quantity) * 1000) / 1000
+          } else {
+            itemMap.set(prodKey, { ...item })
+          }
+        }
+      }
+
+      const consolidatedItems = Array.from(itemMap.values())
+
+      // Calcular total
+      let totalCalculated = 0
+      for (const item of consolidatedItems) {
+        totalCalculated += item.quantity * item.price
+      }
+
+      // Juntar issues sem duplicatas
+      const issueSet = new Set<string>()
+      for (const col of cols) {
+        for (const iss of col.baseIssues) {
+          issueSet.add(iss)
+        }
+      }
+
+      // Se ocorreu em mais de uma coluna nesta mesma aba, registrar observação informativa (não anomalia/não erro)
+      if (colCount > 1) {
+        const schDisplayName = firstCol.matchedSchool?.name || firstCol.schoolNameRaw
+        issueSet.add(
+          `Quantidades somadas de ${colCount} lançamentos na aba ${sheetName} para "${schDisplayName}".`,
+        )
+      }
+
+      parsedOrders.push({
+        schoolNameRaw: firstCol.schoolNameRaw,
+        schoolId: firstCol.matchedSchool?.id,
+        schoolNameMatched: firstCol.matchedSchool?.name,
+        routeRaw: sheetName,
+        sheetMatchedContractRota: firstCol.matchedContractRota,
+        isSheetUnmatchedInContract: firstCol.isSheetUnmatched,
+        rotaNomeMatched: firstCol.matchedContractRota,
+        isLinkedToContract: firstCol.isLinked,
+        matchStatus: firstCol.matchStatus,
+        prefilledLink: firstCol.prefilledLink,
+        items: consolidatedItems,
         totalCalculated: Math.round(totalCalculated * 100) / 100,
-        issues,
+        issues: Array.from(issueSet),
+        mergedColumnsCount: colCount > 1 ? colCount : undefined,
       })
     }
   }
 
-  // Verificar duplicidades:
-  // 1. Escola em abas DISTINTAS (ex.: ROTA A e ROTA B)
-  // 2. Escola em DUAS OU MAIS COLUNAS DENTRO DA MESMA ABA
-  for (const [normSchool, sheetMap] of schoolSheetOccurrences.entries()) {
-    const distinctSheets = Array.from(sheetMap.keys())
+  // Verificar anomalias de duplicidade:
+  // APENAS quando a mesma escola aparece em ABAS DISTINTAS (ex.: ROTA A e ROTA B).
+  // Múltiplas colunas na MESMA aba já foram unificadas acima e NÃO geram mais anomalia nem isDuplicateInOtherSheets.
+  // Mapear escolas das ordens geradas por aba para identificar abas distintas
+  const schoolDistinctSheets = new Map<string, Set<string>>()
+  for (const po of parsedOrders) {
+    const key = po.schoolId ? `id:${po.schoolId}` : `raw:${normalizeName(po.schoolNameRaw)}`
+    let set = schoolDistinctSheets.get(key)
+    if (!set) {
+      set = new Set<string>()
+      schoolDistinctSheets.set(key, set)
+    }
+    set.add(po.routeRaw)
+  }
 
-    // Caso 1: Encontrada em múltiplas abas distintas
-    if (distinctSheets.length > 1) {
-      const msg = `Anomalia de duplicidade: A escola "${normSchool}" foi encontrada em múltiplas abas (${distinctSheets.join(', ')}).`
+  for (const [key, sheetsSet] of schoolDistinctSheets.entries()) {
+    if (sheetsSet.size > 1) {
+      const distinctSheets = Array.from(sheetsSet)
+      const matchingOrders = parsedOrders.filter((po) => {
+        const orderKey = po.schoolId
+          ? `id:${po.schoolId}`
+          : `raw:${normalizeName(po.schoolNameRaw)}`
+        return orderKey === key
+      })
+      const schDisplayName =
+        matchingOrders[0]?.schoolNameMatched || matchingOrders[0]?.schoolNameRaw || key
+
+      const msg = `Anomalia de duplicidade: A escola "${schDisplayName}" foi encontrada em múltiplas abas (${distinctSheets.join(', ')}).`
       anomalies.push(msg)
 
-      for (const po of parsedOrders) {
-        if (normalizeName(po.schoolNameRaw) === normSchool) {
-          po.isDuplicateInOtherSheets = true
-          po.issues.push(
-            `Atenção: Esta escola apareceu em mais de uma rota da planilha (${distinctSheets.join(', ')}).`,
-          )
-        }
-      }
-    }
-
-    // Caso 2: Encontrada em múltiplas colunas dentro da mesma aba
-    for (const [sheetName, colCount] of sheetMap.entries()) {
-      if (colCount > 1) {
-        const msg = `Anomalia de duplicidade: A escola "${normSchool}" foi encontrada em ${colCount} colunas da mesma aba (${sheetName}).`
-        anomalies.push(msg)
-
-        for (const po of parsedOrders) {
-          if (normalizeName(po.schoolNameRaw) === normSchool && po.routeRaw === sheetName) {
-            po.isDuplicateInOtherSheets = true
-            po.issues.push(
-              `Atenção: Esta escola apareceu em ${colCount} colunas da mesma aba (${sheetName}).`,
-            )
-          }
-        }
+      for (const po of matchingOrders) {
+        po.isDuplicateInOtherSheets = true
+        po.issues.push(
+          `Atenção: Esta escola apareceu em mais de uma rota da planilha (${distinctSheets.join(', ')}).`,
+        )
       }
     }
   }
@@ -640,7 +725,14 @@ export function parseSecretaryExcel(
   let pendingIssuesCount = 0
 
   for (const po of parsedOrders) {
-    if (po.issues.length > 0) {
+    const hasBlockingIssues =
+      po.matchStatus !== 'ok' ||
+      !po.isLinkedToContract ||
+      po.isDuplicateInOtherSheets ||
+      po.isSheetUnmatchedInContract ||
+      po.items.some((it) => !it.productId)
+
+    if (hasBlockingIssues) {
       pendingIssuesCount++
     }
     for (const it of po.items) {

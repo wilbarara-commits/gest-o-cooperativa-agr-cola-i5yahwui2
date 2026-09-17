@@ -76,6 +76,10 @@ import { rotasLogisticasService } from '@/services/rotas-logisticas'
 import { escolasService } from '@/services/escolas'
 import { normalizeName } from '@/lib/excelImporter'
 import { ContractItemsManager, type ContractItemForm } from '@/components/ContractItemsManager'
+import {
+  ContractSchoolImportDialog,
+  type ImportedSchoolLinkResult,
+} from '@/components/ContractSchoolImportDialog'
 
 interface ContractSchoolForm {
   escolaId: string
@@ -149,6 +153,9 @@ export default function Contracts() {
   const [quickSchoolTipo, setQuickSchoolTipo] = useState('')
   const [quickSchoolRotaPlanilha, setQuickSchoolRotaPlanilha] = useState('')
   const [isCreatingQuickSchool, setIsCreatingQuickSchool] = useState(false)
+
+  // Diálogo de Importação CSV/Planilha de Escolas para o Contrato
+  const [schoolImportDialogOpen, setSchoolImportDialogOpen] = useState(false)
 
   // Rotas da Planilha / Secretaria (referência)
   const [contractRotas, setContractRotas] = useState<
@@ -1387,16 +1394,28 @@ export default function Contracts() {
                       Planilha correspondente, ou cadastre uma nova escola sem duplicar.
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs shrink-0 gap-1.5"
-                    onClick={() => setShowQuickCreateSchool(!showQuickCreateSchool)}
-                  >
-                    <Plus className="h-3.5 w-3.5 text-primary" />
-                    {showQuickCreateSchool ? 'Ocultar Cadastro' : 'Cadastrar Nova Escola'}
-                  </Button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1.5 bg-background shadow-xs hover:border-primary/50 text-foreground"
+                      onClick={() => setSchoolImportDialogOpen(true)}
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5 text-primary" />
+                      Importar CSV / Planilha
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs shrink-0 gap-1.5"
+                      onClick={() => setShowQuickCreateSchool(!showQuickCreateSchool)}
+                    >
+                      <Plus className="h-3.5 w-3.5 text-primary" />
+                      {showQuickCreateSchool ? 'Ocultar Cadastro' : 'Cadastrar Nova Escola'}
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Painel de Cadastro Rápido de Escola Nova no Mestre */}
@@ -1745,6 +1764,36 @@ export default function Contracts() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* DIÁLOGO DE IMPORTAÇÃO DE ESCOLAS CSV / PLANILHA PARA O CONTRATO */}
+      <ContractSchoolImportDialog
+        open={schoolImportDialogOpen}
+        onOpenChange={setSchoolImportDialogOpen}
+        contractId={editingContract?.id}
+        contractRotas={contractRotas}
+        masterSchools={schools}
+        allContracts={contracts}
+        currentLinkedSchoolIds={new Set(contractSchoolsForm.map((s) => s.escolaId))}
+        onSuccess={async (importedLinks: ImportedSchoolLinkResult[]) => {
+          // Atualiza a lista do formulário mantendo integridade e a rota da planilha atribuída
+          setContractSchoolsForm((prev) => {
+            const map = new Map<string, string>() // escolaId -> rotaId
+            for (const item of prev) {
+              map.set(item.escolaId, item.rotaId)
+            }
+            for (const imp of importedLinks) {
+              map.set(imp.escolaId, imp.rotaPlanilha)
+            }
+            return Array.from(map.entries()).map(([escolaId, rotaId]) => ({
+              escolaId,
+              rotaId,
+            }))
+          })
+
+          // Atualizar o contexto global de escolas (pois novas escolas podem ter sido criadas e dados atualizados)
+          await refreshData()
+        }}
+      />
 
       {/* DIALOG DE RELATÓRIO DE EXECUÇÃO DO CONTRATO */}
       <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>

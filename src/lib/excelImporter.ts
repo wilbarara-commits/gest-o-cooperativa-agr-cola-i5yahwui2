@@ -62,6 +62,7 @@ export interface ParsedSchoolOrder {
 export interface ParsedExcelResult {
   routesFound: string[]
   unmatchedSheets?: string[]
+  ignoredUnmatchedSheets?: string[]
   orders: ParsedSchoolOrder[]
   totalItemsCount: number
   totalWeight: number
@@ -405,9 +406,10 @@ export function parseSecretaryExcel(
   contractRotas?: Array<{ nome: string } | string>,
 ): ParsedExcelResult {
   const sheetNames = workbook.SheetNames
+  const candidateSheets: string[] = []
   const routesToImport: string[] = []
   const ignoredSheets: string[] = []
-  const unmatchedSheets: string[] = []
+  const ignoredUnmatchedSheets: string[] = []
 
   // Normalizar lista de rotas do contrato se fornecida
   const hasContractRotas = Boolean(contractRotas && contractRotas.length > 0)
@@ -425,29 +427,32 @@ export function parseSecretaryExcel(
     ) {
       ignoredSheets.push(name)
     } else {
-      routesToImport.push(name)
+      candidateSheets.push(name)
+    }
+  }
+
+  const sheetMatchedMap = new Map<string, string | null>() // sheetName -> matchedContractRotaNome
+
+  // Quando o contrato possui rotas cadastradas:
+  // Abas não cadastradas são COMPLETAMENTE IGNORADAS (não lidas, não geram pedidos, nem pendências/erros).
+  for (const sheetName of candidateSheets) {
+    if (hasContractRotas && contractRotas) {
+      const matched = matchSheetToContractRota(sheetName, contractRotas)
+      if (matched) {
+        sheetMatchedMap.set(sheetName, matched)
+        routesToImport.push(sheetName)
+      } else {
+        ignoredUnmatchedSheets.push(sheetName)
+      }
+    } else {
+      routesToImport.push(sheetName)
     }
   }
 
   const parsedOrders: ParsedSchoolOrder[] = []
   // Rastrear ocorrências de escolas por aba: escolaNorm -> Map<sheetName, count de colunas>
   const schoolSheetOccurrences = new Map<string, Map<string, number>>()
-  const sheetMatchedMap = new Map<string, string | null>() // sheetName -> matchedContractRotaNome
   const anomalies: string[] = []
-
-  // Verificar casamentos de aba com as rotas cadastradas no contrato
-  if (hasContractRotas && contractRotas) {
-    for (const sheetName of routesToImport) {
-      const matched = matchSheetToContractRota(sheetName, contractRotas)
-      sheetMatchedMap.set(sheetName, matched)
-      if (!matched) {
-        unmatchedSheets.push(sheetName)
-        anomalies.push(
-          `Aba "${sheetName}" da planilha não corresponde a nenhuma rota cadastrada nas configurações deste contrato.`,
-        )
-      }
-    }
-  }
 
   for (const sheetName of routesToImport) {
     const worksheet = workbook.Sheets[sheetName]
@@ -505,7 +510,7 @@ export function parseSecretaryExcel(
     const matchedContractRota = sheetMatchedMap.has(sheetName)
       ? sheetMatchedMap.get(sheetName) || undefined
       : undefined
-    const isSheetUnmatched = hasContractRotas && !matchedContractRota
+    const isSheetUnmatched = false
     const suggestedRotaName = matchedContractRota || sheetName
 
     // Extrair dados de cada coluna individual
@@ -523,11 +528,6 @@ export function parseSecretaryExcel(
       sheetMap.set(sheetName, (sheetMap.get(sheetName) || 0) + 1)
 
       const baseIssues: string[] = []
-      if (isSheetUnmatched) {
-        baseIssues.push(
-          `Aba "${sheetName}" não cadastrada nas rotas deste contrato. Cadastre-a no contrato ou revise a aba.`,
-        )
-      }
 
       // Matching da escola contra o CADASTRO MESTRE GLOBAL
       const matchResult = matchSchoolName(sc.schoolNameRaw, availableSchools, contractSchools)
@@ -743,7 +743,8 @@ export function parseSecretaryExcel(
 
   return {
     routesFound: routesToImport,
-    unmatchedSheets: unmatchedSheets.length > 0 ? unmatchedSheets : undefined,
+    unmatchedSheets: ignoredUnmatchedSheets.length > 0 ? ignoredUnmatchedSheets : undefined,
+    ignoredUnmatchedSheets: ignoredUnmatchedSheets.length > 0 ? ignoredUnmatchedSheets : undefined,
     orders: parsedOrders,
     totalItemsCount,
     totalWeight: Math.round(totalWeight * 100) / 100,

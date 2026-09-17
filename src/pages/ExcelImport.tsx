@@ -470,6 +470,14 @@ export default function ExcelImport() {
       }
 
       // Registrar o histórico na collection 'importacoes'
+      const auditLog = [...errorLog]
+      if (parsedData.ignoredUnmatchedSheets && parsedData.ignoredUnmatchedSheets.length > 0) {
+        auditLog.push({
+          tipo: 'info',
+          observacao: `Abas ignoradas (sem rota cadastrada correspondente): ${parsedData.ignoredUnmatchedSheets.join(', ')}`,
+        })
+      }
+
       await importacoesService.create({
         ciclo_id: activeCiclo?.id || '',
         contrato_id: selectedContract.id,
@@ -479,7 +487,7 @@ export default function ExcelImport() {
         linhas_total: parsedData.orders.length,
         linhas_ok: okCount,
         linhas_erro: errorCount + (parsedData.orders.length - validOrders.length),
-        erros: errorLog,
+        erros: auditLog.length > 0 ? auditLog : undefined,
       })
 
       toast.success(
@@ -718,23 +726,42 @@ export default function ExcelImport() {
                 </Card>
               </div>
 
-              {/* Alertas de Anomalias de Duplicidade ou Abas não Cadastradas */}
+              {/* Informação neutra e discreta sobre abas ignoradas (sem rota cadastrada correspondente) */}
+              {parsedData.ignoredUnmatchedSheets &&
+                parsedData.ignoredUnmatchedSheets.length > 0 && (
+                  <div className="p-3 rounded-lg bg-muted/60 border border-border text-muted-foreground text-xs flex items-start gap-2">
+                    <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <p className="font-medium text-foreground">
+                        {parsedData.ignoredUnmatchedSheets.length}{' '}
+                        {parsedData.ignoredUnmatchedSheets.length === 1
+                          ? 'aba ignorada'
+                          : 'abas ignoradas'}{' '}
+                        (sem rota cadastrada correspondente neste contrato):{' '}
+                        <span className="font-mono text-foreground">
+                          {parsedData.ignoredUnmatchedSheets.join(', ')}
+                        </span>
+                      </p>
+                      <p className="text-[11px]">
+                        Estas abas foram puladas automaticamente, não foram lidas e não geram
+                        pedidos nem erros. Caso deseje importar alguma delas, cadastre a rota
+                        correspondente nas configurações do contrato.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+              {/* Alertas de Anomalias de Duplicidade entre Abas Distintas */}
               {parsedData.anomalies.length > 0 && (
                 <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs space-y-1">
                   <p className="font-semibold flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
-                    <ShieldAlert className="h-4 w-4" /> Alertas / Pendências Detectadas na Planilha:
+                    <ShieldAlert className="h-4 w-4" /> Alertas Detectados na Planilha:
                   </p>
                   {parsedData.anomalies.map((anom, idx) => (
                     <p key={idx} className="pl-5">
                       • {anom}
                     </p>
                   ))}
-                  {parsedData.unmatchedSheets && parsedData.unmatchedSheets.length > 0 && (
-                    <p className="pl-5 pt-1 text-[11px] text-muted-foreground italic">
-                      Dica: Você pode cadastrar o nome dessas rotas na aba &quot;Escolas&quot; do
-                      Contrato para que o sistema reconheça automaticamente as abas importadas.
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -757,7 +784,6 @@ export default function ExcelImport() {
                         po.matchStatus !== 'ok' ||
                         !po.isLinkedToContract ||
                         po.isDuplicateInOtherSheets ||
-                        po.isSheetUnmatchedInContract ||
                         po.items.some((it) => !it.productId)
 
                       return (
@@ -765,15 +791,11 @@ export default function ExcelImport() {
                           <TableCell className="font-semibold text-xs text-primary">
                             <div className="flex flex-col gap-0.5">
                               <span>{po.routeRaw}</span>
-                              {po.sheetMatchedContractRota ? (
+                              {po.sheetMatchedContractRota && (
                                 <span className="text-[10px] text-emerald-600 font-normal">
                                   ✓ Rota: {po.sheetMatchedContractRota}
                                 </span>
-                              ) : po.isSheetUnmatchedInContract ? (
-                                <span className="text-[10px] text-amber-600 font-normal">
-                                  Aba não cadastrada no contrato
-                                </span>
-                              ) : null}
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="font-medium text-xs">

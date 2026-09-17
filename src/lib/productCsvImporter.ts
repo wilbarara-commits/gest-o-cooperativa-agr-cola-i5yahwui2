@@ -7,19 +7,7 @@ import * as XLSX from 'xlsx'
 export type ProdutoCategoria = 'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
 export type ProdutoDisponibilidade = 'normal' | 'escassez' | 'abundancia'
 
-export const CANONICAL_PRODUCT_UNITS = [
-  'KG',
-  'G',
-  'L',
-  'ML',
-  'UN',
-  'CX',
-  'FD',
-  'Dúzia',
-  'Maço',
-] as const
-
-export type CanonicalProductUnit = (typeof CANONICAL_PRODUCT_UNITS)[number]
+export const DEFAULT_PRODUCT_UNIT = 'kg'
 
 export interface ProductFieldChange {
   field: 'categoria' | 'unidade' | 'estoque' | 'preco_unitario' | 'disponibilidade'
@@ -129,84 +117,19 @@ export function normalizeProdutoCategoria(rawCategoria: string): {
 }
 
 /**
- * Normaliza a unidade informada para uma das opções canônicas do sistema:
- * 'KG' | 'G' | 'L' | 'ML' | 'UN' | 'CX' | 'FD' | 'Dúzia' | 'Maço'
- * Tolerante a caixa e diacríticos.
- * Se vazia, retorna unidade vazia. Se não reconhecida, retorna o valor original limpo
- * com isRecognized = false para gerar aviso no preview sem quebrar.
+ * Limpa a unidade informada preservando estritamente o case original e sem transformações:
+ * se o arquivo traz "kg", grava "kg"; se traz "Dúzia", grava "Dúzia"; se traz "dz", grava "dz".
+ * Apenas aplica trim dos espaços nas bordas.
  */
 export function normalizeProdutoUnidade(rawUnidade: string): {
   unidade: string
   isRecognized: boolean
 } {
   const trimmed = rawUnidade ? rawUnidade.trim() : ''
-  if (!trimmed) {
-    return { unidade: '', isRecognized: false }
+  return {
+    unidade: trimmed,
+    isRecognized: Boolean(trimmed),
   }
-
-  const norm = normalizeName(trimmed)
-
-  // Dúzia: duzia / dúzia / duzias / dúzias / dz
-  if (norm === 'duzia' || norm === 'duzias' || norm === 'dz') {
-    return { unidade: 'Dúzia', isRecognized: true }
-  }
-
-  // KG: kg / kilo / quilo / kgs / quilos
-  if (norm === 'kg' || norm === 'kilo' || norm === 'quilo' || norm === 'kgs' || norm === 'quilos') {
-    return { unidade: 'KG', isRecognized: true }
-  }
-
-  // G: g / gr / grama / gramas
-  if (norm === 'g' || norm === 'gr' || norm === 'grama' || norm === 'gramas') {
-    return { unidade: 'G', isRecognized: true }
-  }
-
-  // UN: un / und / unid / unidade / unidades
-  if (
-    norm === 'un' ||
-    norm === 'und' ||
-    norm === 'unid' ||
-    norm === 'unidade' ||
-    norm === 'unidades'
-  ) {
-    return { unidade: 'UN', isRecognized: true }
-  }
-
-  // CX: cx / caixa / caixas
-  if (norm === 'cx' || norm === 'caixa' || norm === 'caixas') {
-    return { unidade: 'CX', isRecognized: true }
-  }
-
-  // Maço: maco / maço / molho / maços / molhos
-  if (norm === 'maco' || norm === 'macos' || norm === 'molho' || norm === 'molhos') {
-    return { unidade: 'Maço', isRecognized: true }
-  }
-
-  // FD: fd / fardo / fardos
-  if (norm === 'fd' || norm === 'fardo' || norm === 'fardos') {
-    return { unidade: 'FD', isRecognized: true }
-  }
-
-  // L: l / litro / litros
-  if (norm === 'l' || norm === 'litro' || norm === 'litros') {
-    return { unidade: 'L', isRecognized: true }
-  }
-
-  // ML: ml
-  if (norm === 'ml') {
-    return { unidade: 'ML', isRecognized: true }
-  }
-
-  // Match direto com alguma canônica existente (ex: "Dúzia", "Maço", "KG")
-  const direct = CANONICAL_PRODUCT_UNITS.find(
-    (u) => u.toLowerCase() === trimmed.toLowerCase() || normalizeName(u) === norm,
-  )
-  if (direct) {
-    return { unidade: direct, isRecognized: true }
-  }
-
-  // Valor não reconhecido: preserva trimmed para não quebrar e avisa
-  return { unidade: trimmed, isRecognized: false }
 }
 
 /**
@@ -409,7 +332,7 @@ export interface ParseProductsOptions {
  *   coluna em branco mantém o valor gravado no registro existente.
  *   Gera fieldChanges para o preview detalhado.
  * - PRODUTO NOVO: colunas preenchidas usam o valor da linha; colunas em branco assumem os defaults:
- *   categoria "Hortaliças", disponibilidade "normal" (Normal), estoque 0, unidade "KG", preço unitário 0.
+ *   categoria "Hortaliças", disponibilidade "normal" (Normal), estoque 0, unidade "kg", preço unitário 0.
  */
 export async function parseProductsInput(
   options: ParseProductsOptions,
@@ -513,7 +436,7 @@ export async function parseProductsInput(
         rawDisponibilidade,
         nome: '',
         categoria: 'Hortaliças',
-        unidade: 'KG',
+        unidade: DEFAULT_PRODUCT_UNIT,
         estoque: 0,
         preco_unitario: 0,
         disponibilidade: 'normal',
@@ -546,7 +469,7 @@ export async function parseProductsInput(
         rawDisponibilidade,
         nome: rawNome,
         categoria: 'Hortaliças',
-        unidade: rawUnidade || 'KG',
+        unidade: rawUnidade ? rawUnidade.trim() : DEFAULT_PRODUCT_UNIT,
         estoque: 0,
         preco_unitario: 0,
         disponibilidade: 'normal',
@@ -620,22 +543,21 @@ export async function parseProductsInput(
       }
     }
 
-    // B. Unidade (com normalização canônica para variantes pt-BR)
-    let finalUnidade = 'KG'
+    // B. Unidade (preservando rigorosamente o case original do arquivo, apenas com trim)
+    let finalUnidade = DEFAULT_PRODUCT_UNIT
     if (hasRawUnidade) {
-      const { unidade: mappedUnit, isRecognized } = normalizeProdutoUnidade(rawUnidade)
-      finalUnidade = mappedUnit || 'KG'
-      if (!isRecognized && mappedUnit) {
-        warnings.push(`Unidade "${rawUnidade}" não usual; mantida como "${mappedUnit}".`)
-      }
+      const trimmedUnit = rawUnidade.trim()
+      finalUnidade =
+        trimmedUnit ||
+        (isExisting ? existingMaster!.unit || DEFAULT_PRODUCT_UNIT : DEFAULT_PRODUCT_UNIT)
     } else {
       // Em branco:
       // se existente -> mantém existente
-      // se novo -> default 'KG'
+      // se novo -> default 'kg'
       if (isExisting) {
-        finalUnidade = existingMaster!.unit || 'KG'
+        finalUnidade = existingMaster!.unit || DEFAULT_PRODUCT_UNIT
       } else {
-        finalUnidade = 'KG'
+        finalUnidade = DEFAULT_PRODUCT_UNIT
       }
     }
 
@@ -701,6 +623,8 @@ export async function parseProductsInput(
           newValue: finalCategoria,
         })
       }
+      // Para o cálculo de mudanças no preview e atualização, detecta se o valor mudou
+      // Se a coluna veio presente e seu valor difere do valor gravado
       if (hasRawUnidade && finalUnidade !== existingMaster.unit) {
         fieldChanges.push({
           field: 'unidade',
@@ -748,7 +672,7 @@ export async function parseProductsInput(
     } else {
       const defaultsApplied: string[] = []
       if (!hasRawCategoria) defaultsApplied.push('categoria "Hortaliças"')
-      if (!hasRawUnidade) defaultsApplied.push('unidade "KG"')
+      if (!hasRawUnidade) defaultsApplied.push(`unidade "${DEFAULT_PRODUCT_UNIT}"`)
       if (!hasRawEstoque) defaultsApplied.push('estoque 0')
       if (!hasRawPreco) defaultsApplied.push('preço R$ 0,00')
       if (!hasRawDisponibilidade) defaultsApplied.push('disponibilidade "Normal"')
@@ -818,7 +742,7 @@ export async function parseProductsFile(
       name: (p as any).name || (p as any).nome || '',
       category: 'Hortaliças',
       stock: 0,
-      unit: 'KG',
+      unit: DEFAULT_PRODUCT_UNIT,
       price: 0,
       disponibilidade: 'normal',
     }

@@ -154,10 +154,10 @@ export function ProductImportDialog({
   const handleDownloadModel = () => {
     const csvContent =
       'nome,categoria,unidade,estoque,preco_unitario,disponibilidade\n' +
-      'Alface Crespa,Hortaliças,KG,"1.250","8,50",Normal\n' +
-      'Banana Prata,Frutas,KG,"850","6,00",Normal\n' +
-      'Feijão Carioca,Grãos,KG,"500","12,50",Escassez\n' +
-      'Cenoura,Legumes,KG,"400","4,80",Abundância\n' +
+      'Alface Crespa,Hortaliças,kg,"1.250","8,50",Normal\n' +
+      'Banana Prata,Frutas,kg,"850","6,00",Normal\n' +
+      'Feijão Carioca,Grãos,kg,"500","12,50",Escassez\n' +
+      'Cenoura,Legumes,kg,"400","4,80",Abundância\n' +
       'Couve Manteiga,,,"250",,\n'
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -381,7 +381,7 @@ export function ProductImportDialog({
             ) : (
               <div className="space-y-2 flex-1 flex flex-col">
                 <Textarea
-                  placeholder={`Cole as linhas do Excel ou CSV aqui...\nExemplo:\nAlface Crespa\tHortaliças\tKG\t1.250\t8,50\tNormal\nBanana Prata\tFrutas\tKG\t850\t6,00\tNormal\nCenoura\t\t\t400\t4,50\t`}
+                  placeholder={`Cole as linhas do Excel ou CSV aqui...\nExemplo:\nAlface Crespa\tHortaliças\tkg\t1.250\t8,50\tNormal\nBanana Prata\tFrutas\tkg\t850\t6,00\tNormal\nCenoura\t\t\t400\t4,50\t`}
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
                   className="flex-1 min-h-[200px] text-xs font-mono resize-none"

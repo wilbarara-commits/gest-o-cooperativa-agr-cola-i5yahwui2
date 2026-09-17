@@ -25,7 +25,7 @@ import { toast } from 'sonner'
 import { useState } from 'react'
 import { Label } from '@/components/ui/label'
 import { produtosService } from '@/services/produtos'
-import { CANONICAL_PRODUCT_UNITS } from '@/lib/productCsvImporter'
+import { DEFAULT_PRODUCT_UNIT } from '@/lib/productCsvImporter'
 import { ProductImportDialog } from '@/components/ProductImportDialog'
 
 export default function Products() {
@@ -40,7 +40,7 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState<any>(null)
   const [editPreco, setEditPreco] = useState('')
   const [editEstoque, setEditEstoque] = useState('')
-  const [editUnidade, setEditUnidade] = useState('KG')
+  const [editUnidade, setEditUnidade] = useState(DEFAULT_PRODUCT_UNIT)
   const [editDisponibilidade, setEditDisponibilidade] = useState<
     'normal' | 'escassez' | 'abundancia'
   >('normal')
@@ -53,7 +53,7 @@ export default function Products() {
     setEditingProduct(p)
     setEditPreco(String(p.price ?? 0))
     setEditEstoque(String(p.stock ?? 0))
-    setEditUnidade(p.unit || 'KG')
+    setEditUnidade(p.unit || DEFAULT_PRODUCT_UNIT)
     setEditDisponibilidade(p.disponibilidade || 'normal')
     setEditDialogOpen(true)
   }
@@ -72,12 +72,14 @@ export default function Products() {
       return
     }
 
+    const trimmedUnidade = editUnidade.trim() || DEFAULT_PRODUCT_UNIT
+
     setIsSubmitting(true)
     try {
       await produtosService.update(editingProduct.id, {
         preco_unitario: parsedPrice,
         estoque: parsedStock,
-        unidade: editUnidade || 'KG',
+        unidade: trimmedUnidade,
         disponibilidade: editDisponibilidade,
       })
       toast.success(`Produto "${editingProduct.name}" atualizado com sucesso!`)
@@ -236,22 +238,14 @@ export default function Products() {
                 <Label htmlFor="edit-unidade" className="text-sm font-semibold">
                   Unidade de Medida
                 </Label>
-                <select
+                <Input
                   id="edit-unidade"
+                  type="text"
                   value={editUnidade}
                   onChange={(e) => setEditUnidade(e.target.value)}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  {CANONICAL_PRODUCT_UNITS.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
-                  ))}
-                  {/* Se o produto possuir uma unidade legada fora da lista canônica, mantém como opção selecionável */}
-                  {!CANONICAL_PRODUCT_UNITS.includes(editUnidade as any) && editUnidade && (
-                    <option value={editUnidade}>{editUnidade}</option>
-                  )}
-                </select>
+                  placeholder="Ex: kg, Dúzia, dz, Maço..."
+                  className="w-full h-9"
+                />
               </div>
 
               <div className="space-y-2">
@@ -272,7 +266,7 @@ export default function Products() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-estoque" className="text-sm font-semibold">
-                Estoque ({editUnidade || 'KG'})
+                Estoque ({editUnidade.trim() || DEFAULT_PRODUCT_UNIT})
               </Label>
               <Input
                 id="edit-estoque"

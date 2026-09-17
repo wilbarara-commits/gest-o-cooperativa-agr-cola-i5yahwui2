@@ -1,6 +1,7 @@
 import type { EscolaTipo, School, Contract } from '@/lib/types'
 import { normalizeName } from '@/lib/excelImporter'
 import { normalizeEscolaTipo, parseCsvTextToMatrix } from '@/lib/schoolCsvImporter'
+import { parsePtBrNumber } from '@/lib/numberParser'
 import * as XLSX from 'xlsx'
 
 export interface ContractSchoolFieldChange {
@@ -388,12 +389,12 @@ export async function parseContractSchoolsMatrix(
 
     let mappedAlunos: number | undefined
     if (rawAlunos) {
-      const cleaned = rawAlunos.replace(/[^\d]/g, '')
-      const parsedNum = parseInt(cleaned, 10)
-      if (isNaN(parsedNum)) {
+      // Suporte a números no padrão pt-BR (ex.: "1.250", "350")
+      const parsedAlunos = parsePtBrNumber(rawAlunos)
+      if (!parsedAlunos.isValid || parsedAlunos.value < 0) {
         warnings.push(`Número de alunos "${rawAlunos}" inválido.`)
       } else {
-        mappedAlunos = parsedNum
+        mappedAlunos = Math.round(parsedAlunos.value)
       }
     }
 

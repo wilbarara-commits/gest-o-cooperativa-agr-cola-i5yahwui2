@@ -27,36 +27,20 @@ export interface ContractItemsFileParseResult {
   errorCount: number
 }
 
+import { parsePtBrNumber } from '@/lib/numberParser'
+
 /**
  * Converte valor numérico com suporte a formato brasileiro (1.234,56 ou 1234,56 ou 1234.56 ou R$ ...)
+ * Reutiliza o analisador centralizado parsePtBrNumber.
  */
 export function parseBRLNumber(val: any): { value: number; isValid: boolean } {
   if (val === undefined || val === null || val === '') {
     return { value: 0, isValid: false }
   }
-
-  if (typeof val === 'number') {
-    return { value: isNaN(val) ? 0 : val, isValid: !isNaN(val) }
-  }
-
-  let str = String(val).trim()
-  // Remove moeda e espaços
-  str = str.replace(/[R$\s]/g, '')
-
-  if (!str) return { value: 0, isValid: false }
-
-  // Se tiver vírgula e ponto (ex: 1.234,56), remove o ponto e troca a vírgula por ponto
-  if (str.includes('.') && str.includes(',')) {
-    str = str.replace(/\./g, '').replace(',', '.')
-  } else if (str.includes(',')) {
-    // Apenas vírgula (ex: 12,50)
-    str = str.replace(',', '.')
-  }
-
-  const num = parseFloat(str)
+  const result = parsePtBrNumber(val)
   return {
-    value: isNaN(num) ? 0 : num,
-    isValid: !isNaN(num) && isFinite(num),
+    value: result.value,
+    isValid: result.isValid && !result.isEmpty,
   }
 }
 

@@ -1,5 +1,6 @@
 import type { EscolaTipo } from '@/lib/types'
 import { normalizeName } from '@/lib/excelImporter'
+import { parsePtBrNumber } from '@/lib/numberParser'
 import * as XLSX from 'xlsx'
 
 export interface SchoolFieldChange {
@@ -392,12 +393,11 @@ export async function parseSchoolsFile(
     // 4. Mapeamento de alunos
     let mappedAlunos: number | undefined
     if (rawAlunos) {
-      const cleaned = rawAlunos.replace(/[^\d]/g, '')
-      const parsedNum = parseInt(cleaned, 10)
-      if (isNaN(parsedNum)) {
+      const parsedAlunos = parsePtBrNumber(rawAlunos)
+      if (!parsedAlunos.isValid || parsedAlunos.value < 0) {
         warnings.push(`Número de alunos "${rawAlunos}" não numérico.`)
       } else {
-        mappedAlunos = parsedNum
+        mappedAlunos = Math.round(parsedAlunos.value)
       }
     }
 

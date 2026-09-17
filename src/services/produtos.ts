@@ -46,6 +46,54 @@ export const produtosService = {
     return { created, errors }
   },
 
+  /**
+   * Executa importação com atualização seletiva para produtos existentes
+   * e criação com defaults para novos produtos.
+   */
+  async importBatch(
+    items: Array<{
+      status: 'create' | 'update'
+      id?: string
+      nome: string
+      data: Partial<ProdutoRecord>
+    }>,
+    onProgress?: (processed: number, total: number) => void,
+  ): Promise<{
+    created: number
+    updated: number
+    errors: Array<{ index: number; nome: string; error: string }>
+  }> {
+    let created = 0
+    let updated = 0
+    const errors: Array<{ index: number; nome: string; error: string }> = []
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      const nomeStr = item.nome || `Item ${i + 1}`
+      try {
+        if (item.status === 'create') {
+          await pb.collection('produtos').create<ProdutoRecord>({
+            ...item.data,
+            nome: item.nome,
+            disponibilidade: item.data.disponibilidade || 'normal',
+          })
+          created++
+        } else if (item.status === 'update' && item.id) {
+          // Atualização seletiva: envia apenas os campos fornecidos
+          await pb.collection('produtos').update<ProdutoRecord>(item.id, item.data)
+          updated++
+        }
+      } catch (err: any) {
+        console.error(`Erro ao importar produto [${nomeStr}]:`, err)
+        const msg = err?.response?.message || err?.message || 'Falha ao salvar produto'
+        errors.push({ index: i, nome: nomeStr, error: msg })
+      }
+      onProgress?.(i + 1, items.length)
+    }
+
+    return { created, updated, errors }
+  },
+
   async findByNameNormalized(nome: string): Promise<ProdutoRecord | null> {
     const all = await this.getAll()
     const norm = (str: string) =>

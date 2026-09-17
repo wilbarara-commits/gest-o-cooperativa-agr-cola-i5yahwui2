@@ -1,9 +1,18 @@
 import { normalizeName } from '@/lib/excelImporter'
 import { parseCsvTextToMatrix } from '@/lib/schoolCsvImporter'
+import { parsePtBrNumber } from '@/lib/numberParser'
+import type { Product } from '@/lib/types'
 import * as XLSX from 'xlsx'
 
 export type ProdutoCategoria = 'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
 export type ProdutoDisponibilidade = 'normal' | 'escassez' | 'abundancia'
+
+export interface ProductFieldChange {
+  field: 'categoria' | 'unidade' | 'estoque' | 'preco_unitario' | 'disponibilidade'
+  label: string
+  oldValue: string
+  newValue: string
+}
 
 export interface ParsedCsvProductRow {
   index: number // 1-based, considerando cabeçalho na linha 1
@@ -14,16 +23,34 @@ export interface ParsedCsvProductRow {
   rawPreco: string
   rawDisponibilidade: string
 
-  // Campos mapeados e normalizados
+  // Campos mapeados e normalizados finais (com defaults aplicados para novos ou preservados para existentes)
   nome: string
-  categoria: ProdutoCategoria | ''
+  categoria: ProdutoCategoria
   unidade: string
   estoque: number
   preco_unitario: number
   disponibilidade: ProdutoDisponibilidade
 
-  // Status de validação
-  status: 'valid' | 'duplicate_master' | 'duplicate_file' | 'error'
+  // Qual colunas vieram presentes/preenchidas na linha
+  presentColumns: {
+    categoria: boolean
+    unidade: boolean
+    estoque: boolean
+    preco: boolean
+    disponibilidade: boolean
+  }
+
+  // Se existente no banco
+  existingProductId?: string
+  existingProductName?: string
+  fieldChanges: ProductFieldChange[]
+
+  // Status de validação e destino
+  // - 'create': Novo produto com defaults aplicados onde estiver em branco
+  // - 'update': Produto existente com atualização seletiva das colunas informadas
+  // - 'duplicate_file': Linha repetida no próprio arquivo/texto colado
+  // - 'error': Nome inválido ou em branco
+  status: 'create' | 'update' | 'duplicate_file' | 'error'
   statusReason?: string
   warnings: string[]
 }
@@ -31,10 +58,11 @@ export interface ParsedCsvProductRow {
 export interface ProductCsvParseResult {
   fileName: string
   totalRows: number
-  validRows: ParsedCsvProductRow[]
-  duplicateMasterCount: number
-  duplicateFileCount: number
-  errorCount: number
+  createdRows: ParsedCsvProductRow[]
+  updatedRows: ParsedCsvProductRow[]
+  processableRows: ParsedCsvProductRow[]
+  duplicateFileRows: ParsedCsvProductRow[]
+  errorRows: ParsedCsvProductRow[]
   allRows: ParsedCsvProductRow[]
 }
 
@@ -98,13 +126,19 @@ export function parseEssencialField(val: string): boolean {
 /**
  * Normaliza a disponibilidade:
  * 'normal' | 'escassez' | 'abundancia'
- * Tolerante a acentuação e maiúsculas. Valores desconhecidos → 'normal'.
+ * Tolerante a acentuação e maiúsculas. Se em branco ou desconhecido retorna null / normal.
  */
-export function normalizeDisponibilidade(val: string): ProdutoDisponibilidade {
-  if (!val) return 'normal'
-  const norm = normalizeName(val)
+export function normalizeDisponibilidade(val: string): {
+  disponibilidade: ProdutoDisponibilidade
+  isSpecified: boolean
+} {
+  const trimmed = val ? val.trim() : ''
+  if (!trimmed) {
+    return { disponibilidade: 'normal', isSpecified: false }
+  }
+  const norm = normalizeName(trimmed)
   if (norm.includes('escassez') || norm.includes('falta') || norm.includes('baixo')) {
-    return 'escassez'
+    return { disponibilidade: 'escassez', isSpecified: true }
   }
   if (
     norm.includes('abundancia') ||
@@ -112,39 +146,29 @@ export function normalizeDisponibilidade(val: string): ProdutoDisponibilidade {
     norm.includes('excesso') ||
     norm.includes('safra')
   ) {
-    return 'abundancia'
+    return { disponibilidade: 'abundancia', isSpecified: true }
   }
   if (norm.includes('normal') || norm.includes('regular') || norm.includes('medio')) {
-    return 'normal'
+    return { disponibilidade: 'normal', isSpecified: true }
   }
-  return 'normal'
+  return { disponibilidade: 'normal', isSpecified: true }
 }
 
 /**
- * Converte string de preço (ex: "12,50", "R$ 12.50", "12.50") em float numérico.
+ * Converte string de preço ou número em float numérico no formato pt-BR.
+ * Documentada a heurística no módulo numberParser.
  */
-export function parseNumberField(val: string): { value: number; isValid: boolean } {
-  if (val === undefined || val === null || val.trim() === '') {
-    return { value: 0, isValid: true }
+export function parseNumberField(val: string): {
+  value: number
+  isValid: boolean
+  isEmpty: boolean
+} {
+  const res = parsePtBrNumber(val)
+  return {
+    value: res.value,
+    isValid: res.isValid,
+    isEmpty: res.isEmpty,
   }
-
-  const clean = val
-    .replace(/[R$\s]/gi, '')
-    .replace(/\./g, '') // remove separadores de milhar pontilhados
-    .replace(',', '.') // converte vírgula decimal em ponto
-
-  // Caso especial: se não havia vírgula mas havia apenas ponto como decimal (ex: "0.00" ou "12.50")
-  let parsed = parseFloat(clean)
-  if (isNaN(parsed)) {
-    // Tentar parse direto caso tenha sobrado apenas números e ponto
-    const fallback = parseFloat(val.replace(/[^\d.-]/g, ''))
-    if (isNaN(fallback)) {
-      return { value: 0, isValid: false }
-    }
-    return { value: fallback, isValid: true }
-  }
-
-  return { value: parsed, isValid: true }
 }
 
 /**
@@ -237,38 +261,62 @@ function findColumnIndexes(headerRow: string[]): {
   }
 }
 
+export interface ParseProductsOptions {
+  fileOrText: File | string
+  fileName?: string
+  existingProducts: Product[]
+}
+
 /**
- * Executa o parsing e validação de um arquivo CSV ou XLSX enviado pelo usuário para produtos
+ * Executa o parsing e validação de produtos a partir de arquivo CSV/XLSX ou texto colado.
+ *
+ * Aplica rigorosamente:
+ * REGRA 1 — NÚMEROS EM FORMATO BRASILEIRO (pt-BR):
+ * - Decimais com vírgula, milhares com ponto ("1.250,50" -> 1250.50, "12,5" -> 12.5, "R$ 8,00" -> 8.00, "1.250" -> 1250)
+ * - Valores inválidos viram avisos/pendências na linha sem quebrar a importação.
+ *
+ * REGRA 2 — IMPORTAÇÃO DE LISTA DE PRODUTOS COM ATUALIZAÇÃO SELETIVA:
+ * - Matching por nome normalizado (tolerante a acentos e maiúsculas).
+ * - PRODUTO EXISTENTE: cada coluna presente e não em branco na linha atualiza o respectivo campo;
+ *   coluna em branco mantém o valor gravado no registro existente.
+ *   Gera fieldChanges para o preview detalhado.
+ * - PRODUTO NOVO: colunas preenchidas usam o valor da linha; colunas em branco assumem os defaults:
+ *   categoria "Hortaliças", disponibilidade "normal" (Normal), estoque 0, unidade "KG", preço unitário 0.
  */
-export async function parseProductsFile(
-  file: File,
-  existingMasterProducts: Array<{ id: string; name: string }>,
+export async function parseProductsInput(
+  options: ParseProductsOptions,
 ): Promise<ProductCsvParseResult> {
+  const { fileOrText, fileName = 'dados_colados', existingProducts } = options
+
   let rawMatrix: string[][] = []
 
-  const isExcel =
-    file.name.endsWith('.xlsx') ||
-    file.name.endsWith('.xls') ||
-    file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    file.type === 'application/vnd.ms-excel'
-
-  if (isExcel) {
-    const buffer = await file.arrayBuffer()
-    const workbook = XLSX.read(buffer, { type: 'array' })
-    const firstSheetName = workbook.SheetNames[0]
-    if (!firstSheetName) {
-      throw new Error('Arquivo de planilha não contém nenhuma aba.')
-    }
-    const worksheet = workbook.Sheets[firstSheetName]
-    const sheetData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' })
-    rawMatrix = sheetData.map((row) => row.map((cell) => String(cell ?? '').trim()))
+  if (typeof fileOrText === 'string') {
+    rawMatrix = parseCsvTextToMatrix(fileOrText)
   } else {
-    const text = await file.text()
-    rawMatrix = parseCsvTextToMatrix(text)
+    const isExcel =
+      fileOrText.name.endsWith('.xlsx') ||
+      fileOrText.name.endsWith('.xls') ||
+      fileOrText.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      fileOrText.type === 'application/vnd.ms-excel'
+
+    if (isExcel) {
+      const buffer = await fileOrText.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array' })
+      const firstSheetName = workbook.SheetNames[0]
+      if (!firstSheetName) {
+        throw new Error('Arquivo de planilha não contém nenhuma aba.')
+      }
+      const worksheet = workbook.Sheets[firstSheetName]
+      const sheetData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' })
+      rawMatrix = sheetData.map((row) => row.map((cell) => String(cell ?? '').trim()))
+    } else {
+      const text = await fileOrText.text()
+      rawMatrix = parseCsvTextToMatrix(text)
+    }
   }
 
   if (rawMatrix.length === 0) {
-    throw new Error('O arquivo selecionado está vazio.')
+    throw new Error('Nenhum dado encontrado para importar.')
   }
 
   const header = rawMatrix[0]
@@ -277,47 +325,46 @@ export async function parseProductsFile(
 
   const dataRows = rawMatrix.slice(1)
   if (dataRows.length === 0) {
-    throw new Error('O arquivo contém apenas a linha de cabeçalho, sem dados.')
+    throw new Error('O arquivo contém apenas a linha de cabeçalho, sem dados de produtos.')
   }
 
-  // Mapear produtos cadastrados existentes no banco para normalização
-  const masterNamesNormalized = new Map<string, string>()
-  for (const p of existingMasterProducts) {
+  // Mapear produtos cadastrados existentes no banco por nome normalizado
+  const masterByNorm = new Map<string, Product>()
+  for (const p of existingProducts) {
     const n = normalizeName(p.name)
     if (n) {
-      masterNamesNormalized.set(n, p.name)
+      masterByNorm.set(n, p)
     }
   }
 
-  // Rastrear duplicidades dentro do próprio arquivo
-  const seenInFile = new Map<string, number>() // normName -> firstRowIndex
+  // Rastrear duplicidades dentro do próprio arquivo/colagem
+  const seenInFile = new Map<string, number>()
 
   const allRows: ParsedCsvProductRow[] = []
-  let duplicateMasterCount = 0
-  let duplicateFileCount = 0
-  let errorCount = 0
 
   dataRows.forEach((row, rowIdx) => {
     // Ignorar linhas totalmente vazias
     if (row.every((c) => !c || c.trim() === '')) return
 
-    const rawNome = row[nomeIdx] !== undefined ? String(row[nomeIdx]).trim() : ''
-    const rawCategoria = row[categoriaIdx] !== undefined ? String(row[categoriaIdx]).trim() : ''
-    const rawUnidade = row[unidadeIdx] !== undefined ? String(row[unidadeIdx]).trim() : ''
-    const rawEstoque = row[estoqueIdx] !== undefined ? String(row[estoqueIdx]).trim() : ''
-    const rawPreco = row[precoIdx] !== undefined ? String(row[precoIdx]).trim() : ''
+    const rawNome = nomeIdx !== -1 && row[nomeIdx] !== undefined ? String(row[nomeIdx]).trim() : ''
+    const rawCategoria =
+      categoriaIdx !== -1 && row[categoriaIdx] !== undefined ? String(row[categoriaIdx]).trim() : ''
+    const rawUnidade =
+      unidadeIdx !== -1 && row[unidadeIdx] !== undefined ? String(row[unidadeIdx]).trim() : ''
+    const rawEstoque =
+      estoqueIdx !== -1 && row[estoqueIdx] !== undefined ? String(row[estoqueIdx]).trim() : ''
+    const rawPreco =
+      precoIdx !== -1 && row[precoIdx] !== undefined ? String(row[precoIdx]).trim() : ''
     const rawDisponibilidade =
-      row[disponibilidadeIdx] !== undefined ? String(row[disponibilidadeIdx]).trim() : ''
+      disponibilidadeIdx !== -1 && row[disponibilidadeIdx] !== undefined
+        ? String(row[disponibilidadeIdx]).trim()
+        : ''
 
     const warnings: string[] = []
-    let status: ParsedCsvProductRow['status'] = 'valid'
-    let statusReason: string | undefined
+    const fieldChanges: ProductFieldChange[] = []
 
-    // 1. Validação de nome
+    // 1. Validação do Nome
     if (!rawNome) {
-      status = 'error'
-      statusReason = 'Nome do produto em branco ou inválido'
-      errorCount++
       allRows.push({
         index: rowIdx + 2,
         rawNome,
@@ -327,13 +374,21 @@ export async function parseProductsFile(
         rawPreco,
         rawDisponibilidade,
         nome: '',
-        categoria: '',
-        unidade: rawUnidade || 'Kg',
+        categoria: 'Hortaliças',
+        unidade: 'KG',
         estoque: 0,
         preco_unitario: 0,
         disponibilidade: 'normal',
-        status,
-        statusReason,
+        presentColumns: {
+          categoria: false,
+          unidade: false,
+          estoque: false,
+          preco: false,
+          disponibilidade: false,
+        },
+        fieldChanges: [],
+        status: 'error',
+        statusReason: 'Nome do produto em branco ou inválido na linha.',
         warnings,
       })
       return
@@ -341,66 +396,220 @@ export async function parseProductsFile(
 
     const normNome = normalizeName(rawNome)
 
-    // 2. Validação de duplicidade contra o próprio arquivo
+    // 2. Duplicidade dentro do mesmo arquivo
     if (seenInFile.has(normNome)) {
-      status = 'duplicate_file'
-      statusReason = `Duplicado no próprio arquivo (já apareceu na linha ${seenInFile.get(normNome)})`
-      duplicateFileCount++
+      allRows.push({
+        index: rowIdx + 2,
+        rawNome,
+        rawCategoria,
+        rawUnidade,
+        rawEstoque,
+        rawPreco,
+        rawDisponibilidade,
+        nome: rawNome,
+        categoria: 'Hortaliças',
+        unidade: rawUnidade || 'KG',
+        estoque: 0,
+        preco_unitario: 0,
+        disponibilidade: 'normal',
+        presentColumns: {
+          categoria: Boolean(rawCategoria),
+          unidade: Boolean(rawUnidade),
+          estoque: Boolean(rawEstoque),
+          preco: Boolean(rawPreco),
+          disponibilidade: Boolean(rawDisponibilidade),
+        },
+        fieldChanges: [],
+        status: 'duplicate_file',
+        statusReason: `Duplicado no próprio arquivo (já apareceu na linha ${seenInFile.get(normNome)}).`,
+        warnings,
+      })
+      return
     } else {
       seenInFile.set(normNome, rowIdx + 2)
     }
 
-    // 3. Validação de duplicidade contra o banco existente
-    if (status === 'valid') {
-      const existingName = masterNamesNormalized.get(normNome)
-      if (existingName) {
-        status = 'duplicate_master'
-        statusReason = `Já cadastrado no banco como "${existingName}" (será ignorado)`
-        duplicateMasterCount++
-      }
+    // Identificar se o produto já existe no banco de dados
+    const existingMaster = masterByNorm.get(normNome)
+    const isExisting = Boolean(existingMaster)
+
+    // Indicar se cada coluna veio preenchida na linha
+    const hasRawCategoria = Boolean(rawCategoria)
+    const hasRawUnidade = Boolean(rawUnidade)
+    const hasRawEstoque = Boolean(rawEstoque)
+    const hasRawPreco = Boolean(rawPreco)
+    const hasRawDisponibilidade = Boolean(rawDisponibilidade)
+
+    const presentColumns = {
+      categoria: hasRawCategoria,
+      unidade: hasRawUnidade,
+      estoque: hasRawEstoque,
+      preco: hasRawPreco,
+      disponibilidade: hasRawDisponibilidade,
     }
 
-    // 4. Mapeamento de categoria
-    const { categoria: mappedCategoria, isExactOrMapped } = normalizeProdutoCategoria(rawCategoria)
-    let finalCategoria: ProdutoCategoria = (mappedCategoria || 'Outros') as ProdutoCategoria
-    if (!rawCategoria) {
-      // Requisito 4: categoria vazia não inventa "Hortifrúti"; avisar e usar 'Outros'
-      warnings.push('Categoria em branco no arquivo; definida como "Outros".')
-      finalCategoria = 'Outros'
-    } else if (!isExactOrMapped) {
-      warnings.push(`Categoria "${rawCategoria}" não reconhecida; normalizada para "Outros".`)
-      finalCategoria = 'Outros'
-    }
+    // --- Parse individual dos campos ---
 
-    // 5. Unidade de medida
-    const mappedUnidade = rawUnidade || 'Kg'
-
-    // 6. Estoque numérico
-    let mappedEstoque = 0
-    if (rawEstoque) {
-      const parsed = parseNumberField(rawEstoque)
-      if (!parsed.isValid) {
-        warnings.push(`Estoque "${rawEstoque}" não numérico (usado 0).`)
-        mappedEstoque = 0
+    // A. Categoria
+    let finalCategoria: ProdutoCategoria = 'Hortaliças'
+    if (hasRawCategoria) {
+      const { categoria: mapped, isExactOrMapped } = normalizeProdutoCategoria(rawCategoria)
+      if (mapped) {
+        finalCategoria = mapped
+        if (!isExactOrMapped) {
+          warnings.push(`Categoria "${rawCategoria}" não usual; mapeada para "Outros".`)
+        }
       } else {
-        mappedEstoque = parsed.value
+        warnings.push(`Categoria "${rawCategoria}" não reconhecida; mantida categoria padrão.`)
+        finalCategoria = isExisting ? (existingMaster!.category as ProdutoCategoria) : 'Hortaliças'
       }
-    }
-
-    // 7. Preço unitário numérico
-    let mappedPreco = 0
-    if (rawPreco) {
-      const parsed = parseNumberField(rawPreco)
-      if (!parsed.isValid) {
-        warnings.push(`Preço unitário "${rawPreco}" não numérico (usado R$ 0,00).`)
-        mappedPreco = 0
+    } else {
+      // Em branco:
+      // se existente -> mantém existente
+      // se novo -> default: 'Hortaliças'
+      if (isExisting) {
+        finalCategoria = existingMaster!.category as ProdutoCategoria
       } else {
-        mappedPreco = parsed.value
+        finalCategoria = 'Hortaliças'
+        // Documentado na regra: assume default
       }
     }
 
-    // 8. Disponibilidade
-    const mappedDisponibilidade = normalizeDisponibilidade(rawDisponibilidade)
+    // B. Unidade
+    let finalUnidade = 'KG'
+    if (hasRawUnidade) {
+      finalUnidade = rawUnidade
+    } else {
+      // Em branco:
+      // se existente -> mantém existente
+      // se novo -> default 'KG'
+      if (isExisting) {
+        finalUnidade = existingMaster!.unit || 'KG'
+      } else {
+        finalUnidade = 'KG'
+      }
+    }
+
+    // C. Estoque (número pt-BR)
+    let finalEstoque = 0
+    if (hasRawEstoque) {
+      const parsedEstoque = parsePtBrNumber(rawEstoque)
+      if (!parsedEstoque.isValid) {
+        warnings.push(`Estoque "${rawEstoque}" inválido/ilegível; mantido sem alteração.`)
+        finalEstoque = isExisting ? existingMaster!.stock : 0
+      } else {
+        finalEstoque = parsedEstoque.value
+      }
+    } else {
+      // Em branco: se existente -> mantém; se novo -> default 0
+      if (isExisting) {
+        finalEstoque = existingMaster!.stock
+      } else {
+        finalEstoque = 0
+      }
+    }
+
+    // D. Preço unitário (número pt-BR)
+    let finalPreco = 0
+    if (hasRawPreco) {
+      const parsedPreco = parsePtBrNumber(rawPreco)
+      if (!parsedPreco.isValid) {
+        warnings.push(`Preço unitário "${rawPreco}" inválido/ilegível; mantido sem alteração.`)
+        finalPreco = isExisting ? existingMaster!.price : 0
+      } else {
+        finalPreco = parsedPreco.value
+      }
+    } else {
+      // Em branco: se existente -> mantém; se novo -> default 0
+      if (isExisting) {
+        finalPreco = existingMaster!.price
+      } else {
+        finalPreco = 0
+      }
+    }
+
+    // E. Disponibilidade
+    let finalDisponibilidade: ProdutoDisponibilidade = 'normal'
+    if (hasRawDisponibilidade) {
+      const normDisp = normalizeDisponibilidade(rawDisponibilidade)
+      finalDisponibilidade = normDisp.disponibilidade
+    } else {
+      // Em branco: se existente -> mantém; se novo -> default 'normal' (Normal)
+      if (isExisting) {
+        finalDisponibilidade = existingMaster!.disponibilidade || 'normal'
+      } else {
+        finalDisponibilidade = 'normal'
+      }
+    }
+
+    // Se existente, calcular fieldChanges campo a campo
+    if (isExisting && existingMaster) {
+      if (hasRawCategoria && finalCategoria !== existingMaster.category) {
+        fieldChanges.push({
+          field: 'categoria',
+          label: 'Categoria',
+          oldValue: existingMaster.category,
+          newValue: finalCategoria,
+        })
+      }
+      if (hasRawUnidade && finalUnidade !== existingMaster.unit) {
+        fieldChanges.push({
+          field: 'unidade',
+          label: 'Unidade',
+          oldValue: existingMaster.unit || '(vazio)',
+          newValue: finalUnidade,
+        })
+      }
+      if (hasRawEstoque && finalEstoque !== existingMaster.stock) {
+        fieldChanges.push({
+          field: 'estoque',
+          label: 'Estoque',
+          oldValue: String(existingMaster.stock),
+          newValue: String(finalEstoque),
+        })
+      }
+      if (hasRawPreco && finalPreco !== existingMaster.price) {
+        fieldChanges.push({
+          field: 'preco_unitario',
+          label: 'Preço',
+          oldValue: `R$ ${existingMaster.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          newValue: `R$ ${finalPreco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        })
+      }
+      if (hasRawDisponibilidade && finalDisponibilidade !== existingMaster.disponibilidade) {
+        fieldChanges.push({
+          field: 'disponibilidade',
+          label: 'Disponibilidade',
+          oldValue: existingMaster.disponibilidade || 'normal',
+          newValue: finalDisponibilidade,
+        })
+      }
+    }
+
+    const status: ParsedCsvProductRow['status'] = isExisting ? 'update' : 'create'
+    let statusReason: string
+
+    if (isExisting) {
+      if (fieldChanges.length > 0) {
+        const changedNames = fieldChanges.map((f) => f.label).join(', ')
+        statusReason = `Produto existente; atualizará: ${changedNames}.`
+      } else {
+        statusReason = 'Produto existente; dados no arquivo idênticos aos já cadastrados.'
+      }
+    } else {
+      const defaultsApplied: string[] = []
+      if (!hasRawCategoria) defaultsApplied.push('categoria "Hortaliças"')
+      if (!hasRawUnidade) defaultsApplied.push('unidade "KG"')
+      if (!hasRawEstoque) defaultsApplied.push('estoque 0')
+      if (!hasRawPreco) defaultsApplied.push('preço R$ 0,00')
+      if (!hasRawDisponibilidade) defaultsApplied.push('disponibilidade "Normal"')
+
+      if (defaultsApplied.length > 0) {
+        statusReason = `Novo produto com defaults aplicados (${defaultsApplied.join(', ')}).`
+      } else {
+        statusReason = 'Novo produto com todas as colunas preenchidas.'
+      }
+    }
 
     allRows.push({
       index: rowIdx + 2,
@@ -412,25 +621,63 @@ export async function parseProductsFile(
       rawDisponibilidade,
       nome: rawNome,
       categoria: finalCategoria,
-      unidade: mappedUnidade,
-      estoque: mappedEstoque,
-      preco_unitario: mappedPreco,
-      disponibilidade: mappedDisponibilidade,
+      unidade: finalUnidade,
+      estoque: finalEstoque,
+      preco_unitario: finalPreco,
+      disponibilidade: finalDisponibilidade,
+      presentColumns,
+      existingProductId: existingMaster?.id,
+      existingProductName: existingMaster?.name,
+      fieldChanges,
       status,
       statusReason,
       warnings,
     })
   })
 
-  const validRows = allRows.filter((r) => r.status === 'valid')
+  const createdRows = allRows.filter((r) => r.status === 'create')
+  const updatedRows = allRows.filter((r) => r.status === 'update')
+  const processableRows = allRows.filter((r) => r.status === 'create' || r.status === 'update')
+  const duplicateFileRows = allRows.filter((r) => r.status === 'duplicate_file')
+  const errorRows = allRows.filter((r) => r.status === 'error')
 
   return {
-    fileName: file.name,
+    fileName: typeof fileOrText === 'string' ? fileName : fileOrText.name,
     totalRows: allRows.length,
-    validRows,
-    duplicateMasterCount,
-    duplicateFileCount,
-    errorCount,
+    createdRows,
+    updatedRows,
+    processableRows,
+    duplicateFileRows,
+    errorRows,
     allRows,
   }
+}
+
+/**
+ * Função de conveniência mantida para compatibilidade direta com chamadas legadas
+ */
+export async function parseProductsFile(
+  file: File,
+  existingMasterProducts: Array<{ id: string; name: string } | Product>,
+): Promise<ProductCsvParseResult> {
+  const fullProducts: Product[] = existingMasterProducts.map((p) => {
+    if ('category' in p) {
+      return p as Product
+    }
+    return {
+      id: p.id,
+      name: (p as any).name || (p as any).nome || '',
+      category: 'Hortaliças',
+      stock: 0,
+      unit: 'KG',
+      price: 0,
+      disponibilidade: 'normal',
+    }
+  })
+
+  return parseProductsInput({
+    fileOrText: file,
+    fileName: file.name,
+    existingProducts: fullProducts,
+  })
 }

@@ -1790,7 +1790,26 @@ export default function Contracts() {
             }))
           })
 
-          // Atualizar o contexto global de escolas (pois novas escolas podem ter sido criadas e dados atualizados)
+          // Garantir que a rota importada também esteja na lista local de rotas do diálogo pai
+          const importedRotas = Array.from(
+            new Set(importedLinks.map((l) => l.rotaPlanilha).filter(Boolean)),
+          )
+          setContractRotas((prev) => {
+            const copy = [...prev]
+            for (const rNome of importedRotas) {
+              if (!copy.some((r) => r.nome.toLowerCase() === rNome.toLowerCase())) {
+                const linkWithId = importedLinks.find((l) => l.rotaPlanilha === rNome && l.rotaId)
+                copy.push({
+                  id: linkWithId?.rotaId,
+                  nome: rNome,
+                  ordem: copy.length + 1,
+                })
+              }
+            }
+            return copy
+          })
+
+          // Atualizar o contexto global de escolas, contratos e vínculos
           await refreshData()
         }}
       />

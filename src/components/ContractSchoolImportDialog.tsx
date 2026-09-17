@@ -43,6 +43,8 @@ import {
   type ParsedContractSchoolRow,
 } from '@/lib/contractSchoolCsvImporter'
 import { escolasService } from '@/services/escolas'
+import { contratosService } from '@/services/contratos'
+import { rotasService } from '@/services/rotas'
 import type { School, Contract } from '@/lib/types'
 import * as XLSX from 'xlsx'
 
@@ -50,6 +52,7 @@ export interface ImportedSchoolLinkResult {
   escolaId: string
   escolaNome: string
   rotaPlanilha: string
+  rotaId?: string
 }
 
 interface ContractSchoolImportDialogProps {
@@ -98,6 +101,8 @@ export function ContractSchoolImportDialog({
     linked: number
     conflictsIgnored: number
     errors: number
+    failedSchoolErrors: Array<{ nome: string; motivo: string }>
+    isDirectPersistence: boolean
   } | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -239,12 +244,28 @@ export function ContractSchoolImportDialog({
       let createdCount = 0
       let updatedCount = 0
       const linksToForm: ImportedSchoolLinkResult[] = []
+      const failedSchoolErrors: Array<{ nome: string; motivo: string }> = []
+
+      // Se contractId existir (contrato já salvo no banco), garantir que a rota existe na collection 'rotas'
+      let resolvedRotaRecordId: string | undefined
+      if (contractId) {
+        try {
+          const rotaRecord = await rotasService.findOrCreate(contractId, selectedRota)
+          resolvedRotaRecordId = rotaRecord.id
+        } catch (rotaErr: any) {
+          console.error(`Erro ao buscar ou criar rota [${selectedRota}]:`, rotaErr)
+          // Tentar continuar mesmo se falhar a criação em rotas
+        }
+      }
 
       // Processar em lote com progresso
       for (let i = 0; i < processable.length; i++) {
         const row = processable[i]
 
         try {
+          let escolaId = row.existingSchoolId
+          let escolaNome = row.existingSchoolName || row.nome
+
           if (row.status === 'create_and_link') {
             // 1. Criar escola no cadastro mestre global
             // Rota no mestre global fica como 'Sem Rota' (a rota da planilha é gravada estritamente no vínculo)
@@ -258,12 +279,8 @@ export function ContractSchoolImportDialog({
               rota: 'Sem Rota',
             })
             createdCount++
-
-            linksToForm.push({
-              escolaId: created.id,
-              escolaNome: created.nome,
-              rotaPlanilha: selectedRota,
-            })
+            escolaId = created.id
+            escolaNome = created.nome
           } else if (
             (row.status === 'update_and_link' || row.status === 'update_current_link') &&
             row.existingSchoolId
@@ -291,34 +308,76 @@ export function ContractSchoolImportDialog({
               await escolasService.update(row.existingSchoolId, updatePayload)
             }
             updatedCount++
+          }
 
-            linksToForm.push({
-              escolaId: row.existingSchoolId,
-              escolaNome: row.existingSchoolName || row.nome,
-              rotaPlanilha: selectedRota,
+          // Se contractId existir (edição de contrato existente no banco):
+          // Persistência direta e atômica do vínculo em contrato_escolas
+          if (contractId && escolaId) {
+            await contratosService.linkEscola({
+              contrato_id: contractId,
+              escola_id: escolaId,
+              rota_id: resolvedRotaRecordId,
+              rota: selectedRota,
             })
           }
-        } catch (subErr) {
+
+          if (escolaId) {
+            linksToForm.push({
+              escolaId,
+              escolaNome,
+              rotaPlanilha: selectedRota,
+              rotaId: resolvedRotaRecordId,
+            })
+          }
+        } catch (subErr: any) {
+          const errMsg = subErr?.message || 'Falha ao gravar escola ou criar vínculo no banco.'
           console.error(`Erro ao salvar escola [${row.nome}]:`, subErr)
+          failedSchoolErrors.push({
+            nome: row.nome,
+            motivo: errMsg,
+          })
         }
 
         setSaveProgress(Math.round(((i + 1) / processable.length) * 100))
       }
+
+      const totalErrors =
+        parseResult.errorRows.length +
+        parseResult.duplicateFileRows.length +
+        failedSchoolErrors.length
 
       setImportSummary({
         created: createdCount,
         updated: updatedCount,
         linked: linksToForm.length,
         conflictsIgnored: parseResult.conflictOtherContractRows.length,
-        errors: parseResult.errorRows.length + parseResult.duplicateFileRows.length,
+        errors: totalErrors,
+        failedSchoolErrors,
+        isDirectPersistence: Boolean(contractId),
       })
 
-      // Chamar o callback para aplicar ao contrato
+      // Chamar o callback para aplicar ao contrato (atualiza formulário / contexto pai)
       await onSuccess(linksToForm)
 
-      toast.success(
-        `Importação concluída: ${linksToForm.length} escola(s) vinculada(s) à rota "${selectedRota}" (${createdCount} nova(s), ${updatedCount} atualizada(s)).`,
-      )
+      if (failedSchoolErrors.length === 0) {
+        if (contractId) {
+          toast.success(
+            `Importação concluída e salva no banco: ${linksToForm.length} escola(s) vinculada(s) à rota "${selectedRota}" (${createdCount} nova(s), ${updatedCount} atualizada(s)).`,
+          )
+        } else {
+          toast.info(
+            `${linksToForm.length} escola(s) preparadas para a rota "${selectedRota}". Clique em "Cadastrar Contrato" para gravar os vínculos.`,
+          )
+        }
+      } else if (linksToForm.length > 0) {
+        toast.warning(
+          `Importação parcial: ${linksToForm.length} escola(s) processada(s), mas ${failedSchoolErrors.length} apresentaram erro. Verifique o resumo abaixo.`,
+        )
+      } else {
+        toast.error(
+          `Falha na importação: nenhuma escola pôde ser vinculada. Consulte as ${failedSchoolErrors.length} falhas reportadas.`,
+        )
+      }
     } catch (err: any) {
       console.error('Erro ao confirmar importação:', err)
       toast.error('Ocorreu um erro ao gravar as escolas e vínculos.')
@@ -549,43 +608,116 @@ export function ContractSchoolImportDialog({
           </div>
         )}
 
-        {/* RESUMO PÓS-IMPORTAÇÃO (SUCESSO) */}
+        {/* RESUMO PÓS-IMPORTAÇÃO */}
         {importSummary && (
           <div className="p-6 bg-muted/40 rounded-xl space-y-4 my-2 border border-border">
-            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="h-7 w-7 shrink-0" />
-              <div>
-                <h3 className="font-semibold text-lg">Vínculo e Atualização Concluídos</h3>
-                <p className="text-sm text-muted-foreground">
-                  As escolas foram integradas ao contrato com a Rota da Planilha "{selectedRota}".
-                </p>
+            {importSummary.failedSchoolErrors.length === 0 ? (
+              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-7 w-7 shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-lg">
+                    {importSummary.isDirectPersistence
+                      ? 'Vínculo e Atualização Gravados no Banco'
+                      : 'Escolas Preparadas para o Novo Contrato'}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {importSummary.isDirectPersistence
+                      ? `As escolas foram integradas e gravadas diretamente no contrato com a Rota da Planilha "${selectedRota}".`
+                      : `As escolas foram preparadas no formulário com a Rota da Planilha "${selectedRota}". Atenção: os vínculos só serão persistidos ao clicar em "Cadastrar Contrato".`}
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : importSummary.linked > 0 ? (
+              <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
+                <AlertCircle className="h-7 w-7 shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-lg">
+                    Importação Concluída com Alertas e Falhas
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Parte das escolas foi processada, mas {importSummary.failedSchoolErrors.length}{' '}
+                    apresentaram erro durante a gravação.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 text-destructive">
+                <XCircle className="h-7 w-7 shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-lg">Falha na Gravação dos Vínculos</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Nenhuma escola pôde ser vinculada devido a erros de gravação.
+                  </p>
+                </div>
+              </div>
+            )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            {!importSummary.isDirectPersistence && (
+              <div className="p-3 bg-blue-500/10 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-blue-900 dark:text-blue-200">
+                <strong>Aviso:</strong> Como este contrato é novo e ainda não foi criado no banco,
+                as escolas foram adicionadas à lista do contrato. Para persistir os vínculos,
+                complete o formulário e clique no botão <strong>"Cadastrar Contrato"</strong>.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2">
               <div className="bg-card p-3 rounded-lg border border-border">
-                <span className="text-xs text-muted-foreground">Novas Criadas no Mestre</span>
+                <span className="text-xs text-muted-foreground">Novas no Mestre</span>
                 <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                   {importSummary.created}
                 </p>
               </div>
               <div className="bg-card p-3 rounded-lg border border-border">
-                <span className="text-xs text-muted-foreground">Atualizadas no Mestre</span>
+                <span className="text-xs text-muted-foreground">Atualizadas</span>
                 <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                   {importSummary.updated}
                 </p>
               </div>
               <div className="bg-card p-3 rounded-lg border border-border">
-                <span className="text-xs text-muted-foreground">Total Vinculadas</span>
+                <span className="text-xs text-muted-foreground">
+                  {importSummary.isDirectPersistence ? 'Gravadas no Banco' : 'No Formulário'}
+                </span>
                 <p className="text-2xl font-bold text-primary">{importSummary.linked}</p>
               </div>
               <div className="bg-card p-3 rounded-lg border border-border">
-                <span className="text-xs text-muted-foreground">Bloqueadas (Outro Contrato)</span>
+                <span className="text-xs text-muted-foreground">Outro Contrato</span>
                 <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
                   {importSummary.conflictsIgnored}
                 </p>
               </div>
+              <div className="bg-card p-3 rounded-lg border border-border">
+                <span className="text-xs text-muted-foreground">Erros / Falhas</span>
+                <p
+                  className={`text-2xl font-bold ${importSummary.errors > 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+                >
+                  {importSummary.errors}
+                </p>
+              </div>
             </div>
+
+            {/* Lista detalhada de falhas na gravação */}
+            {importSummary.failedSchoolErrors.length > 0 && (
+              <div className="mt-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg space-y-2">
+                <h4 className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+                  <XCircle className="h-4 w-4" />
+                  Falhas registradas durante a persistência (
+                  {importSummary.failedSchoolErrors.length})
+                </h4>
+                <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                  {importSummary.failedSchoolErrors.map((f, fIdx) => (
+                    <div
+                      key={fIdx}
+                      className="text-[11px] text-destructive/90 flex items-start gap-1"
+                    >
+                      <span className="font-mono">•</span>
+                      <span>
+                        <strong>{f.nome}:</strong> {f.motivo}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

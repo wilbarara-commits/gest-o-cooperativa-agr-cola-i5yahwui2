@@ -268,8 +268,8 @@ export function ProductImportDialog({
         }
       }}
     >
-      <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
             Importar / Atualizar Produtos (CSV / Planilha / Colar)
@@ -285,7 +285,7 @@ export function ProductImportDialog({
 
         {/* SELEÇÃO DO MÉTODO: ARQUIVO OU COLAR */}
         {!parseResult && !importSummary && (
-          <div className="space-y-3 flex-1 flex flex-col min-h-0">
+          <div className="space-y-3 flex-1 flex flex-col min-h-0 overflow-y-auto">
             <div className="flex items-center justify-between">
               <div className="flex rounded-lg border bg-muted p-1 text-xs">
                 <button
@@ -457,7 +457,7 @@ export function ProductImportDialog({
         {parseResult && !importSummary && (
           <div className="flex-1 min-h-0 flex flex-col space-y-3">
             {/* Header com métricas e filtros */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg text-xs">
+            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg text-xs">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="h-4 w-4 text-primary" />
                 <span className="font-medium truncate max-w-[200px]">{parseResult.fileName}</span>
@@ -526,7 +526,7 @@ export function ProductImportDialog({
 
             {/* Barra de progresso de gravação */}
             {isSaving && (
-              <div className="space-y-1.5 p-3 bg-card border rounded-lg">
+              <div className="shrink-0 space-y-1.5 p-3 bg-card border rounded-lg">
                 <div className="flex justify-between text-xs">
                   <span className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -538,19 +538,19 @@ export function ProductImportDialog({
               </div>
             )}
 
-            {/* Tabela de Preview */}
-            <ScrollArea className="flex-1 border rounded-lg bg-card min-h-[260px] max-h-[380px]">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-muted/70 text-muted-foreground uppercase sticky top-0 z-10 border-b">
+            {/* Tabela de Preview com scroll nativo e sticky header */}
+            <div className="flex-1 min-h-[260px] max-h-[50vh] overflow-y-auto overflow-x-auto border rounded-lg bg-card shadow-inner overscroll-contain">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-muted text-muted-foreground uppercase sticky top-0 z-20 border-b shadow-xs">
                   <tr>
-                    <th className="py-2 px-3 w-12">#</th>
-                    <th className="py-2 px-3">Produto</th>
-                    <th className="py-2 px-3">Categoria</th>
-                    <th className="py-2 px-3">Unidade</th>
-                    <th className="py-2 px-3 text-right">Estoque</th>
-                    <th className="py-2 px-3 text-right">Preço</th>
-                    <th className="py-2 px-3">Disponibilidade</th>
-                    <th className="py-2 px-3">Ação / Status</th>
+                    <th className="py-2.5 px-3 w-12 bg-muted font-semibold">#</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Produto</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Categoria</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Unidade</th>
+                    <th className="py-2.5 px-3 text-right bg-muted font-semibold">Estoque</th>
+                    <th className="py-2.5 px-3 text-right bg-muted font-semibold">Preço</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Disponibilidade</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Ação / Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -726,11 +726,11 @@ export function ProductImportDialog({
                   )}
                 </tbody>
               </table>
-            </ScrollArea>
+            </div>
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0 pt-2 border-t mt-auto">
           {importSummary ? (
             <Button
               type="button"

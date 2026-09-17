@@ -207,8 +207,8 @@ export function SchoolImportDialog({
         }
       }}
     >
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
             Importar Escolas via CSV / Planilha
@@ -227,7 +227,7 @@ export function SchoolImportDialog({
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
-            className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/60 transition-colors flex flex-col items-center justify-center gap-4 my-2"
+            className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/60 transition-colors flex flex-col items-center justify-center gap-4 my-2 overflow-y-auto"
           >
             <div className="p-4 bg-primary/10 text-primary rounded-full">
               {isParsing ? (
@@ -319,7 +319,7 @@ export function SchoolImportDialog({
           <div className="flex-1 min-h-0 flex flex-col space-y-3">
             {/* Opção de resolução de conflito para escolas existentes */}
             {parseResult.updateRows.length > 0 && (
-              <div className="p-3 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 rounded-lg space-y-2">
+              <div className="shrink-0 p-3 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 rounded-lg space-y-2">
                 <div className="flex items-center gap-2 text-xs font-semibold text-blue-900 dark:text-blue-300">
                   <Settings2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                   <span>
@@ -366,7 +366,7 @@ export function SchoolImportDialog({
             )}
 
             {/* Header com métricas e filtros */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg text-xs">
+            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg text-xs">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="h-4 w-4 text-primary" />
                 <span className="font-medium truncate max-w-[200px]">{parseResult.fileName}</span>
@@ -438,7 +438,7 @@ export function SchoolImportDialog({
 
             {/* Barra de progresso de gravação */}
             {isSaving && (
-              <div className="space-y-1.5 p-3 bg-card border rounded-lg">
+              <div className="shrink-0 space-y-1.5 p-3 bg-card border rounded-lg">
                 <div className="flex justify-between text-xs">
                   <span className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -450,17 +450,19 @@ export function SchoolImportDialog({
               </div>
             )}
 
-            {/* Tabela de Preview */}
-            <ScrollArea className="flex-1 border rounded-lg bg-card min-h-[260px] max-h-[380px]">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-muted/70 text-muted-foreground uppercase sticky top-0 z-10 border-b">
+            {/* Tabela de Preview com scroll nativo e sticky header */}
+            <div className="flex-1 min-h-[260px] max-h-[50vh] overflow-y-auto overflow-x-auto border rounded-lg bg-card shadow-inner overscroll-contain">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-muted text-muted-foreground uppercase sticky top-0 z-20 border-b shadow-xs">
                   <tr>
-                    <th className="py-2 px-3 w-12">#</th>
-                    <th className="py-2 px-3">Escola</th>
-                    <th className="py-2 px-3">Tipo Normalizado</th>
-                    <th className="py-2 px-3">Rota</th>
-                    <th className="py-2 px-3">Alunos</th>
-                    <th className="py-2 px-3">Ação / Alterações Previstas</th>
+                    <th className="py-2.5 px-3 w-12 bg-muted font-semibold">#</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Escola</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Tipo Normalizado</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Rota</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Alunos</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">
+                      Ação / Alterações Previstas
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -590,11 +592,11 @@ export function SchoolImportDialog({
                   )}
                 </tbody>
               </table>
-            </ScrollArea>
+            </div>
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0 pt-2 border-t mt-auto">
           {importSummary ? (
             <Button
               type="button"

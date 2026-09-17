@@ -828,8 +828,8 @@ export function ContractItemsManager({
 
       {/* MODAL 1: SELEÇÃO EM LOTE COM CHECKBOX E BUSCA */}
       <Dialog open={batchModalOpen} onOpenChange={setBatchModalOpen}>
-        <DialogContent className="sm:max-w-[620px] max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[620px] max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5 text-primary" />
               Selecionar Produtos do Catálogo
@@ -841,7 +841,7 @@ export function ContractItemsManager({
           </DialogHeader>
 
           {/* Campo de Busca no Catálogo */}
-          <div className="space-y-2 pt-2">
+          <div className="shrink-0 space-y-2 pt-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <Input
@@ -869,7 +869,7 @@ export function ContractItemsManager({
           </div>
 
           {/* Lista com Checkboxes */}
-          <div className="flex-1 overflow-y-auto border rounded-md max-h-[350px] divide-y divide-border">
+          <div className="flex-1 min-h-[200px] max-h-[45vh] overflow-y-auto border rounded-md divide-y divide-border overscroll-contain">
             {filteredCatalogForBatch.length === 0 ? (
               <div className="py-8 text-center text-xs text-muted-foreground">
                 Nenhum produto encontrado no catálogo.
@@ -946,7 +946,7 @@ export function ContractItemsManager({
             )}
           </div>
 
-          <DialogFooter className="pt-3 border-t">
+          <DialogFooter className="shrink-0 pt-3 border-t mt-auto">
             <Button
               type="button"
               variant="outline"
@@ -971,8 +971,8 @@ export function ContractItemsManager({
 
       {/* MODAL 2: COLAR EM MASSA (PRODUTO, PREÇO, QUANTIDADE) */}
       <Dialog open={pasteModalOpen} onOpenChange={setPasteModalOpen}>
-        <DialogContent className="sm:max-w-[650px] max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[650px] max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <ClipboardPaste className="h-5 w-5 text-primary" />
               Colar Produtos, Preços e Quantidades
@@ -984,7 +984,7 @@ export function ContractItemsManager({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 pt-2">
+          <div className="space-y-3 pt-2 flex-1 min-h-0 overflow-y-auto pr-1">
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <Label htmlFor="paste-area" className="text-xs font-semibold">
@@ -1039,7 +1039,7 @@ export function ContractItemsManager({
 
                 {/* Lista de itens identificados */}
                 {pastePreview.matched.length > 0 && (
-                  <div className="max-h-[160px] overflow-y-auto space-y-1 pr-1">
+                  <div className="max-h-[160px] overflow-y-auto space-y-1 pr-1 overscroll-contain">
                     {pastePreview.matched.map((m, i) => (
                       <div
                         key={i}
@@ -1071,7 +1071,7 @@ export function ContractItemsManager({
                     <p className="text-[10px] text-muted-foreground font-semibold">
                       Não encontrados no catálogo de produtos (serão ignorados):
                     </p>
-                    <div className="max-h-[80px] overflow-y-auto space-y-0.5">
+                    <div className="max-h-[80px] overflow-y-auto space-y-0.5 overscroll-contain">
                       {pastePreview.unmatched.map((line, i) => (
                         <p key={i} className="text-[10px] text-amber-600 truncate font-mono">
                           • {line}
@@ -1084,7 +1084,7 @@ export function ContractItemsManager({
             )}
           </div>
 
-          <DialogFooter className="pt-3 border-t">
+          <DialogFooter className="shrink-0 pt-3 border-t mt-auto">
             <Button
               type="button"
               variant="outline"
@@ -1112,8 +1112,8 @@ export function ContractItemsManager({
 
       {/* MODAL 3: IMPORTAÇÃO EM MASSA VIA PLANILHA / CSV */}
       <Dialog open={fileModalOpen} onOpenChange={setFileModalOpen}>
-        <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 text-primary" />
               Importação em Massa de Itens do Contrato (Excel / CSV)
@@ -1124,9 +1124,9 @@ export function ContractItemsManager({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 pt-2 flex-1 overflow-y-auto">
+          <div className="space-y-4 pt-2 flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Upload Area */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-lg border-2 border-dashed bg-muted/20 hover:bg-muted/30 transition-colors">
+            <div className="shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-lg border-2 border-dashed bg-muted/20 hover:bg-muted/30 transition-colors">
               <div className="space-y-1 text-center sm:text-left">
                 <p className="text-xs font-semibold text-foreground">
                   Selecione seu arquivo de planilha (.xlsx, .xls ou .csv)
@@ -1172,8 +1172,8 @@ export function ContractItemsManager({
 
             {/* Resultado e Preview do Parse */}
             {fileParseResult && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-lg bg-card border text-xs">
+              <div className="space-y-3 flex-1 min-h-0 flex flex-col">
+                <div className="shrink-0 flex items-center justify-between p-3 rounded-lg bg-card border text-xs">
                   <div>
                     <p className="font-semibold text-foreground flex items-center gap-1.5">
                       <FileSpreadsheet className="h-4 w-4 text-primary" />
@@ -1210,16 +1210,24 @@ export function ContractItemsManager({
                   </div>
                 </div>
 
-                {/* Tabela de Preview */}
-                <div className="rounded-md border max-h-[220px] overflow-y-auto">
-                  <Table>
-                    <TableHeader className="bg-muted/40 sticky top-0 text-xs">
+                {/* Tabela de Preview com scroll nativo e sticky header */}
+                <div className="flex-1 min-h-[180px] max-h-[45vh] overflow-y-auto overflow-x-auto border rounded-lg bg-card shadow-inner overscroll-contain">
+                  <Table className="border-collapse">
+                    <TableHeader className="bg-muted sticky top-0 z-20 text-xs shadow-xs">
                       <TableRow>
-                        <TableHead className="w-[8%]">Linha</TableHead>
-                        <TableHead className="w-[36%]">Produto Identificado</TableHead>
-                        <TableHead className="w-[18%] text-right">Preço</TableHead>
-                        <TableHead className="w-[18%] text-right">Qtd. Contratada</TableHead>
-                        <TableHead className="w-[20%] text-right">Subtotal</TableHead>
+                        <TableHead className="w-[8%] bg-muted font-semibold">Linha</TableHead>
+                        <TableHead className="w-[36%] bg-muted font-semibold">
+                          Produto Identificado
+                        </TableHead>
+                        <TableHead className="w-[18%] text-right bg-muted font-semibold">
+                          Preço
+                        </TableHead>
+                        <TableHead className="w-[18%] text-right bg-muted font-semibold">
+                          Qtd. Contratada
+                        </TableHead>
+                        <TableHead className="w-[20%] text-right bg-muted font-semibold">
+                          Subtotal
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1263,7 +1271,7 @@ export function ContractItemsManager({
                 </div>
 
                 {fileParseResult.unmatchedCount > 0 && (
-                  <div className="flex items-start gap-2 p-2.5 rounded bg-amber-500/10 border border-amber-300 text-amber-800 text-xs">
+                  <div className="shrink-0 flex items-start gap-2 p-2.5 rounded bg-amber-500/10 border border-amber-300 text-amber-800 text-xs">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-semibold">Atenção para produtos não cadastrados</p>
@@ -1279,7 +1287,7 @@ export function ContractItemsManager({
             )}
           </div>
 
-          <DialogFooter className="pt-3 border-t">
+          <DialogFooter className="shrink-0 pt-3 border-t mt-auto">
             <Button
               type="button"
               variant="outline"

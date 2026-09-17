@@ -24,7 +24,7 @@
  */
 
 import * as XLSX from 'xlsx'
-import type { School, Product, ContractSchoolLink } from '@/lib/types'
+import type { School, Product, ContractSchoolLink, ContratoItemRecord } from '@/lib/types'
 
 export interface ParsedOrderItem {
   productNameRaw: string
@@ -32,6 +32,7 @@ export interface ParsedOrderItem {
   productNameMatched?: string
   quantity: number
   price: number
+  isContractItem?: boolean
 }
 
 export type SchoolMatchStatus = 'ok' | 'needs_link' | 'needs_register'
@@ -196,15 +197,79 @@ export function matchSchoolName(
 }
 
 /**
- * Match de produto pelo nome com normalização
+ * Match de produto pelo nome com normalização avançada e tokens.
+ * Tolerante a acentos, maiúsculas, unidades anexadas ("KG", "UN", "MOLHO", "DUZIA")
+ * e qualificadores comuns da secretaria como "DE PRIMEIRA QUALIDADE", "TIPO 1", "EXTRA", etc.
  */
 export function matchProductName(rawName: string, allProducts: Product[]): Product | null {
-  const norm = normalizeName(rawName)
+  if (!rawName) return null
+
+  // Limpeza de ruídos comuns em planilhas da secretaria
+  let cleaned = rawName
+    .replace(
+      /\b(kg|kilo|quilo|un|unidade|unid|molho|dz|duzia|pct|pacote|cx|caixa|g|gramas)\b/gi,
+      ' ',
+    )
+    .replace(
+      /\b(de primeira qualidade|primeira qualidade|1a qualidade|tipo 1|tipo 01|qualidade especial|extra|especial|fresco|in natura|selecionado|selecionada)\b/gi,
+      ' ',
+    )
+    .trim()
+
+  const normCleaned = normalizeName(cleaned)
+  const normRaw = normalizeName(rawName)
+  if (!normCleaned && !normRaw) return null
+
+  // 1. Match exato pelo nome limpo ou original
   for (const p of allProducts) {
     const normP = normalizeName(p.name)
-    if (norm === normP) return p
-    if (norm.includes(normP) || normP.includes(norm)) return p
+    if (normP === normCleaned || normP === normRaw) return p
   }
+
+  // 2. Match por inclusão direta (o nome do catálogo está contido na descrição da planilha ou vice-versa)
+  // Ordena por tamanho decrescente para priorizar "COUVE MINEIRA" antes de "COUVE"
+  const sortedProds = [...allProducts].sort((a, b) => b.name.length - a.name.length)
+  for (const p of sortedProds) {
+    const normP = normalizeName(p.name)
+    if (normCleaned && (normCleaned.includes(normP) || normP.includes(normCleaned))) {
+      return p
+    }
+    if (normRaw && (normRaw.includes(normP) || normP.includes(normRaw))) {
+      return p
+    }
+  }
+
+  // 3. Match por tokens de palavras significativas (> 2 caracteres)
+  const tokensCleaned = (normCleaned || normRaw).split(/\s+/).filter((t) => t.length > 2)
+  if (tokensCleaned.length > 0) {
+    // 3a. Todos os tokens do catálogo estão no texto da planilha
+    const fullMatch = sortedProds.find((p) => {
+      const pTokens = normalizeName(p.name)
+        .split(/\s+/)
+        .filter((t) => t.length > 2)
+      return pTokens.length > 0 && pTokens.every((pt) => tokensCleaned.includes(pt))
+    })
+    if (fullMatch) return fullMatch
+
+    // 3b. Todos os tokens da planilha estão no nome do produto
+    const subsetMatch = sortedProds.find((p) => {
+      const normP = normalizeName(p.name)
+      return tokensCleaned.every((t) => normP.includes(t))
+    })
+    if (subsetMatch) return subsetMatch
+
+    // 3c. Primeiro token significativo (ex: "AIPIM" de "AIPIM COM CASCA")
+    const firstToken = tokensCleaned[0]
+    if (firstToken && firstToken.length >= 4) {
+      const firstMatch = sortedProds.find((p) => {
+        const normP = normalizeName(p.name)
+        const pTokens = normP.split(/\s+/).filter((t) => t.length > 2)
+        return pTokens.includes(firstToken)
+      })
+      if (firstMatch) return firstMatch
+    }
+  }
+
   return null
 }
 
@@ -404,6 +469,7 @@ export function parseSecretaryExcel(
   contractSchools: ContractSchoolLink[],
   allProducts: Product[],
   contractRotas?: Array<{ nome: string } | string>,
+  contractItems?: ContratoItemRecord[],
 ): ParsedExcelResult {
   const sheetNames = workbook.SheetNames
   const candidateSheets: string[] = []
@@ -462,13 +528,63 @@ export function parseSecretaryExcel(
     const data: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' })
     if (data.length < 10) continue // Planilha vazia ou com formato incorreto
 
-    // Linha 7 (índice 6): Nomes das escolas por coluna
-    const schoolRowIndex = 6
+    // Localizar a linha que contém o cabeçalho das escolas
+    // Normalmente na linha 7 (índice 6), mas buscamos dinamicamente caso haja deslocamento
+    let schoolRowIndex = 6
+    for (let r = 0; r < Math.min(data.length, 12); r++) {
+      const row = data[r] || []
+      const rowStr = row.map((c) => String(c || '').toUpperCase()).join(' ')
+      if (rowStr.includes('NOME DA ESCOLA') || (rowStr.includes('ESCOLA') && r >= 4)) {
+        schoolRowIndex = r
+        break
+      }
+    }
     const schoolRow = data[schoolRowIndex] || []
 
-    // Linhas 10 a 34 (índices 9 a 33): 25 produtos (coluna C / índice 2 = descrição do produto)
-    const startProductRow = 9
-    const endProductRow = Math.min(data.length - 1, 33)
+    // Identificar a linha inicial dos produtos: logo após cabeçalho de Item/Descrição (ex: "ITEM", "DESCRIÇÃO")
+    let startProductRow = schoolRowIndex + 1
+    for (let r = schoolRowIndex + 1; r < Math.min(data.length, schoolRowIndex + 6); r++) {
+      const row = data[r] || []
+      const rowStr = row.map((c) => String(c || '').toUpperCase()).join(' ')
+      if (
+        rowStr.includes('DESCRIÇÃO') ||
+        rowStr.includes('DESCRICAO') ||
+        rowStr.includes('PRODUTO') ||
+        rowStr.includes('ITEM')
+      ) {
+        startProductRow = r + 1
+        break
+      }
+    }
+
+    // Identificar dinamicamente a linha final dos produtos varrendo até a linha de totais da aba
+    // Sem janela fixa de 25 linhas!
+    let endProductRow = data.length - 1
+    for (let r = startProductRow; r < data.length; r++) {
+      const row = data[r] || []
+      const col0 = String(row[0] || '')
+        .trim()
+        .toUpperCase()
+      const col1 = String(row[1] || '')
+        .trim()
+        .toUpperCase()
+      const col2 = String(row[2] || '')
+        .trim()
+        .toUpperCase()
+      const rowStartStr = `${col0} ${col1} ${col2}`
+
+      if (
+        rowStartStr.includes('TOTAL') ||
+        rowStartStr.includes('TOTAIS') ||
+        rowStartStr.includes('TOTAL GERAL') ||
+        col0 === 'TOTAL' ||
+        col1 === 'TOTAL' ||
+        col2 === 'TOTAL'
+      ) {
+        endProductRow = r - 1
+        break
+      }
+    }
 
     // Identificar colunas que contêm escolas (geralmente da coluna D em diante, índice 3 em diante)
     // Parar se encontrar coluna com cabeçalho "FIXOS", "TOTAL" ou vazio
@@ -479,8 +595,13 @@ export function parseSecretaryExcel(
       const upperVal = cellVal.toUpperCase()
 
       // Ignorar seção FIXOS ou colunas de totais
-      if (!cellVal || upperVal.includes('FIXO') || upperVal.includes('TOTAL')) {
-        // Se já lemos escolas e encontramos coluna vazia/total, continuamos verificando se há mais ou paramos
+      if (
+        !cellVal ||
+        upperVal.includes('FIXO') ||
+        upperVal.includes('TOTAL') ||
+        upperVal.includes('UNIDADE') ||
+        upperVal === 'COD'
+      ) {
         continue
       }
 
@@ -554,20 +675,45 @@ export function parseSecretaryExcel(
         )
       }
 
-      // Ler os produtos da linha 10 à linha 34 para esta coluna
+      // Ler dinamicamente todos os produtos entre o cabeçalho e os totais
       const items: ParsedOrderItem[] = []
 
       for (let r = startProductRow; r <= endProductRow; r++) {
         const row = data[r] || []
-        const productDescRaw = String(row[2] || row[1] || '').trim()
-        if (!productDescRaw) continue
+        // O produto pode estar na coluna C (índice 2), coluna B (índice 1) ou coluna A (índice 0)
+        let productDescRaw = String(row[2] || '').trim()
+        if (!productDescRaw || !isNaN(Number(productDescRaw.replace(',', '.')))) {
+          productDescRaw = String(row[1] || '').trim()
+        }
+        if (!productDescRaw || !isNaN(Number(productDescRaw.replace(',', '.')))) {
+          productDescRaw = String(row[0] || '').trim()
+        }
+
+        // Se for linha de cabeçalho residual ou total, ignorar
+        const upperDesc = productDescRaw.toUpperCase()
+        if (
+          !productDescRaw ||
+          upperDesc.includes('TOTAL') ||
+          upperDesc.includes('DESCRIÇÃO') ||
+          upperDesc.includes('DESCRICAO')
+        ) {
+          continue
+        }
 
         const rawQtd = row[sc.colIndex]
         let qty = 0
         if (typeof rawQtd === 'number') {
           qty = rawQtd
         } else if (typeof rawQtd === 'string') {
-          qty = parseFloat(rawQtd.replace(',', '.')) || 0
+          // Trata formatos brasileiros como "6", "6,5", "6.5", "6 kg", etc.
+          const cleanQtdStr = rawQtd.replace(/[^\d.,]/g, '').trim()
+          if (cleanQtdStr.includes('.') && cleanQtdStr.includes(',')) {
+            qty = parseFloat(cleanQtdStr.replace(/\./g, '').replace(',', '.')) || 0
+          } else if (cleanQtdStr.includes(',')) {
+            qty = parseFloat(cleanQtdStr.replace(',', '.')) || 0
+          } else {
+            qty = parseFloat(cleanQtdStr) || 0
+          }
         }
 
         if (qty <= 0 || isNaN(qty)) continue
@@ -575,15 +721,42 @@ export function parseSecretaryExcel(
         const matchedProd = matchProductName(productDescRaw, allProducts)
         if (!matchedProd) {
           baseIssues.push(`Produto "${productDescRaw}" não encontrado no catálogo de produtos.`)
+          items.push({
+            productNameRaw: productDescRaw,
+            quantity: qty,
+            price: 0,
+            isContractItem: false,
+          })
+          continue
         }
 
-        const price = matchedProd?.price || 0
+        // Resolução do Preço a partir de contrato_itens do contrato selecionado
+        let resolvedPrice = 0
+        let foundInContract = false
+
+        if (contractItems && contractItems.length > 0) {
+          const matchedContractItem = contractItems.find((ci) => ci.produto_id === matchedProd.id)
+          if (matchedContractItem) {
+            resolvedPrice = Number(matchedContractItem.preco) || 0
+            foundInContract = true
+          } else {
+            baseIssues.push(
+              `Produto "${matchedProd.name}" (${productDescRaw}) não consta nos itens contratados deste contrato.`,
+            )
+          }
+        } else {
+          // Fallback se não fornecida lista de contrato_itens (ex: catálogo mestre)
+          resolvedPrice = matchedProd.price || 0
+          foundInContract = true
+        }
+
         items.push({
           productNameRaw: productDescRaw,
-          productId: matchedProd?.id,
-          productNameMatched: matchedProd?.name,
+          productId: matchedProd.id,
+          productNameMatched: matchedProd.name,
           quantity: qty,
-          price,
+          price: resolvedPrice,
+          isContractItem: foundInContract,
         })
       }
 
@@ -654,9 +827,18 @@ export function parseSecretaryExcel(
         }
       }
 
+      const schDisplayName = firstCol.matchedSchool?.name || firstCol.schoolNameRaw
+
+      // Regra "pelo menos 1 item":
+      // Se uma escola/coluna for identificada mas resultar em 0 itens válidos:
+      if (consolidatedItems.length === 0) {
+        issueSet.add(
+          `Nenhum produto reconhecido para a escola ${schDisplayName} na rota ${sheetName}. Um pedido deve conter pelo menos 1 item.`,
+        )
+      }
+
       // Se ocorreu em mais de uma coluna nesta mesma aba, registrar observação informativa (não anomalia/não erro)
       if (colCount > 1) {
-        const schDisplayName = firstCol.matchedSchool?.name || firstCol.schoolNameRaw
         issueSet.add(
           `Quantidades somadas de ${colCount} lançamentos na aba ${sheetName} para "${schDisplayName}".`,
         )
@@ -730,7 +912,8 @@ export function parseSecretaryExcel(
       !po.isLinkedToContract ||
       po.isDuplicateInOtherSheets ||
       po.isSheetUnmatchedInContract ||
-      po.items.some((it) => !it.productId)
+      po.items.length === 0 ||
+      po.items.some((it) => !it.productId || it.isContractItem === false)
 
     if (hasBlockingIssues) {
       pendingIssuesCount++

@@ -38,6 +38,13 @@ export const pedidosService = {
       preco_unitario: number
     }>
   }): Promise<PedidoRecord> {
+    const validItens = (data.itens || []).filter((it) => it.produto_id && it.quantidade > 0)
+    if (validItens.length === 0) {
+      throw new Error(
+        'Não é possível criar um pedido sem itens. Um pedido deve conter pelo menos 1 item.',
+      )
+    }
+
     const pedido = await pb.collection('pedidos').create<PedidoRecord>({
       numero: data.numero,
       escola_id: data.escola_id,
@@ -50,7 +57,7 @@ export const pedidosService = {
       status: data.status,
     })
 
-    for (const item of data.itens) {
+    for (const item of validItens) {
       await pb.collection('pedido_itens').create({
         pedido_id: pedido.id,
         produto_id: item.produto_id,

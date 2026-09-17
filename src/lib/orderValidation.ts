@@ -20,11 +20,10 @@ export function validateOrder(params: OrderValidationInput): PedidoValidacao {
   if (validItems.length === 0) {
     return {
       status: 'invalido',
-      motivo: 'Pedido inválido: nenhum item com quantidade maior que zero foi informado.',
-      detalhes: ['O pedido está completamente vazio.'],
+      motivo: 'Um pedido deve conter pelo menos 1 item com quantidade maior que zero.',
+      detalhes: ['O pedido está vazio ou não possui itens com quantidade válida.'],
     }
   }
-
   const detalhes: string[] = []
 
   // Se fase correcao: verificar se itens em escassez foram compensados por itens em abundância

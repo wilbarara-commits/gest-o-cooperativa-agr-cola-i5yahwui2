@@ -64,7 +64,16 @@ import { importacoesService } from '@/services/whatsapp-import'
 import type { ImportacaoRecord, EscolaTipo } from '@/lib/types'
 
 export default function ExcelImport() {
-  const { contracts, schools, products, activeCiclo, rotas, paradasRota, refreshData } = useApp()
+  const {
+    contracts,
+    schools,
+    products,
+    contractItems,
+    activeCiclo,
+    rotas,
+    paradasRota,
+    refreshData,
+  } = useApp()
   const { user } = useAuth()
 
   // Filtrar contratos com modalidade centralizada
@@ -108,6 +117,12 @@ export default function ExcelImport() {
     [contracts, selectedContractId],
   )
 
+  // Itens contratados do contrato selecionado
+  const selectedContractItems = useMemo(() => {
+    if (!selectedContractId) return []
+    return contractItems.filter((ci) => ci.contrato_id === selectedContractId)
+  }, [contractItems, selectedContractId])
+
   // Carregar histórico de importações
   const loadHistory = async () => {
     setLoadingHistory(true)
@@ -145,12 +160,16 @@ export default function ExcelImport() {
       setRawWorkbook(workbook)
 
       const contractRotas = rotas.filter((r) => r.contrato_id === selectedContract.id)
+      const currentContractItems = contractItems.filter(
+        (ci) => ci.contrato_id === selectedContract.id,
+      )
       const result = parseSecretaryExcel(
         workbook,
         schools,
         selectedContract.escolas,
         products,
         contractRotas,
+        currentContractItems,
       )
 
       setParsedData(result)
@@ -227,12 +246,16 @@ export default function ExcelImport() {
   ) => {
     if (!rawWorkbook || !selectedContract) return
     const contractRotas = rotas.filter((r) => r.contrato_id === selectedContract.id)
+    const currentContractItems = contractItems.filter(
+      (ci) => ci.contrato_id === selectedContract.id,
+    )
     const result = parseSecretaryExcel(
       rawWorkbook,
       currentSchools,
       currentLinks,
       products,
       contractRotas,
+      currentContractItems,
     )
     setParsedData(result)
   }
@@ -395,14 +418,22 @@ export default function ExcelImport() {
   const handleConfirmImport = async () => {
     if (!parsedData || !selectedContract) return
 
-    // Validar se existem pedidos prontos sem pendências impeditivas
+    // Validar se existem pedidos prontos sem pendências impeditivas:
+    // Deve ter escola cadastrada, vinculada ao contrato, conter pelo menos 1 item com quantidade > 0,
+    // e todos os itens devem pertencer aos itens contratados do contrato selecionado.
     const validOrders = parsedData.orders.filter(
-      (o) => o.schoolId && o.isLinkedToContract && o.items.length > 0,
+      (o) =>
+        o.schoolId &&
+        o.isLinkedToContract &&
+        !o.isDuplicateInOtherSheets &&
+        !o.isSheetUnmatchedInContract &&
+        o.items.length > 0 &&
+        o.items.every((it) => it.productId && it.isContractItem !== false),
     )
 
     if (validOrders.length === 0) {
       toast.error(
-        'Nenhum pedido pode ser importado. Resolva as pendências de vinculação das escolas ao contrato através dos botões de ação na tabela.',
+        'Nenhum pedido pode ser importado. Resolva as pendências de vinculação das escolas ou de produtos não contratados através das orientações na tabela.',
       )
       return
     }
@@ -780,11 +811,17 @@ export default function ExcelImport() {
                   </TableHeader>
                   <TableBody>
                     {parsedData.orders.map((po, idx) => {
+                      const hasUnmatchedProducts = po.items.some(
+                        (it) => !it.productId || it.isContractItem === false,
+                      )
+                      const hasZeroItems = po.items.length === 0
                       const hasBlockingIssues =
                         po.matchStatus !== 'ok' ||
                         !po.isLinkedToContract ||
                         po.isDuplicateInOtherSheets ||
-                        po.items.some((it) => !it.productId)
+                        po.isSheetUnmatchedInContract ||
+                        hasZeroItems ||
+                        hasUnmatchedProducts
 
                       return (
                         <TableRow key={idx} className={hasBlockingIssues ? 'bg-amber-500/5' : ''}>
@@ -837,14 +874,24 @@ export default function ExcelImport() {
                           <TableCell className="text-xs">
                             <span
                               className="text-muted-foreground"
-                              title={po.items
-                                .map(
-                                  (i) =>
-                                    `${i.quantity}x ${i.productNameMatched || i.productNameRaw}`,
-                                )
-                                .join(', ')}
+                              title={
+                                po.items.length > 0
+                                  ? po.items
+                                      .map(
+                                        (i) =>
+                                          `${i.quantity}x ${i.productNameMatched || i.productNameRaw} (R$ ${i.price.toFixed(2)})`,
+                                      )
+                                      .join(', ')
+                                  : 'Nenhum produto'
+                              }
                             >
-                              {po.items.length} produto(s)
+                              {po.items.length === 0 ? (
+                                <Badge variant="destructive" className="text-[10px]">
+                                  0 produtos
+                                </Badge>
+                              ) : (
+                                `${po.items.length} produto(s)`
+                              )}
                             </span>
                           </TableCell>
                           <TableCell className="text-right font-mono text-xs">
@@ -855,7 +902,30 @@ export default function ExcelImport() {
                             })}
                           </TableCell>
                           <TableCell>
-                            {po.isLinkedToContract ? (
+                            {hasZeroItems ? (
+                              <Badge
+                                variant="destructive"
+                                className="text-[10px] whitespace-normal"
+                              >
+                                Sem itens (mínimo 1)
+                              </Badge>
+                            ) : hasUnmatchedProducts ? (
+                              <div className="space-y-1">
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[10px] whitespace-normal"
+                                >
+                                  Produto não contratado
+                                </Badge>
+                                <p className="text-[10px] text-destructive leading-tight">
+                                  {po.issues.find(
+                                    (iss) =>
+                                      iss.includes('não consta nos itens') ||
+                                      iss.includes('não encontrado'),
+                                  ) || 'Itens inválidos'}
+                                </p>
+                              </div>
+                            ) : po.isLinkedToContract ? (
                               <Badge className="bg-emerald-600 text-[10px]">
                                 Pronto para importar
                               </Badge>

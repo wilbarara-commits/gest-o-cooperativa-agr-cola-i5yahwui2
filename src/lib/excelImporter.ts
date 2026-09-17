@@ -210,6 +210,159 @@ export function matchProductName(rawName: string, allProducts: Product[]): Produ
  * Casa tolerante do nome de uma aba da planilha com as rotas cadastradas no contrato.
  * Normaliza acentos, pontuação, múltiplos espaços e caixa alta/baixa.
  */
+/**
+ * Casa tolerante de uma linha de texto colada (ex: nome da escola e opcionalmente endereço)
+ * com as escolas vinculadas ao contrato.
+ * Suporta separadores comuns como "\t", ";", " - " ou vírgula.
+ * Tolerante a acentos, caixa, pontuação e espaços extras.
+ */
+export function matchPastedSchoolLine(
+  rawLine: string,
+  contractSchools: ContractSchoolLink[],
+  allSchools?: School[],
+): {
+  matchedLink: ContractSchoolLink | null
+  extractedName: string
+  extractedAddress?: string
+} {
+  const line = (rawLine || '').trim()
+  if (!line) {
+    return { matchedLink: null, extractedName: '' }
+  }
+
+  // Divisão em nome e possível endereço por tab, ponto-e-vírgula ou traço com espaços em volta
+  let namePart = line
+  let addressPart = ''
+
+  if (line.includes('\t')) {
+    const parts = line
+      .split('\t')
+      .map((p) => p.trim())
+      .filter(Boolean)
+    namePart = parts[0] || ''
+    addressPart = parts.slice(1).join(' ')
+  } else if (line.includes(';')) {
+    const parts = line
+      .split(';')
+      .map((p) => p.trim())
+      .filter(Boolean)
+    namePart = parts[0] || ''
+    addressPart = parts.slice(1).join(' ')
+  } else if (/\s+-\s+/.test(line)) {
+    const parts = line
+      .split(/\s+-\s+/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+    namePart = parts[0] || ''
+    addressPart = parts.slice(1).join(' ')
+  } else if (line.includes(',')) {
+    // Se houver vírgula mas nenhum outro separador, testa se antes da vírgula já parece nome
+    const parts = line
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean)
+    if (parts.length > 1) {
+      namePart = parts[0] || ''
+      addressPart = parts.slice(1).join(', ')
+    }
+  }
+
+  const normLine = normalizeName(line)
+  const normName = normalizeName(namePart)
+  const normNameNoParen = normalizeName(stripParentheses(namePart))
+  const normAddress = addressPart ? normalizeName(addressPart) : ''
+
+  // Função auxiliar de match para um ContractSchoolLink
+  const testCandidate = (cs: ContractSchoolLink): boolean => {
+    const schoolObj = allSchools?.find((s) => s.id === cs.escolaId)
+    const candName = cs.escolaNome || schoolObj?.name || ''
+    const candAddress = cs.escolaEndereco || schoolObj?.address || ''
+
+    const normCand = normalizeName(candName)
+    const normCandNoParen = normalizeName(stripParentheses(candName))
+    const candParen = normalizeName(extractParenthesesContent(candName))
+    const inputParen = normalizeName(extractParenthesesContent(namePart))
+
+    if (!normCand) return false
+
+    // 1. Igualdade exata no nome normalizado
+    if (normCand === normName || normCand === normLine) return true
+
+    // 2. Sem parênteses
+    if (normCandNoParen && normNameNoParen && normCandNoParen === normNameNoParen) return true
+
+    // 3. Parênteses / siglas coincidentes (ex: CMEI Várzea (CEROM))
+    if (inputParen && (normCand.includes(inputParen) || candParen === inputParen)) return true
+    if (candParen && (normName.includes(candParen) || candParen === inputParen)) return true
+
+    // 4. Limpeza de prefixos ("em", "cmei", "escola municipal", etc.)
+    const cleanCand = normCand
+      .replace(/^(em|ee|cmei|cm|creche|escola municipal|escola estadual)\s+/, '')
+      .trim()
+    const cleanInput = normName
+      .replace(/^(em|ee|cmei|cm|creche|escola municipal|escola estadual)\s+/, '')
+      .trim()
+    if (
+      cleanCand &&
+      cleanInput &&
+      (cleanCand === cleanInput || cleanCand.includes(cleanInput) || cleanInput.includes(cleanCand))
+    ) {
+      return true
+    }
+
+    // 5. Contém o nome inteiro ou a linha inteira contém o nome da escola
+    if (normLine.includes(normCand) || normCand.includes(normName)) {
+      return true
+    }
+
+    // 6. Fallback por endereço se tiver endereço informado e candidato tiver endereço
+    if (normAddress && candAddress) {
+      const normCandAddr = normalizeName(candAddress)
+      if (
+        normCandAddr &&
+        (normAddress.includes(normCandAddr) || normCandAddr.includes(normAddress))
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  // Tentar encontrar entre as escolas do contrato
+  for (const cs of contractSchools) {
+    if (testCandidate(cs)) {
+      return {
+        matchedLink: cs,
+        extractedName: namePart,
+        extractedAddress: addressPart || undefined,
+      }
+    }
+  }
+
+  // Se não achou com namePart separado por vírgula, tenta testar a linha inteira como nome
+  if (namePart !== line) {
+    for (const cs of contractSchools) {
+      const schoolObj = allSchools?.find((s) => s.id === cs.escolaId)
+      const candName = cs.escolaNome || schoolObj?.name || ''
+      const normCand = normalizeName(candName)
+      if (normCand && normLine.includes(normCand)) {
+        return {
+          matchedLink: cs,
+          extractedName: line,
+          extractedAddress: undefined,
+        }
+      }
+    }
+  }
+
+  return {
+    matchedLink: null,
+    extractedName: namePart || line,
+    extractedAddress: addressPart || undefined,
+  }
+}
+
 export function matchSheetToContractRota(
   sheetName: string,
   contractRotas: Array<{ nome: string } | string>,

@@ -50,9 +50,14 @@ import {
   Pencil,
   Route as RouteIcon,
   Sparkles,
+  ClipboardPaste,
+  HelpCircle,
+  Check,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { matchPastedSchoolLine } from '@/lib/excelImporter'
 import {
   MOTIVOS_LOGISTICOS_CANCELAMENTO,
   type MotivoLogisticoCancelamento,
@@ -106,6 +111,10 @@ export default function DeliveryRoutes() {
   )
   const [selectedSchoolsToAssign, setSelectedSchoolsToAssign] = useState<string[]>([])
   const [isSavingAssignment, setIsSavingAssignment] = useState(false)
+  // Estado para colagem em lote de escolas
+  const [pastedSchoolsText, setPastedSchoolsText] = useState('')
+  const [unmatchedPastedLines, setUnmatchedPastedLines] = useState<string[]>([])
+  const [pastedMatchFeedback, setPastedMatchFeedback] = useState<string | null>(null)
 
   // Estado para confirmação de despacho da rota inteira
   const [dispatchConfirmOpen, setDispatchConfirmOpen] = useState(false)
@@ -453,8 +462,64 @@ export default function DeliveryRoutes() {
       .filter((p) => p.rota_logistica_id === rota.id)
       .map((p) => p.escola_id)
     setSelectedSchoolsToAssign(paradasDaRota)
+    setPastedSchoolsText('')
+    setUnmatchedPastedLines([])
+    setPastedMatchFeedback(null)
 
     setRoutingDialogOpen(true)
+  }
+
+  // Processar colagem de lista de escolas com endereço
+  const handleApplyPastedSchools = () => {
+    if (!currentContrato) {
+      toast.error('Nenhum contrato selecionado.')
+      return
+    }
+
+    const lines = pastedSchoolsText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+
+    if (lines.length === 0) {
+      toast.error('Cole ao menos uma linha com o nome da escola.')
+      return
+    }
+
+    const matchedIds: string[] = []
+    const unmatched: string[] = []
+
+    for (const line of lines) {
+      const match = matchPastedSchoolLine(line, currentContrato.escolas, schools)
+      if (match.matchedLink) {
+        matchedIds.push(match.matchedLink.escolaId)
+      } else {
+        unmatched.push(line)
+      }
+    }
+
+    // Unir com as já marcadas (comportamento aditivo sem duplicatas)
+    const currentSet = new Set(selectedSchoolsToAssign)
+    let newlyAddedCount = 0
+    matchedIds.forEach((id) => {
+      if (!currentSet.has(id)) {
+        currentSet.add(id)
+        newlyAddedCount++
+      }
+    })
+
+    setSelectedSchoolsToAssign(Array.from(currentSet))
+    setUnmatchedPastedLines(unmatched)
+
+    const uniqueMatchedCount = new Set(matchedIds).size
+    if (uniqueMatchedCount > 0) {
+      const msg = `${uniqueMatchedCount} escola(s) reconhecida(s) (${newlyAddedCount} nova(s) marcada(s)).`
+      setPastedMatchFeedback(msg)
+      toast.success(msg)
+    } else {
+      setPastedMatchFeedback('Nenhuma escola correspondente foi encontrada.')
+      toast.warning('Nenhuma escola encontrada na lista colada. Verifique os nomes.')
+    }
   }
 
   // Roteamento por contrato: Salvar atribuição de escolas à rota logística
@@ -1136,6 +1201,109 @@ export default function DeliveryRoutes() {
           </DialogHeader>
 
           <div className="space-y-4 py-2 text-xs">
+            {/* Seção de Colagem em Massa */}
+            <div className="rounded-lg border border-primary/25 bg-primary/[0.03] p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <Label
+                  htmlFor="paste-schools-textarea"
+                  className="font-semibold text-foreground flex items-center gap-1.5 text-xs"
+                >
+                  <ClipboardPaste className="h-4 w-4 text-primary" /> Colar lista de escolas com
+                  endereço
+                </Label>
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <HelpCircle className="h-3 w-3" /> Excel, Word, CSV ou texto simples
+                </span>
+              </div>
+
+              <Textarea
+                id="paste-schools-textarea"
+                rows={3}
+                placeholder={`Cole uma escola por linha (nome e opcionalmente endereço):
+Ex: CMEI MARÍLIA MORGADO CARNEIRO - Rua X, 123
+Ou: ESCOLA MUNICIPAL SÃO PEDRO; Av. Principal, 450
+Ou apenas o nome da escola copiado do Excel/Word`}
+                value={pastedSchoolsText}
+                onChange={(e) => {
+                  setPastedSchoolsText(e.target.value)
+                  if (pastedMatchFeedback) setPastedMatchFeedback(null)
+                }}
+                className="text-xs bg-background resize-y min-h-[64px]"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                <p className="text-[10px] text-muted-foreground">
+                  Separe por tab, <code>;</code> ou <code> - </code>. As escolas reconhecidas são
+                  somadas às já marcadas.
+                </p>
+                <div className="flex items-center gap-2">
+                  {pastedSchoolsText.trim() && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px] px-2 text-muted-foreground"
+                      onClick={() => {
+                        setPastedSchoolsText('')
+                        setUnmatchedPastedLines([])
+                        setPastedMatchFeedback(null)
+                      }}
+                    >
+                      Limpar texto
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 text-xs px-3 gap-1.5"
+                    disabled={!pastedSchoolsText.trim()}
+                    onClick={handleApplyPastedSchools}
+                  >
+                    <Check className="h-3.5 w-3.5" /> Aplicar Lista
+                  </Button>
+                </div>
+              </div>
+
+              {/* Feedback de sucesso / matching */}
+              {pastedMatchFeedback && (
+                <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded px-2.5 py-1">
+                  ✓ {pastedMatchFeedback}
+                </p>
+              )}
+
+              {/* Aviso discreto de linhas não encontradas para correção */}
+              {unmatchedPastedLines.length > 0 && (
+                <div className="rounded border border-amber-300/80 bg-amber-50/80 dark:bg-amber-950/30 dark:border-amber-800 p-2 text-[11px] space-y-1">
+                  <div className="flex items-center justify-between text-amber-900 dark:text-amber-200 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                      Não encontradas ({unmatchedPastedLines.length}):
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 text-[10px] px-1 text-muted-foreground hover:text-foreground"
+                      onClick={() => setUnmatchedPastedLines([])}
+                    >
+                      Dispensar
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Estas linhas não casaram com as escolas cadastradas neste contrato. Você pode
+                    corrigir o nome e reaplicar:
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 text-amber-950 dark:text-amber-200 font-mono text-[10px] max-h-24 overflow-y-auto">
+                    {unmatchedPastedLines.map((line, idx) => (
+                      <li key={idx} className="truncate" title={line}>
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="font-semibold text-foreground flex items-center gap-1.5">
@@ -1174,7 +1342,7 @@ export default function DeliveryRoutes() {
                 automaticamente.
               </p>
 
-              <div className="rounded-lg border divide-y max-h-[340px] overflow-y-auto bg-card">
+              <div className="rounded-lg border divide-y max-h-[300px] overflow-y-auto bg-card">
                 {currentContrato ? (
                   currentContrato.escolas.map((esc) => {
                     const isChecked = selectedSchoolsToAssign.includes(esc.escolaId)

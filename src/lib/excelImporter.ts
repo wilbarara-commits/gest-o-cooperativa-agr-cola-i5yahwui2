@@ -429,7 +429,8 @@ export function parseSecretaryExcel(
   }
 
   const parsedOrders: ParsedSchoolOrder[] = []
-  const schoolSheetOccurrence = new Map<string, string[]>() // escolaNorm -> sheetNames[]
+  // Rastrear ocorrências de escolas por aba: escolaNorm -> Map<sheetName, count de colunas>
+  const schoolSheetOccurrences = new Map<string, Map<string, number>>()
   const sheetMatchedMap = new Map<string, string | null>() // sheetName -> matchedContractRotaNome
   const anomalies: string[] = []
 
@@ -487,10 +488,13 @@ export function parseSecretaryExcel(
     for (const sc of schoolColumns) {
       const normSchool = normalizeName(sc.schoolNameRaw)
 
-      // Rastrear ocorrência em mais de uma aba para detectar anomalia
-      const occurrences = schoolSheetOccurrence.get(normSchool) || []
-      occurrences.push(sheetName)
-      schoolSheetOccurrence.set(normSchool, occurrences)
+      // Rastrear ocorrência por aba e coluna para detectar anomalias
+      let sheetMap = schoolSheetOccurrences.get(normSchool)
+      if (!sheetMap) {
+        sheetMap = new Map<string, number>()
+        schoolSheetOccurrences.set(normSchool, sheetMap)
+      }
+      sheetMap.set(sheetName, (sheetMap.get(sheetName) || 0) + 1)
 
       const issues: string[] = []
 
@@ -592,19 +596,40 @@ export function parseSecretaryExcel(
     }
   }
 
-  // Verificar escolas encontradas em mais de uma aba (Anomalia de duplicidade)
-  for (const [normSchool, sheets] of schoolSheetOccurrence.entries()) {
-    if (sheets.length > 1) {
-      const msg = `Anomalia de duplicidade: A escola "${normSchool}" foi encontrada em múltiplas abas (${sheets.join(', ')}).`
+  // Verificar duplicidades:
+  // 1. Escola em abas DISTINTAS (ex.: ROTA A e ROTA B)
+  // 2. Escola em DUAS OU MAIS COLUNAS DENTRO DA MESMA ABA
+  for (const [normSchool, sheetMap] of schoolSheetOccurrences.entries()) {
+    const distinctSheets = Array.from(sheetMap.keys())
+
+    // Caso 1: Encontrada em múltiplas abas distintas
+    if (distinctSheets.length > 1) {
+      const msg = `Anomalia de duplicidade: A escola "${normSchool}" foi encontrada em múltiplas abas (${distinctSheets.join(', ')}).`
       anomalies.push(msg)
 
-      // Marcar nos pedidos afetados
       for (const po of parsedOrders) {
         if (normalizeName(po.schoolNameRaw) === normSchool) {
           po.isDuplicateInOtherSheets = true
           po.issues.push(
-            `Atenção: Esta escola apareceu em mais de uma rota da planilha (${sheets.join(', ')}).`,
+            `Atenção: Esta escola apareceu em mais de uma rota da planilha (${distinctSheets.join(', ')}).`,
           )
+        }
+      }
+    }
+
+    // Caso 2: Encontrada em múltiplas colunas dentro da mesma aba
+    for (const [sheetName, colCount] of sheetMap.entries()) {
+      if (colCount > 1) {
+        const msg = `Anomalia de duplicidade: A escola "${normSchool}" foi encontrada em ${colCount} colunas da mesma aba (${sheetName}).`
+        anomalies.push(msg)
+
+        for (const po of parsedOrders) {
+          if (normalizeName(po.schoolNameRaw) === normSchool && po.routeRaw === sheetName) {
+            po.isDuplicateInOtherSheets = true
+            po.issues.push(
+              `Atenção: Esta escola apareceu em ${colCount} colunas da mesma aba (${sheetName}).`,
+            )
+          }
         }
       }
     }

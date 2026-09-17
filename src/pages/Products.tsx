@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import { useState } from 'react'
 import { Label } from '@/components/ui/label'
 import { produtosService } from '@/services/produtos'
+import { CANONICAL_PRODUCT_UNITS } from '@/lib/productCsvImporter'
 import { ProductImportDialog } from '@/components/ProductImportDialog'
 
 export default function Products() {
@@ -34,11 +35,12 @@ export default function Products() {
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Estados de edição de produto (disponibilidade, estoque e preço)
+  // Estados de edição de produto (unidade, disponibilidade, estoque e preço)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<any>(null)
   const [editPreco, setEditPreco] = useState('')
   const [editEstoque, setEditEstoque] = useState('')
+  const [editUnidade, setEditUnidade] = useState('KG')
   const [editDisponibilidade, setEditDisponibilidade] = useState<
     'normal' | 'escassez' | 'abundancia'
   >('normal')
@@ -51,6 +53,7 @@ export default function Products() {
     setEditingProduct(p)
     setEditPreco(String(p.price ?? 0))
     setEditEstoque(String(p.stock ?? 0))
+    setEditUnidade(p.unit || 'KG')
     setEditDisponibilidade(p.disponibilidade || 'normal')
     setEditDialogOpen(true)
   }
@@ -74,6 +77,7 @@ export default function Products() {
       await produtosService.update(editingProduct.id, {
         preco_unitario: parsedPrice,
         estoque: parsedStock,
+        unidade: editUnidade || 'KG',
         disponibilidade: editDisponibilidade,
       })
       toast.success(`Produto "${editingProduct.name}" atualizado com sucesso!`)
@@ -221,29 +225,54 @@ export default function Products() {
           <DialogHeader>
             <DialogTitle>Editar Produto: {editingProduct?.name}</DialogTitle>
             <DialogDescription>
-              Ajuste individualmente o preço, estoque e a disponibilidade de safra deste produto.
+              Ajuste individualmente a unidade de medida, preço, estoque e a disponibilidade de
+              safra deste produto.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label htmlFor="edit-preco" className="text-sm font-semibold">
-                Preço Unitário (R$)
-              </Label>
-              <Input
-                id="edit-preco"
-                type="number"
-                step="0.01"
-                min="0"
-                value={editPreco}
-                onChange={(e) => setEditPreco(e.target.value)}
-                placeholder="Ex: 5.50"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-unidade" className="text-sm font-semibold">
+                  Unidade de Medida
+                </Label>
+                <select
+                  id="edit-unidade"
+                  value={editUnidade}
+                  onChange={(e) => setEditUnidade(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {CANONICAL_PRODUCT_UNITS.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                  {/* Se o produto possuir uma unidade legada fora da lista canônica, mantém como opção selecionável */}
+                  {!CANONICAL_PRODUCT_UNITS.includes(editUnidade as any) && editUnidade && (
+                    <option value={editUnidade}>{editUnidade}</option>
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-preco" className="text-sm font-semibold">
+                  Preço Unitário (R$)
+                </Label>
+                <Input
+                  id="edit-preco"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editPreco}
+                  onChange={(e) => setEditPreco(e.target.value)}
+                  placeholder="Ex: 5.50"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="edit-estoque" className="text-sm font-semibold">
-                Estoque ({editingProduct?.unit || 'Un'})
+                Estoque ({editUnidade || 'KG'})
               </Label>
               <Input
                 id="edit-estoque"

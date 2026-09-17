@@ -7,6 +7,20 @@ import * as XLSX from 'xlsx'
 export type ProdutoCategoria = 'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
 export type ProdutoDisponibilidade = 'normal' | 'escassez' | 'abundancia'
 
+export const CANONICAL_PRODUCT_UNITS = [
+  'KG',
+  'G',
+  'L',
+  'ML',
+  'UN',
+  'CX',
+  'FD',
+  'Dúzia',
+  'Maço',
+] as const
+
+export type CanonicalProductUnit = (typeof CANONICAL_PRODUCT_UNITS)[number]
+
 export interface ProductFieldChange {
   field: 'categoria' | 'unidade' | 'estoque' | 'preco_unitario' | 'disponibilidade'
   label: string
@@ -112,6 +126,120 @@ export function normalizeProdutoCategoria(rawCategoria: string): {
 
   // Valor não reconhecido: não inventa categoria, deixa 'Outros' com aviso ou mantém vazio
   return { categoria: 'Outros', isExactOrMapped: false }
+}
+
+/**
+ * Normaliza a unidade informada para uma das opções canônicas do sistema:
+ * 'KG' | 'G' | 'L' | 'ML' | 'UN' | 'CX' | 'FD' | 'Dúzia' | 'Maço'
+ * Tolerante a caixa e diacríticos.
+ * Se vazia, retorna unidade vazia. Se não reconhecida, retorna o valor original limpo
+ * com isRecognized = false para gerar aviso no preview sem quebrar.
+ */
+export function normalizeProdutoUnidade(rawUnidade: string): {
+  unidade: string
+  isRecognized: boolean
+} {
+  const trimmed = rawUnidade ? rawUnidade.trim() : ''
+  if (!trimmed) {
+    return { unidade: '', isRecognized: false }
+  }
+
+  const norm = normalizeName(trimmed)
+
+  // Dúzia: duzia / dúzia / duzias / dúzias / dz
+  if (norm === 'duzia' || norm === 'duzias' || norm === 'dz') {
+    return { unidade: 'Dúzia', isRecognized: true }
+  }
+
+  // KG: kg / kilo / quilo / kgs / quilos
+  if (norm === 'kg' || norm === 'kilo' || norm === 'quilo' || norm === 'kgs' || norm === 'quilos') {
+    return { unidade: 'KG', isRecognized: true }
+  }
+
+  // G: g / gr / grama / gramas
+  if (norm === 'g' || norm === 'gr' || norm === 'grama' || norm === 'gramas') {
+    return { unidade: 'G', isRecognized: true }
+  }
+
+  // UN: un / und / unid / unidade / unidades
+  if (
+    norm === 'un' ||
+    norm === 'und' ||
+    norm === 'unid' ||
+    norm === 'unidade' ||
+    norm === 'unidades'
+  ) {
+    return { unidade: 'UN', isRecognized: true }
+  }
+
+  // CX: cx / caixa / caixas
+  if (norm === 'cx' || norm === 'caixa' || norm === 'caixas') {
+    return { unidade: 'CX', isRecognized: true }
+  }
+
+  // Maço: maco / maço / molho / maços / molhos
+  if (norm === 'maco' || norm === 'macos' || norm === 'molho' || norm === 'molhos') {
+    return { unidade: 'Maço', isRecognized: true }
+  }
+
+  // FD: fd / fardo / fardos
+  if (norm === 'fd' || norm === 'fardo' || norm === 'fardos') {
+    return { unidade: 'FD', isRecognized: true }
+  }
+
+  // L: l / litro / litros
+  if (norm === 'l' || norm === 'litro' || norm === 'litros') {
+    return { unidade: 'L', isRecognized: true }
+  }
+
+  // ML: ml
+  if (norm === 'ml') {
+    return { unidade: 'ML', isRecognized: true }
+  }
+
+  // Match direto com alguma canônica existente (ex: "Dúzia", "Maço", "KG")
+  const direct = CANONICAL_PRODUCT_UNITS.find(
+    (u) => u.toLowerCase() === trimmed.toLowerCase() || normalizeName(u) === norm,
+  )
+  if (direct) {
+    return { unidade: direct, isRecognized: true }
+  }
+
+  // Valor não reconhecido: preserva trimmed para não quebrar e avisa
+  return { unidade: trimmed, isRecognized: false }
+}
+
+/**
+ * Remove sufixos comuns de plural em português ('es', 's') para termos individuais,
+ * preservando palavras curtas (<= 3 caracteres) para evitar falsos positivos
+ * (ex: 'gas' -> não mexer, 'mes' -> não mexer).
+ * Ex: "ovos caipiras" -> "ovo caipira", "laranjas" -> "laranja", "tomates" -> "tomate".
+ */
+export function stripPortuguesePluralWord(word: string): string {
+  if (word.length <= 3) return word
+  // 'es' no final de palavras com > 4 letras (ex: 'limoes' -> cuidado com nasal, mas 'abacates' termina em 's')
+  // No português geral: 'es' após 'r'/'z'/'l'/'s' (ex: colheres -> colher, flores -> flor)
+  if (word.length > 4 && word.endsWith('es')) {
+    const base = word.slice(0, -2)
+    // Se a base termina em consoante típica de plural em -es (r, z, l, n):
+    if (/[rzln]$/.test(base)) {
+      return base
+    }
+    // Caso termine em vogal + 's' como 'tomates' -> tira apenas 's' -> 'tomate'
+    return word.slice(0, -1)
+  }
+  if (word.endsWith('s')) {
+    return word.slice(0, -1)
+  }
+  return word
+}
+
+/**
+ * Normaliza um nome de produto para forma despluralizada (termo a termo).
+ */
+export function dePluralizeName(normName: string): string {
+  if (!normName) return ''
+  return normName.split(/\s+/).filter(Boolean).map(stripPortuguesePluralWord).join(' ')
 }
 
 /**
@@ -329,11 +457,21 @@ export async function parseProductsInput(
   }
 
   // Mapear produtos cadastrados existentes no banco por nome normalizado
+  // 1. Mapa com match exato normalizado (prioritário)
   const masterByNorm = new Map<string, Product>()
+  // 2. Mapa secundário com despluralização (fallback para tolerância singular/plural)
+  const masterByDePlural = new Map<string, Product>()
+
   for (const p of existingProducts) {
     const n = normalizeName(p.name)
     if (n) {
-      masterByNorm.set(n, p)
+      if (!masterByNorm.has(n)) {
+        masterByNorm.set(n, p)
+      }
+      const deplural = dePluralizeName(n)
+      if (deplural && !masterByDePlural.has(deplural)) {
+        masterByDePlural.set(deplural, p)
+      }
     }
   }
 
@@ -430,7 +568,14 @@ export async function parseProductsInput(
     }
 
     // Identificar se o produto já existe no banco de dados
-    const existingMaster = masterByNorm.get(normNome)
+    // Tenta primeiro match exato normalizado; se falhar, tenta fallback despluralizado
+    let existingMaster = masterByNorm.get(normNome)
+    if (!existingMaster) {
+      const depluralInput = dePluralizeName(normNome)
+      if (depluralInput) {
+        existingMaster = masterByDePlural.get(depluralInput)
+      }
+    }
     const isExisting = Boolean(existingMaster)
 
     // Indicar se cada coluna veio preenchida na linha
@@ -475,10 +620,14 @@ export async function parseProductsInput(
       }
     }
 
-    // B. Unidade
+    // B. Unidade (com normalização canônica para variantes pt-BR)
     let finalUnidade = 'KG'
     if (hasRawUnidade) {
-      finalUnidade = rawUnidade
+      const { unidade: mappedUnit, isRecognized } = normalizeProdutoUnidade(rawUnidade)
+      finalUnidade = mappedUnit || 'KG'
+      if (!isRecognized && mappedUnit) {
+        warnings.push(`Unidade "${rawUnidade}" não usual; mantida como "${mappedUnit}".`)
+      }
     } else {
       // Em branco:
       // se existente -> mantém existente

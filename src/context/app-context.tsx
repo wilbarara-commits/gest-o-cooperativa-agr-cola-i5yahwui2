@@ -352,9 +352,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const linkedSchools = links.map((ce) => {
           const sch = mappedSchools.find((s) => s.id === ce.escola_id)
           const rt = rawRotas.find((r) => r.id === ce.rota_id)
-          // Rota da planilha: prioridade ce.rota (texto direto gravado), depois expand?.rota_id?.nome, depois rt?.nome, depois sch?.route
+          // Rota da planilha: ce.rota guarda o nome texto livre da planilha.
+          // Se ce.rota for um ID de 15 caracteres alfanuméricos, descartar porque é ID corrompido, não nome.
+          const ceRotaRaw = ce.rota?.trim()
+          const ceRotaTexto = ceRotaRaw && !/^[a-z0-9]{15}$/.test(ceRotaRaw) ? ceRotaRaw : undefined
+
           const rotaPlanilhaNome =
-            ce.rota?.trim() || ce.expand?.rota_id?.nome || rt?.nome || sch?.route || 'Sem Rota'
+            ceRotaTexto || ce.expand?.rota_id?.nome || rt?.nome || sch?.route || 'Sem Rota'
 
           // Rota logística da cooperativa associada a esta escola
           const paradaEscola = rawParadasRota.find((p) => p.escola_id === ce.escola_id)

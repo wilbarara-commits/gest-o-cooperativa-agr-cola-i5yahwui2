@@ -627,15 +627,35 @@ export default function Contracts() {
         // Adicionar / Atualizar escolas marcadas com sua rota da planilha (sem mexer na rota logística)
         for (const f of contractSchoolsForm) {
           // Resolver id da rota e nome da rota (se o form tiver o nome ou id da rota)
-          let rId = f.rotaId
-          let rotaTexto = f.rotaId
-          if (savedRotasMap.has(f.rotaId)) {
-            rId = savedRotasMap.get(f.rotaId)!
-            rotaTexto = f.rotaId
-          } else {
-            // Se f.rotaId for um ID, achar o nome
-            const foundR = contractRotas.find((r) => r.id === f.rotaId)
-            if (foundR) rotaTexto = foundR.nome
+          let rId: string | undefined = undefined
+          let rotaTexto: string | undefined = undefined
+
+          const rawRotaVal = (f.rotaId || '').trim()
+          if (rawRotaVal) {
+            // 1. Se casa com chave de savedRotasMap (nome da rota ou id)
+            if (savedRotasMap.has(rawRotaVal)) {
+              rId = savedRotasMap.get(rawRotaVal)
+              // Se a chave for nome, usa o nome; se for id, tenta achar nome
+              const foundR = contractRotas.find((r) => r.id === rawRotaVal || r.nome === rawRotaVal)
+              rotaTexto = foundR ? foundR.nome : rawRotaVal
+            } else {
+              // 2. Se contractRotas tem pelo id ou nome
+              const foundR = contractRotas.find((r) => r.id === rawRotaVal || r.nome === rawRotaVal)
+              if (foundR) {
+                rId = foundR.id
+                rotaTexto = foundR.nome
+              } else if (!/^[a-z0-9]{15}$/.test(rawRotaVal)) {
+                // Se não é um ID alfanumérico de 15 chars, é texto legível (ex: "ROTA A")
+                rotaTexto = rawRotaVal
+              }
+            }
+          }
+
+          // Sanitização defensiva: se rotaTexto ainda parecer com um ID do PocketBase de 15 chars
+          // e não existir como rota cadastrada em contractRotas, descarta
+          if (rotaTexto && /^[a-z0-9]{15}$/.test(rotaTexto)) {
+            const matchCadastrada = contractRotas.find((r) => r.id === rotaTexto)
+            rotaTexto = matchCadastrada ? matchCadastrada.nome : undefined
           }
 
           await contratosService.linkEscola({

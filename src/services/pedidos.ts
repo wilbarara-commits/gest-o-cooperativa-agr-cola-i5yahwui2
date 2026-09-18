@@ -38,10 +38,16 @@ export const pedidosService = {
       preco_unitario: number
     }>
   }): Promise<PedidoRecord> {
-    const validItens = (data.itens || []).filter((it) => it.produto_id && it.quantidade > 0)
+    const validItens = (data.itens || []).filter(
+      (it) =>
+        it.produto_id &&
+        typeof it.quantidade === 'number' &&
+        !isNaN(it.quantidade) &&
+        it.quantidade > 0,
+    )
     if (validItens.length === 0) {
       throw new Error(
-        'Não é possível criar um pedido sem itens. Um pedido deve conter pelo menos 1 item.',
+        'Não é possível criar um pedido com zero itens ou itens com quantidade zero. Um pedido deve conter pelo menos 1 item válido com quantidade maior que zero.',
       )
     }
 

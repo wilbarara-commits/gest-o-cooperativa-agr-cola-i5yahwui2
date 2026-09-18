@@ -37,6 +37,14 @@ export interface ParsedOrderItem {
   isContractItem?: boolean
 }
 
+export interface PendingZeroItem {
+  productNameRaw: string
+  productId?: string
+  productNameMatched?: string
+  quantity: number
+  reason: string
+}
+
 export interface ProductMatchResult {
   product: Product | null
   matchedViaAlias?: string
@@ -64,6 +72,7 @@ export interface ParsedSchoolOrder {
     rotaSugerida: string
   }
   items: ParsedOrderItem[]
+  pendingZeroItems?: PendingZeroItem[]
   totalCalculated: number
   issues: string[]
   mergedColumnsCount?: number
@@ -78,6 +87,7 @@ export interface ParsedExcelResult {
   totalWeight: number
   anomalies: string[]
   pendingIssuesCount: number
+  totalZeroItemsPendingCount?: number
 }
 
 // Função de normalização de strings (remove acentos, pontuação, múltiplos espaços e lowercase)
@@ -820,7 +830,9 @@ export function parseSecretaryExcel(
           }
         }
 
-        if (qty <= 0 || isNaN(qty)) continue
+        if (isNaN(qty) || qty < 0) {
+          qty = 0
+        }
 
         const matchInfo = matchProductNameDetailed(productDescRaw, allProducts)
         const matchedProd = matchInfo.product
@@ -925,11 +937,30 @@ export function parseSecretaryExcel(
         }
       }
 
-      const consolidatedItems = Array.from(itemMap.values())
+      const rawConsolidatedItems = Array.from(itemMap.values())
 
-      // Calcular total
+      // Separar itens com quantidade > 0 (válidos para inclusão no pedido)
+      // dos itens com quantidade zero (pendente de validação na secretaria)
+      const validItems: ParsedOrderItem[] = []
+      const pendingZeroItems: PendingZeroItem[] = []
+
+      for (const it of rawConsolidatedItems) {
+        if (it.quantity > 0) {
+          validItems.push(it)
+        } else {
+          pendingZeroItems.push({
+            productNameRaw: it.productNameRaw,
+            productId: it.productId,
+            productNameMatched: it.productNameMatched,
+            quantity: 0,
+            reason: `Item "${it.productNameMatched || it.productNameRaw}" com quantidade zero — pendente de validação, não incluído no pedido`,
+          })
+        }
+      }
+
+      // Calcular total apenas dos itens válidos (> 0)
       let totalCalculated = 0
-      for (const item of consolidatedItems) {
+      for (const item of validItems) {
         totalCalculated += item.quantity * item.price
       }
 
@@ -944,10 +975,11 @@ export function parseSecretaryExcel(
       const schDisplayName = firstCol.matchedSchool?.name || firstCol.schoolNameRaw
 
       // Regra "pelo menos 1 item":
-      // Se uma escola/coluna for identificada mas resultar em 0 itens válidos:
-      if (consolidatedItems.length === 0) {
+      // Qualquer escola da planilha cujo pedido resultaria em 0 itens válidos NÃO deve gerar pedido gravado
+      // — deve aparecer como pendência clara no preview (nome da escola + rota + motivo "nenhum item com quantidade").
+      if (validItems.length === 0) {
         issueSet.add(
-          `Nenhum produto reconhecido para a escola ${schDisplayName} na rota ${sheetName}. Um pedido deve conter pelo menos 1 item.`,
+          `Nenhum item com quantidade para a escola ${schDisplayName} na rota ${sheetName}. Um pedido deve conter pelo menos 1 item válido.`,
         )
       }
 
@@ -956,6 +988,11 @@ export function parseSecretaryExcel(
         issueSet.add(
           `Quantidades somadas de ${colCount} lançamentos na aba ${sheetName} para "${schDisplayName}".`,
         )
+      }
+
+      // Adicionar avisos não bloqueantes para itens zerados ("pendente de validação")
+      for (const pz of pendingZeroItems) {
+        issueSet.add(pz.reason)
       }
 
       parsedOrders.push({
@@ -969,7 +1006,8 @@ export function parseSecretaryExcel(
         isLinkedToContract: firstCol.isLinked,
         matchStatus: firstCol.matchStatus,
         prefilledLink: firstCol.prefilledLink,
-        items: consolidatedItems,
+        items: validItems,
+        pendingZeroItems: pendingZeroItems.length > 0 ? pendingZeroItems : undefined,
         totalCalculated: Math.round(totalCalculated * 100) / 100,
         issues: Array.from(issueSet),
         mergedColumnsCount: colCount > 1 ? colCount : undefined,
@@ -1019,6 +1057,7 @@ export function parseSecretaryExcel(
   let totalItemsCount = 0
   let totalWeight = 0
   let pendingIssuesCount = 0
+  let totalZeroItemsPendingCount = 0
 
   for (const po of parsedOrders) {
     const hasBlockingIssues =
@@ -1031,6 +1070,9 @@ export function parseSecretaryExcel(
 
     if (hasBlockingIssues) {
       pendingIssuesCount++
+    }
+    if (po.pendingZeroItems && po.pendingZeroItems.length > 0) {
+      totalZeroItemsPendingCount += po.pendingZeroItems.length
     }
     for (const it of po.items) {
       totalItemsCount++
@@ -1047,5 +1089,6 @@ export function parseSecretaryExcel(
     totalWeight: Math.round(totalWeight * 100) / 100,
     anomalies,
     pendingIssuesCount,
+    totalZeroItemsPendingCount,
   }
 }

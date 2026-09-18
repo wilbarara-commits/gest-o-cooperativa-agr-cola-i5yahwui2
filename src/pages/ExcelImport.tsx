@@ -469,6 +469,13 @@ export default function ExcelImport() {
             }
           }
 
+          const validationDetails = [`${o.items.length} itens recebidos da secretaria`]
+          if (o.pendingZeroItems && o.pendingZeroItems.length > 0) {
+            validationDetails.push(
+              `${o.pendingZeroItems.length} item(ns) com quantidade zero pendente(s) de validação (não incluídos no pedido)`,
+            )
+          }
+
           await pedidosService.create({
             numero: orderNum,
             escola_id: o.schoolId!,
@@ -479,7 +486,7 @@ export default function ExcelImport() {
             validacao: {
               status: 'validado',
               motivo: `Importado de planilha centralizada (${o.routeRaw})`,
-              detalhes: [`${o.items.length} itens recebidos da secretaria`],
+              detalhes: validationDetails,
             },
             data_prevista: now,
             status: 'Pendente',
@@ -507,6 +514,34 @@ export default function ExcelImport() {
           tipo: 'info',
           observacao: `Abas ignoradas (sem rota cadastrada correspondente): ${parsedData.ignoredUnmatchedSheets.join(', ')}`,
         })
+      }
+
+      // Registrar auditoria de pedidos com 0 itens válidos retidos
+      const zeroItemOrders = parsedData.orders.filter((o) => o.items.length === 0)
+      for (const zio of zeroItemOrders) {
+        const schName = zio.schoolNameMatched || zio.schoolNameRaw
+        auditLog.push({
+          tipo: 'bloqueio',
+          escola: schName,
+          rota: zio.routeRaw,
+          motivo: 'nenhum item com quantidade — pedido não criado',
+        })
+      }
+
+      // Registrar auditoria de itens zerados pendentes de validação
+      for (const po of parsedData.orders) {
+        if (po.pendingZeroItems && po.pendingZeroItems.length > 0) {
+          const schName = po.schoolNameMatched || po.schoolNameRaw
+          for (const pz of po.pendingZeroItems) {
+            auditLog.push({
+              tipo: 'item_zerado',
+              escola: schName,
+              rota: po.routeRaw,
+              produto: pz.productNameMatched || pz.productNameRaw,
+              observacao: 'quantidade zero — pendente de validação, não incluído no pedido',
+            })
+          }
+        }
       }
 
       await importacoesService.create({
@@ -709,7 +744,7 @@ export default function ExcelImport() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Cards de Resumo da Leitura */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <Card className="bg-muted/30">
                   <CardContent className="p-3 text-center">
                     <p className="text-xs text-muted-foreground">Abas de Rota</p>
@@ -737,22 +772,38 @@ export default function ExcelImport() {
                       {parsedData.totalWeight.toLocaleString('pt-BR')}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      {parsedData.totalItemsCount} linhas de produto
+                      {parsedData.totalItemsCount} itens válidos
                     </p>
                   </CardContent>
                 </Card>
 
                 <Card className="bg-muted/30">
                   <CardContent className="p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Pendências de Cadastro</p>
+                    <p className="text-xs text-muted-foreground">Pendências Bloqueantes</p>
                     <p
                       className={`text-xl font-bold ${
-                        parsedData.pendingIssuesCount > 0 ? 'text-amber-600' : 'text-emerald-600'
+                        parsedData.pendingIssuesCount > 0 ? 'text-rose-600' : 'text-emerald-600'
                       }`}
                     >
                       {parsedData.pendingIssuesCount}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">necessitam atenção</p>
+                    <p className="text-[10px] text-muted-foreground">pedidos retidos</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30">
+                  <CardContent className="p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Itens com Qtd Zero</p>
+                    <p
+                      className={`text-xl font-bold ${
+                        (parsedData.totalZeroItemsPendingCount || 0) > 0
+                          ? 'text-amber-600'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      {parsedData.totalZeroItemsPendingCount || 0}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">pendentes de validação</p>
                   </CardContent>
                 </Card>
               </div>
@@ -874,32 +925,49 @@ export default function ExcelImport() {
                           <TableCell className="text-xs">
                             <span
                               className="text-muted-foreground"
-                              title={
-                                po.items.length > 0
-                                  ? po.items
-                                      .map((i) => {
-                                        const aliasInfo = i.matchedViaAlias
-                                          ? ` [via apelido "${i.matchedViaAlias}"]`
-                                          : ''
-                                        return `${i.quantity}x ${i.productNameMatched || i.productNameRaw}${aliasInfo} (R$ ${i.price.toFixed(2)})`
-                                      })
-                                      .join('\n')
-                                  : 'Nenhum produto'
-                              }
+                              title={[
+                                ...(po.items.length > 0
+                                  ? po.items.map((i) => {
+                                      const aliasInfo = i.matchedViaAlias
+                                        ? ` [via apelido "${i.matchedViaAlias}"]`
+                                        : ''
+                                      return `${i.quantity}x ${i.productNameMatched || i.productNameRaw}${aliasInfo} (R$ ${i.price.toFixed(2)})`
+                                    })
+                                  : ['Nenhum item com quantidade > 0']),
+                                ...(po.pendingZeroItems && po.pendingZeroItems.length > 0
+                                  ? [
+                                      '--- Pendentes de validação (quantidade zero):',
+                                      ...po.pendingZeroItems.map(
+                                        (pz) =>
+                                          `• ${pz.productNameMatched || pz.productNameRaw} (0)`,
+                                      ),
+                                    ]
+                                  : []),
+                              ].join('\n')}
                             >
                               {po.items.length === 0 ? (
                                 <Badge variant="destructive" className="text-[10px]">
-                                  0 produtos
+                                  0 itens com quantidade
                                 </Badge>
                               ) : (
                                 <div className="space-y-0.5">
-                                  <span>{po.items.length} produto(s)</span>
+                                  <span>{po.items.length} produto(s) válido(s)</span>
                                   {po.items.some((i) => i.matchedViaAlias) && (
                                     <span className="text-[10px] text-primary flex items-center gap-1 font-medium">
                                       ✓ {po.items.filter((i) => i.matchedViaAlias).length} via
                                       apelido
                                     </span>
                                   )}
+                                </div>
+                              )}
+                              {po.pendingZeroItems && po.pendingZeroItems.length > 0 && (
+                                <div className="mt-1">
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[9px] bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-300 font-normal"
+                                  >
+                                    {po.pendingZeroItems.length} com qtd zero (não incluído)
+                                  </Badge>
                                 </div>
                               )}
                             </span>
@@ -913,12 +981,19 @@ export default function ExcelImport() {
                           </TableCell>
                           <TableCell>
                             {hasZeroItems ? (
-                              <Badge
-                                variant="destructive"
-                                className="text-[10px] whitespace-normal"
-                              >
-                                Sem itens (mínimo 1)
-                              </Badge>
+                              <div className="space-y-1">
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[10px] whitespace-normal"
+                                >
+                                  Nenhum item com quantidade
+                                </Badge>
+                                <p className="text-[10px] text-destructive leading-tight">
+                                  {po.issues.find((iss) =>
+                                    iss.includes('Nenhum item com quantidade'),
+                                  ) || 'Pedido retido: requer ao menos 1 item com quantidade.'}
+                                </p>
+                              </div>
                             ) : hasUnmatchedProducts ? (
                               <div className="space-y-1">
                                 <Badge
@@ -936,9 +1011,18 @@ export default function ExcelImport() {
                                 </p>
                               </div>
                             ) : po.isLinkedToContract ? (
-                              <Badge className="bg-emerald-600 text-[10px]">
-                                Pronto para importar
-                              </Badge>
+                              <div className="space-y-1">
+                                <Badge className="bg-emerald-600 text-[10px]">
+                                  Pronto para importar
+                                </Badge>
+                                {po.pendingZeroItems && po.pendingZeroItems.length > 0 && (
+                                  <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-tight">
+                                    {po.pendingZeroItems.length === 1
+                                      ? '1 item zerado pendente de validação'
+                                      : `${po.pendingZeroItems.length} itens zerados pendentes de validação`}
+                                  </p>
+                                )}
+                              </div>
                             ) : po.matchStatus === 'needs_link' ? (
                               <div className="space-y-1.5">
                                 <Badge

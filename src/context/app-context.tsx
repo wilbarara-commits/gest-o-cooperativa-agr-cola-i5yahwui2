@@ -800,10 +800,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   })
 
   const addOrder = async (orderData: CreateOrderData): Promise<boolean> => {
+    // Validação estrita: não permitir pedidos com zero itens ou itens com quantidade <= 0
+    const rawItems = orderData.items || []
+    const validRawItems = rawItems.filter(
+      (it) =>
+        it.productId && typeof it.quantity === 'number' && !isNaN(it.quantity) && it.quantity > 0,
+    )
+
+    if (validRawItems.length === 0) {
+      toast.error(
+        'Não é possível criar pedido sem itens válidos ou com quantidade zero. Adicione pelo menos 1 item com quantidade maior que zero.',
+      )
+      return false
+    }
+
     const orderCount = orders.length + 1
     const numero = `ORD-${String(orderCount).padStart(3, '0')}`
 
-    const formattedItens = orderData.items.map((it) => {
+    const formattedItens = validRawItems.map((it) => {
       const prod = products.find((p) => p.id === it.productId)
       return {
         id: it.productId,

@@ -179,8 +179,18 @@ export default function Orders() {
 
     const validItems = orderItems.filter((i) => i.productId && Number(i.quantity) > 0)
     if (validItems.length === 0) {
-      toast.error('Adicione ao menos um produto válido com quantidade maior que zero.')
+      toast.error(
+        'Não é possível criar pedido sem itens ou com quantidade zero. Adicione pelo menos um item válido com quantidade maior que zero.',
+      )
       return
+    }
+
+    // Se houver algum item preenchido com quantidade <= 0, alertar o usuário
+    const hasZeroItem = orderItems.some(
+      (i) => i.productId && (isNaN(Number(i.quantity)) || Number(i.quantity) <= 0),
+    )
+    if (hasZeroItem) {
+      toast.warning('Itens com quantidade menor ou igual a zero não serão incluídos no pedido.')
     }
 
     setIsSubmitting(true)

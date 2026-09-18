@@ -1,10 +1,11 @@
 import type { EscolaTipo } from '@/lib/types'
 import { normalizeName } from '@/lib/excelImporter'
 import { parsePtBrNumber } from '@/lib/numberParser'
+import { dePluralizeName } from '@/lib/productCsvImporter'
 import * as XLSX from 'xlsx'
 
 export interface SchoolFieldChange {
-  field: 'tipo' | 'rota' | 'alunos' | 'endereco' | 'telefone' | 'email'
+  field: 'tipo' | 'rota' | 'alunos' | 'endereco' | 'telefone' | 'email' | 'bairro' | 'contato'
   label: string
   oldValue: string
   newValue: string
@@ -19,6 +20,8 @@ export interface ParsedCsvSchoolRow {
   rawEndereco: string
   rawTelefone: string
   rawEmail: string
+  rawBairro: string
+  rawContato: string
   // Mapeados
   nome: string
   tipo: EscolaTipo | ''
@@ -27,11 +30,13 @@ export interface ParsedCsvSchoolRow {
   endereco?: string
   telefone?: string
   email?: string
+  bairro?: string
+  contato?: string
   // Dados do registro existente quando status for 'update'
   existingSchoolId?: string
   existingSchoolName?: string
   fieldChanges?: SchoolFieldChange[]
-  // Indicação de quais colunas estavam presentes no arquivo
+  // Indicação de quais colunas estavam presentes no arquivo/colagem
   presentColumns: {
     tipo: boolean
     rota: boolean
@@ -39,6 +44,8 @@ export interface ParsedCsvSchoolRow {
     endereco: boolean
     telefone: boolean
     email: boolean
+    bairro: boolean
+    contato: boolean
   }
   // Validações
   status: 'valid' | 'update' | 'duplicate_master' | 'duplicate_file' | 'error'
@@ -170,6 +177,8 @@ function findColumnIndexes(headerRow: string[]): {
   enderecoIdx: number
   telefoneIdx: number
   emailIdx: number
+  bairroIdx: number
+  contatoIdx: number
 } {
   let nomeIdx = -1
   let tipoIdx = -1
@@ -178,13 +187,36 @@ function findColumnIndexes(headerRow: string[]): {
   let enderecoIdx = -1
   let telefoneIdx = -1
   let emailIdx = -1
+  let bairroIdx = -1
+  let contatoIdx = -1
 
   headerRow.forEach((col, idx) => {
     const norm = normalizeName(col)
+
     if (
+      bairroIdx === -1 &&
+      (norm === 'bairro' ||
+        norm.includes('bairro') ||
+        norm.includes('distrito') ||
+        norm.includes('comunidade'))
+    ) {
+      bairroIdx = idx
+    } else if (
+      contatoIdx === -1 &&
+      (norm === 'contato' ||
+        norm.includes('responsavel') ||
+        norm.includes('diretor') ||
+        norm.includes('gestor') ||
+        norm.includes('pessoa de contato') ||
+        norm === 'nome contato')
+    ) {
+      contatoIdx = idx
+    } else if (
       nomeIdx === -1 &&
       (norm === 'nome' ||
         norm === 'escola' ||
+        norm === 'nome da escola' ||
+        norm === 'nome escola' ||
         norm.includes('escola') ||
         norm.includes('instituic') ||
         norm.includes('unidade'))
@@ -206,6 +238,8 @@ function findColumnIndexes(headerRow: string[]): {
     } else if (
       alunosIdx === -1 &&
       (norm === 'alunos' ||
+        norm === 'n alunos' ||
+        norm === 'no alunos' ||
         norm.includes('aluno') ||
         norm.includes('estudant') ||
         norm.includes('matricul') ||
@@ -223,10 +257,11 @@ function findColumnIndexes(headerRow: string[]): {
     } else if (
       telefoneIdx === -1 &&
       (norm === 'telefone' ||
-        norm.includes('contato') ||
-        norm.includes('fone') ||
+        norm === 'tel' ||
+        norm === 'fone' ||
         norm.includes('celular') ||
-        norm.includes('whatsapp'))
+        norm.includes('whatsapp') ||
+        norm.includes('fone'))
     ) {
       telefoneIdx = idx
     } else if (emailIdx === -1 && (norm === 'email' || norm.includes('correio'))) {
@@ -234,13 +269,34 @@ function findColumnIndexes(headerRow: string[]): {
     }
   })
 
+  // Se 'contato' foi capturado por 'telefone' quando não havia outra coluna de telefone:
+  // Se header tinha 'contato' mas não tinha telefone nem contatoIdx explícito:
+  if (contatoIdx === -1) {
+    headerRow.forEach((col, idx) => {
+      const norm = normalizeName(col)
+      if (norm.includes('contato') && idx !== telefoneIdx && idx !== nomeIdx) {
+        contatoIdx = idx
+      }
+    })
+  }
+
   // Se não achou por nome flexível, tentar posicionais caso tenha colunas padrão (pelo menos nome na 0)
   if (nomeIdx === -1 && headerRow.length >= 1) nomeIdx = 0
   if (tipoIdx === -1 && headerRow.length >= 2) tipoIdx = 1
   if (rotaIdx === -1 && headerRow.length >= 3) rotaIdx = 2
   if (alunosIdx === -1 && headerRow.length >= 4) alunosIdx = 3
 
-  return { nomeIdx, tipoIdx, rotaIdx, alunosIdx, enderecoIdx, telefoneIdx, emailIdx }
+  return {
+    nomeIdx,
+    tipoIdx,
+    rotaIdx,
+    alunosIdx,
+    enderecoIdx,
+    telefoneIdx,
+    emailIdx,
+    bairroIdx,
+    contatoIdx,
+  }
 }
 
 export interface ExistingSchoolData {
@@ -252,51 +308,78 @@ export interface ExistingSchoolData {
   endereco?: string
   telefone?: string
   email?: string
+  bairro?: string
+  contato?: string
+}
+
+export interface ParseSchoolsOptions {
+  fileOrText: File | string
+  fileName?: string
+  existingMasterSchools: ExistingSchoolData[]
 }
 
 /**
- * Executa o parsing e validação de um arquivo CSV ou XLSX enviado pelo usuário.
- * Identifica escolas existentes para atualização (upsert) em vez de ignorá-las.
+ * Executa o parsing e validação de escolas a partir de arquivo (.csv/.xlsx) ou texto colado.
+ *
+ * Regras aplicadas:
+ * 1. Nome da escola é OBRIGATÓRIO (linha sem nome vira erro e não é gravada).
+ * 2. Cabeçalhos flexíveis tolerantes a acentos/maiúsculas.
+ * 3. Matching com escolas existentes por nome normalizado (tolerante a acentos, maiúsculas, singular/plural).
+ * 4. ATUALIZAÇÃO SELETIVA: Se a célula vier em branco e a escola já existir, preserva o valor já existente.
+ * 5. Detecção de fieldChanges campo a campo ("De → Para") para o preview.
+ * 6. Suporte aos novos campos "bairro" e "contato".
  */
-export async function parseSchoolsFile(
-  file: File,
-  existingMasterSchools: ExistingSchoolData[],
-): Promise<CsvParseResult> {
+export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<CsvParseResult> {
+  const { fileOrText, fileName = 'dados_colados', existingMasterSchools } = options
+
   let rawMatrix: string[][] = []
 
-  const isExcel =
-    file.name.endsWith('.xlsx') ||
-    file.name.endsWith('.xls') ||
-    file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    file.type === 'application/vnd.ms-excel'
-
-  if (isExcel) {
-    const buffer = await file.arrayBuffer()
-    const workbook = XLSX.read(buffer, { type: 'array' })
-    const firstSheetName = workbook.SheetNames[0]
-    if (!firstSheetName) {
-      throw new Error('Arquivo de planilha não contém nenhuma aba.')
-    }
-    const worksheet = workbook.Sheets[firstSheetName]
-    const sheetData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' })
-    rawMatrix = sheetData.map((row) => row.map((cell) => String(cell ?? '').trim()))
+  if (typeof fileOrText === 'string') {
+    rawMatrix = parseCsvTextToMatrix(fileOrText)
   } else {
-    const text = await file.text()
-    rawMatrix = parseCsvTextToMatrix(text)
+    const isExcel =
+      fileOrText.name.endsWith('.xlsx') ||
+      fileOrText.name.endsWith('.xls') ||
+      fileOrText.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      fileOrText.type === 'application/vnd.ms-excel'
+
+    if (isExcel) {
+      const buffer = await fileOrText.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array' })
+      const firstSheetName = workbook.SheetNames[0]
+      if (!firstSheetName) {
+        throw new Error('Arquivo de planilha não contém nenhuma aba.')
+      }
+      const worksheet = workbook.Sheets[firstSheetName]
+      const sheetData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' })
+      rawMatrix = sheetData.map((row) => row.map((cell) => String(cell ?? '').trim()))
+    } else {
+      const text = await fileOrText.text()
+      rawMatrix = parseCsvTextToMatrix(text)
+    }
   }
 
   if (rawMatrix.length === 0) {
-    throw new Error('O arquivo selecionado está vazio.')
+    throw new Error('Nenhum dado encontrado para importar.')
   }
 
-  // Detectar se a primeira linha é cabeçalho
+  // Detectar cabeçalho na primeira linha
   const header = rawMatrix[0]
-  const { nomeIdx, tipoIdx, rotaIdx, alunosIdx, enderecoIdx, telefoneIdx, emailIdx } =
-    findColumnIndexes(header)
+  const {
+    nomeIdx,
+    tipoIdx,
+    rotaIdx,
+    alunosIdx,
+    enderecoIdx,
+    telefoneIdx,
+    emailIdx,
+    bairroIdx,
+    contatoIdx,
+  } = findColumnIndexes(header)
 
   const dataRows = rawMatrix.slice(1)
   if (dataRows.length === 0) {
-    throw new Error('O arquivo contém apenas a linha de cabeçalho, sem dados.')
+    throw new Error('O arquivo contém apenas a linha de cabeçalho, sem dados de escolas.')
   }
 
   // Identificar quais colunas existem no cabeçalho
@@ -307,18 +390,30 @@ export async function parseSchoolsFile(
     endereco: enderecoIdx !== -1,
     telefone: telefoneIdx !== -1,
     email: emailIdx !== -1,
+    bairro: bairroIdx !== -1,
+    contato: contatoIdx !== -1,
   }
 
   // Mapear escolas mestre existentes para normalização
+  // 1. Mapa direto por normalizeName
   const masterSchoolsByNorm = new Map<string, ExistingSchoolData>()
+  // 2. Mapa por despluralização (fallback)
+  const masterSchoolsByDePlural = new Map<string, ExistingSchoolData>()
+
   for (const s of existingMasterSchools) {
     const n = normalizeName(s.nome)
     if (n) {
-      masterSchoolsByNorm.set(n, s)
+      if (!masterSchoolsByNorm.has(n)) {
+        masterSchoolsByNorm.set(n, s)
+      }
+      const deplural = dePluralizeName(n)
+      if (deplural && !masterSchoolsByDePlural.has(deplural)) {
+        masterSchoolsByDePlural.set(deplural, s)
+      }
     }
   }
 
-  // Rastrear duplicidades dentro do próprio arquivo
+  // Rastrear duplicidades dentro do próprio arquivo/colagem
   const seenInFile = new Map<string, number>() // normName -> firstRowIndex
 
   const allRows: ParsedCsvSchoolRow[] = []
@@ -341,15 +436,19 @@ export async function parseSchoolsFile(
       telefoneIdx !== -1 && row[telefoneIdx] !== undefined ? String(row[telefoneIdx]).trim() : ''
     const rawEmail =
       emailIdx !== -1 && row[emailIdx] !== undefined ? String(row[emailIdx]).trim() : ''
+    const rawBairro =
+      bairroIdx !== -1 && row[bairroIdx] !== undefined ? String(row[bairroIdx]).trim() : ''
+    const rawContato =
+      contatoIdx !== -1 && row[contatoIdx] !== undefined ? String(row[contatoIdx]).trim() : ''
 
     const warnings: string[] = []
     let status: ParsedCsvSchoolRow['status'] = 'valid'
     let statusReason: string | undefined
 
-    // 1. Validação de nome
+    // 1. Validação de nome OBRIGATÓRIO
     if (!rawNome) {
       status = 'error'
-      statusReason = 'Nome da escola em branco ou inválido'
+      statusReason = 'Nome da escola em branco ou inválido (campo obrigatório).'
       errorCount++
       allRows.push({
         index: rowIdx + 2, // 1-based considerando cabeçalho na linha 1
@@ -360,6 +459,8 @@ export async function parseSchoolsFile(
         rawEndereco,
         rawTelefone,
         rawEmail,
+        rawBairro,
+        rawContato,
         nome: '',
         tipo: '',
         rota: rawRota || 'Sem Rota',
@@ -373,10 +474,10 @@ export async function parseSchoolsFile(
 
     const normNome = normalizeName(rawNome)
 
-    // 2. Validação de duplicidade contra o arquivo
+    // 2. Validação de duplicidade contra o próprio arquivo/colagem
     if (seenInFile.has(normNome)) {
       status = 'duplicate_file'
-      statusReason = `Duplicada no próprio arquivo (já apareceu na linha ${seenInFile.get(normNome)})`
+      statusReason = `Duplicada no próprio arquivo (já apareceu na linha ${seenInFile.get(normNome)}).`
       duplicateFileCount++
     } else {
       seenInFile.set(normNome, rowIdx + 2)
@@ -404,26 +505,38 @@ export async function parseSchoolsFile(
     // 5. Rota padrão
     const mappedRota = rawRota || 'Sem Rota'
 
-    // 6. Endereço, telefone e e-mail
+    // 6. Endereço, telefone, e-mail, bairro e contato
     const mappedEndereco = rawEndereco || undefined
     const mappedTelefone = rawTelefone || undefined
     const mappedEmail = rawEmail || undefined
+    const mappedBairro = rawBairro || undefined
+    const mappedContato = rawContato || undefined
 
-    // 7. Verificação contra o banco mestre: se já existe, vira 'update' (upsert)
+    // 7. Verificação contra o banco mestre: se já existe, vira 'update' (upsert com preservação de branco)
     let existingSchoolId: string | undefined
     let existingSchoolName: string | undefined
     const fieldChanges: SchoolFieldChange[] = []
 
     if (status === 'valid') {
-      const existing = masterSchoolsByNorm.get(normNome)
+      let existing = masterSchoolsByNorm.get(normNome)
+      if (!existing) {
+        const deplural = dePluralizeName(normNome)
+        if (deplural) {
+          existing = masterSchoolsByDePlural.get(deplural)
+        }
+      }
+
       if (existing) {
         status = 'update'
         existingSchoolId = existing.id
         existingSchoolName = existing.nome
-        statusReason = `Escola existente no cadastro mestre ("${existing.nome}"). Os dados serão atualizados.`
 
-        // Detectar o que mudará
-        if (presentColumns.tipo) {
+        // REGRA DE ATUALIZAÇÃO SELETIVA:
+        // Se a coluna veio presente E NÃO EM BRANCO, compara com o valor existente e atualiza.
+        // Se a célula veio em branco, NÃO atualiza (preserva o valor existente).
+
+        // Tipo:
+        if (presentColumns.tipo && rawTipo) {
           const oldT = existing.tipo || ''
           const newT = mappedTipo || ''
           if (oldT !== newT) {
@@ -436,6 +549,7 @@ export async function parseSchoolsFile(
           }
         }
 
+        // Rota:
         if (presentColumns.rota && rawRota) {
           const oldR = existing.rota || ''
           const newR = mappedRota
@@ -449,7 +563,8 @@ export async function parseSchoolsFile(
           }
         }
 
-        if (presentColumns.alunos && mappedAlunos !== undefined) {
+        // Alunos:
+        if (presentColumns.alunos && rawAlunos && mappedAlunos !== undefined) {
           const oldA =
             existing.alunos !== undefined && existing.alunos !== null ? String(existing.alunos) : ''
           const newA = String(mappedAlunos)
@@ -463,9 +578,10 @@ export async function parseSchoolsFile(
           }
         }
 
-        if (presentColumns.endereco && mappedEndereco) {
+        // Endereço:
+        if (presentColumns.endereco && rawEndereco) {
           const oldEnd = existing.endereco || ''
-          const newEnd = mappedEndereco
+          const newEnd = rawEndereco
           if (oldEnd !== newEnd) {
             fieldChanges.push({
               field: 'endereco',
@@ -476,9 +592,10 @@ export async function parseSchoolsFile(
           }
         }
 
-        if (presentColumns.telefone && mappedTelefone) {
+        // Telefone:
+        if (presentColumns.telefone && rawTelefone) {
           const oldTel = existing.telefone || ''
-          const newTel = mappedTelefone
+          const newTel = rawTelefone
           if (oldTel !== newTel) {
             fieldChanges.push({
               field: 'telefone',
@@ -489,9 +606,10 @@ export async function parseSchoolsFile(
           }
         }
 
-        if (presentColumns.email && mappedEmail) {
+        // E-mail:
+        if (presentColumns.email && rawEmail) {
           const oldMail = existing.email || ''
-          const newMail = mappedEmail
+          const newMail = rawEmail
           if (oldMail !== newMail) {
             fieldChanges.push({
               field: 'email',
@@ -500,6 +618,41 @@ export async function parseSchoolsFile(
               newValue: newMail,
             })
           }
+        }
+
+        // Bairro:
+        if (presentColumns.bairro && rawBairro) {
+          const oldBairro = existing.bairro || ''
+          const newBairro = rawBairro
+          if (oldBairro !== newBairro) {
+            fieldChanges.push({
+              field: 'bairro',
+              label: 'Bairro',
+              oldValue: oldBairro || '(vazio)',
+              newValue: newBairro,
+            })
+          }
+        }
+
+        // Contato:
+        if (presentColumns.contato && rawContato) {
+          const oldContato = existing.contato || ''
+          const newContato = rawContato
+          if (oldContato !== newContato) {
+            fieldChanges.push({
+              field: 'contato',
+              label: 'Contato',
+              oldValue: oldContato || '(vazio)',
+              newValue: newContato,
+            })
+          }
+        }
+
+        if (fieldChanges.length > 0) {
+          const changedNames = fieldChanges.map((f) => f.label).join(', ')
+          statusReason = `Escola existente no cadastro ("${existing.nome}"); atualizará: ${changedNames}.`
+        } else {
+          statusReason = `Escola existente no cadastro ("${existing.nome}"); dados idênticos ou colunas em branco preservam o valor gravado.`
         }
       }
     }
@@ -513,6 +666,8 @@ export async function parseSchoolsFile(
       rawEndereco,
       rawTelefone,
       rawEmail,
+      rawBairro,
+      rawContato,
       nome: rawNome,
       tipo: mappedTipo,
       rota: mappedRota,
@@ -520,6 +675,8 @@ export async function parseSchoolsFile(
       endereco: mappedEndereco,
       telefone: mappedTelefone,
       email: mappedEmail,
+      bairro: mappedBairro,
+      contato: mappedContato,
       existingSchoolId,
       existingSchoolName,
       fieldChanges,
@@ -534,7 +691,7 @@ export async function parseSchoolsFile(
   const updateRows = allRows.filter((r) => r.status === 'update')
 
   return {
-    fileName: file.name,
+    fileName: typeof fileOrText === 'string' ? fileName : fileOrText.name,
     totalRows: allRows.length,
     validRows,
     updateRows,
@@ -543,4 +700,18 @@ export async function parseSchoolsFile(
     errorCount,
     allRows,
   }
+}
+
+/**
+ * Função de compatibilidade direta com chamadas legadas de parseSchoolsFile
+ */
+export async function parseSchoolsFile(
+  file: File,
+  existingMasterSchools: ExistingSchoolData[],
+): Promise<CsvParseResult> {
+  return parseSchoolsInput({
+    fileOrText: file,
+    fileName: file.name,
+    existingMasterSchools,
+  })
 }

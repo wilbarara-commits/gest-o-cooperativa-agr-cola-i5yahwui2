@@ -22,6 +22,8 @@ export interface EscolaRecord {
   email?: string
   tipo?: EscolaTipo | string
   alunos?: number
+  bairro?: string
+  contato?: string
   created?: string
   updated?: string
 }
@@ -263,6 +265,8 @@ export interface School {
   email?: string
   tipo?: EscolaTipo | string
   alunos?: number
+  bairro?: string
+  contatoResponsavel?: string
 }
 
 export interface ContractSchoolLink {
@@ -277,6 +281,8 @@ export interface ContractSchoolLink {
   escolaEndereco?: string
   escolaTelefone?: string
   escolaEmail?: string
+  escolaBairro?: string
+  escolaContato?: string
   escolaTipo?: string
   escolaAlunos?: number
   rotaNome?: string // compatibilidade (aponta para rota da planilha)

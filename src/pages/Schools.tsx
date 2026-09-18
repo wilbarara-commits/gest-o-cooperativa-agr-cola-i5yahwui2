@@ -103,6 +103,8 @@ export default function Schools() {
   const [address, setAddress] = useState('')
   const [contact, setContact] = useState('')
   const [email, setEmail] = useState('')
+  const [bairro, setBairro] = useState('')
+  const [contatoResponsavel, setContatoResponsavel] = useState('')
   const [tipo, setTipo] = useState<string>('')
   const [alunos, setAlunos] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -205,6 +207,9 @@ export default function Schools() {
         (s.address && s.address.toLowerCase().includes(searchLower)) ||
         (s.email && s.email.toLowerCase().includes(searchLower)) ||
         (s.tipo && s.tipo.toLowerCase().includes(searchLower)) ||
+        (s.bairro && s.bairro.toLowerCase().includes(searchLower)) ||
+        (s.contatoResponsavel && s.contatoResponsavel.toLowerCase().includes(searchLower)) ||
+        (s.contact && s.contact.toLowerCase().includes(searchLower)) ||
         links.some(
           (l) =>
             l.contratoNumero.toLowerCase().includes(searchLower) ||
@@ -310,6 +315,8 @@ export default function Schools() {
     setAddress('')
     setContact('')
     setEmail('')
+    setBairro('')
+    setContatoResponsavel('')
     setTipo('')
     setAlunos('')
     setDialogOpen(true)
@@ -321,6 +328,8 @@ export default function Schools() {
     setAddress(school.address)
     setContact(school.contact)
     setEmail(school.email || '')
+    setBairro(school.bairro || '')
+    setContatoResponsavel(school.contatoResponsavel || '')
     setTipo(school.tipo || '')
     setAlunos(school.alunos !== undefined ? String(school.alunos) : '')
     setDialogOpen(true)
@@ -355,6 +364,8 @@ export default function Schools() {
           endereco: address.trim(),
           telefone: contact.trim(),
           email: email.trim() || undefined,
+          bairro: bairro.trim() || undefined,
+          contato: contatoResponsavel.trim() || undefined,
           tipo: tipo || undefined,
           alunos: parsedAlunos,
         })
@@ -375,6 +386,8 @@ export default function Schools() {
           endereco: address.trim(),
           telefone: contact.trim(),
           email: email.trim() || undefined,
+          bairro: bairro.trim() || undefined,
+          contato: contatoResponsavel.trim() || undefined,
           tipo: tipo || undefined,
           alunos: parsedAlunos,
         })
@@ -812,16 +825,36 @@ export default function Schools() {
                         )}
                       </TableCell>
 
-                      {/* Telefone */}
-                      <TableCell className="align-middle text-xs text-muted-foreground whitespace-nowrap">
-                        {school.contact ? (
-                          <span className="flex items-center gap-1.5 text-foreground/80">
-                            <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
-                            {school.contact}
-                          </span>
-                        ) : (
-                          <span className="italic text-muted-foreground/50">Não informado</span>
-                        )}
+                      {/* Telefone e Contato / Bairro */}
+                      <TableCell className="align-middle text-xs text-muted-foreground">
+                        <div className="space-y-0.5">
+                          {school.contact ? (
+                            <span className="flex items-center gap-1.5 text-foreground/80 whitespace-nowrap">
+                              <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
+                              {school.contact}
+                            </span>
+                          ) : (
+                            <span className="italic text-muted-foreground/50 block">
+                              Sem telefone
+                            </span>
+                          )}
+                          {school.contatoResponsavel && (
+                            <span
+                              className="text-[11px] text-foreground/90 block truncate max-w-[180px]"
+                              title={school.contatoResponsavel}
+                            >
+                              Contato: {school.contatoResponsavel}
+                            </span>
+                          )}
+                          {school.bairro && (
+                            <span
+                              className="text-[10px] text-muted-foreground block truncate max-w-[180px]"
+                              title={school.bairro}
+                            >
+                              Bairro: {school.bairro}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
 
                       {/* Contratos Vinculados (Badges) */}
@@ -1007,12 +1040,30 @@ export default function Schools() {
                     </div>
 
                     <div className="space-y-1">
+                      <span className="text-xs text-muted-foreground block">Bairro</span>
+                      <p className="flex items-center gap-1.5 text-foreground/90">
+                        <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span>{detailsSchool.bairro || 'Bairro não informado'}</span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
                       <span className="text-xs text-muted-foreground block">
-                        Telefone / Contato
+                        Telefone / WhatsApp
                       </span>
                       <p className="flex items-center gap-1.5 text-foreground/90">
                         <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span>{detailsSchool.contact || 'Telefone não informado'}</span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-xs text-muted-foreground block">
+                        Pessoa de Contato / Responsável
+                      </span>
+                      <p className="flex items-center gap-1.5 text-foreground/90">
+                        <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span>{detailsSchool.contatoResponsavel || 'Contato não informado'}</span>
                       </p>
                     </div>
 
@@ -1244,6 +1295,28 @@ export default function Schools() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="school-contact-person">Contato / Responsável</Label>
+                <Input
+                  id="school-contact-person"
+                  placeholder="Ex: Diretora Ana Silva / (21) 99999-0000"
+                  value={contatoResponsavel}
+                  onChange={(e) => setContatoResponsavel(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="school-bairro">Bairro</Label>
+                <Input
+                  id="school-bairro"
+                  placeholder="Ex: Centro / Várzea / Zona Rural"
+                  value={bairro}
+                  onChange={(e) => setBairro(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="school-email">E-mail Institucional</Label>
               <Input
@@ -1259,7 +1332,7 @@ export default function Schools() {
               <Label htmlFor="school-address">Endereço Completo</Label>
               <Input
                 id="school-address"
-                placeholder="Ex: Rua das Palmeiras, 100 - Bairro Centro"
+                placeholder="Ex: Rua das Palmeiras, 100"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
               />

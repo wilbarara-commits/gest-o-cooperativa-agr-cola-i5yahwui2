@@ -23,12 +23,16 @@ import {
   ArrowRight,
   Sparkles,
   Settings2,
+  ClipboardPaste,
+  Download,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import * as XLSX from 'xlsx'
 import {
-  parseSchoolsFile,
+  parseSchoolsInput,
   type CsvParseResult,
   type ParsedCsvSchoolRow,
   type ExistingSchoolData,
@@ -50,7 +54,9 @@ export function SchoolImportDialog({
   onSuccess,
 }: SchoolImportDialogProps) {
   const fileInputId = useId()
+  const [sourceMode, setSourceMode] = useState<'upload' | 'paste'>('upload')
   const [file, setFile] = useState<File | null>(null)
+  const [pastedText, setPastedText] = useState('')
   const [isParsing, setIsParsing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveProgress, setSaveProgress] = useState(0)
@@ -68,8 +74,7 @@ export function SchoolImportDialog({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileSelect = async (selectedFile: File) => {
-    setFile(selectedFile)
+  const runParse = async (fileOrText: File | string, fileName?: string) => {
     setImportSummary(null)
     setIsParsing(true)
     try {
@@ -82,8 +87,14 @@ export function SchoolImportDialog({
         endereco: s.address,
         telefone: s.contact,
         email: s.email,
+        bairro: s.bairro,
+        contato: s.contatoResponsavel,
       }))
-      const result = await parseSchoolsFile(selectedFile, existing)
+      const result = await parseSchoolsInput({
+        fileOrText,
+        fileName,
+        existingMasterSchools: existing,
+      })
       setParseResult(result)
 
       const totalProcessable = result.validRows.length + result.updateRows.length
@@ -97,12 +108,17 @@ export function SchoolImportDialog({
         )
       }
     } catch (err: any) {
-      console.error('Erro ao analisar arquivo:', err)
-      toast.error(err.message || 'Erro ao processar o arquivo.')
+      console.error('Erro ao analisar dados:', err)
+      toast.error(err.message || 'Erro ao processar o arquivo/texto.')
       setParseResult(null)
     } finally {
       setIsParsing(false)
     }
+  }
+
+  const handleFileSelect = (selectedFile: File) => {
+    setFile(selectedFile)
+    runParse(selectedFile, selectedFile.name)
   }
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -112,8 +128,17 @@ export function SchoolImportDialog({
     }
   }
 
+  const handleProcessPastedText = () => {
+    if (!pastedText.trim()) {
+      toast.warning('Cole os dados no campo de texto antes de analisar.')
+      return
+    }
+    runParse(pastedText, 'dados_colados.csv')
+  }
+
   const handleReset = () => {
     setFile(null)
+    setPastedText('')
     setParseResult(null)
     setImportSummary(null)
     setSaveProgress(0)
@@ -122,6 +147,59 @@ export function SchoolImportDialog({
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
+  }
+
+  const handleDownloadModel = () => {
+    const wsData = [
+      [
+        'Nome da Escola',
+        'Tipo',
+        'Rota',
+        'Nº Alunos',
+        'Telefone',
+        'Contato',
+        'Bairro',
+        'Endereço',
+        'E-mail',
+      ],
+      [
+        'CMEI MARIA TEREZA PRIES DE ABREU',
+        'CMEI',
+        'Rota 01',
+        '125',
+        '(21) 98765-4321',
+        'Diretora Ana',
+        'Centro',
+        'Rua das Palmeiras, 120',
+        'cmei.maria@educacao.gov.br',
+      ],
+      [
+        'CC LAR VOVÔ MIGUEL',
+        'CRECHE',
+        'Rota 02',
+        '47',
+        '(21) 99887-1122',
+        'Coordenadora Maria',
+        'Bairro Novo',
+        'Av. Brasil, 450',
+        'creche.miguel@educacao.gov.br',
+      ],
+      [
+        'EM ALICE SALDANHA',
+        'FUNDAMENTAL',
+        'Rota 01',
+        '171',
+        '(21) 97766-3344',
+        'Marcos Silva',
+        'São Pedro',
+        'Rua São Pedro, 80',
+        'em.alice@educacao.gov.br',
+      ],
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(wsData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Escolas')
+    XLSX.writeFile(wb, 'modelo_importacao_escolas.xlsx')
   }
 
   const handleConfirmImport = async () => {
@@ -145,6 +223,8 @@ export function SchoolImportDialog({
         endereco: r.endereco,
         telefone: r.telefone,
         email: r.email,
+        bairro: r.bairro,
+        contato: r.contato,
         presentColumns: r.presentColumns,
       }))
 
@@ -211,66 +291,143 @@ export function SchoolImportDialog({
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
-            Importar Escolas via CSV / Planilha
+            Importar / Atualizar Escolas (CSV / Planilha / Colar)
           </DialogTitle>
           <DialogDescription>
-            Faça upload de uma planilha (.csv ou .xlsx) com as colunas{' '}
-            <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">
-              nome, tipo, rota, alunos
-            </code>
-            . As escolas serão adicionadas ao cadastro mestre global com prevenção de duplicidades.
+            Importe ou cole listas de escolas. O cabeçalho na 1ª linha mapeia as colunas (Nome da
+            Escola, Tipo, Rota, Alunos, Bairro, Contato, Telefone, Endereço, E-mail). O nome da
+            escola é obrigatório; para escolas já existentes, colunas em branco mantêm os dados já
+            gravados.
           </DialogDescription>
         </DialogHeader>
 
-        {/* ÁREA DE UPLOAD */}
+        {/* SELEÇÃO DO MÉTODO: ARQUIVO OU COLAR */}
         {!parseResult && !importSummary && (
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-            className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/60 transition-colors flex flex-col items-center justify-center gap-4 my-2 overflow-y-auto"
-          >
-            <div className="p-4 bg-primary/10 text-primary rounded-full">
-              {isParsing ? (
-                <Loader2 className="h-8 w-8 animate-spin" />
-              ) : (
-                <Upload className="h-8 w-8" />
-              )}
+          <div className="space-y-3 flex-1 flex flex-col min-h-0 overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex rounded-lg border bg-muted p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('upload')}
+                  className={`px-3 py-1 rounded font-medium transition-colors ${
+                    sourceMode === 'upload'
+                      ? 'bg-background shadow-xs text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Upload className="h-3.5 w-3.5 inline mr-1.5" />
+                  Arquivo (.csv ou .xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('paste')}
+                  className={`px-3 py-1 rounded font-medium transition-colors ${
+                    sourceMode === 'paste'
+                      ? 'bg-background shadow-xs text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5 inline mr-1.5" />
+                  Colar Dados
+                </button>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5 text-muted-foreground"
+                onClick={handleDownloadModel}
+              >
+                <Download className="h-3.5 w-3.5" /> Baixar Modelo
+              </Button>
             </div>
 
-            <div className="space-y-1">
-              <p className="font-medium text-base">
-                {isParsing
-                  ? 'Analisando arquivo e checando duplicidades...'
-                  : 'Arraste seu arquivo CSV ou Excel aqui'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Formatos aceitos: <strong>.csv</strong> (vírgula ou ponto-e-vírgula, UTF-8) e{' '}
-                <strong>.xlsx</strong>
-              </p>
-            </div>
+            {sourceMode === 'upload' ? (
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                className="flex-1 border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/60 transition-colors flex flex-col items-center justify-center gap-3 min-h-[220px]"
+              >
+                <div className="p-3 bg-primary/10 text-primary rounded-full">
+                  {isParsing ? (
+                    <Loader2 className="h-7 w-7 animate-spin" />
+                  ) : (
+                    <Upload className="h-7 w-7" />
+                  )}
+                </div>
 
-            <input
-              id={fileInputId}
-              ref={fileInputRef}
-              type="file"
-              accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  handleFileSelect(e.target.files[0])
-                }
-              }}
-              disabled={isParsing}
-            />
+                <div className="space-y-1">
+                  <p className="font-medium text-sm">
+                    {isParsing
+                      ? 'Analisando arquivo e checando escolas...'
+                      : 'Arraste seu arquivo CSV ou Excel aqui'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Colunas aceitas: <strong>Nome da Escola</strong> (obrigatória),{' '}
+                    <strong>Tipo</strong>, <strong>Rota</strong>, <strong>Alunos</strong>,{' '}
+                    <strong>Bairro</strong>, <strong>Contato</strong>, <strong>Telefone</strong>,{' '}
+                    <strong>Endereço</strong>, <strong>E-mail</strong>
+                  </p>
+                </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isParsing}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Selecionar Arquivo do Computador
-            </Button>
+                <input
+                  id={fileInputId}
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleFileSelect(e.target.files[0])
+                    }
+                  }}
+                  disabled={isParsing}
+                />
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isParsing}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-1"
+                >
+                  Selecionar Arquivo do Computador
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2 flex-1 flex flex-col">
+                <Textarea
+                  placeholder={`Cole as linhas do Excel ou CSV aqui (com cabeçalho na 1ª linha)...\nExemplo:\nNome da Escola\tTipo\tBairro\tContato\tTelefone\tAlunos\nEM ALICE SALDANHA\tFUNDAMENTAL\tSão Pedro\tMarcos Silva\t(21) 97766-3344\t171\nCMEI MARIA TEREZA\tCMEI\tCentro\tDiretora Ana\t(21) 98765-4321\t125`}
+                  value={pastedText}
+                  onChange={(e) => setPastedText(e.target.value)}
+                  className="flex-1 min-h-[200px] text-xs font-mono resize-none"
+                />
+                <div className="flex justify-between items-center">
+                  <span className="text-[11px] text-muted-foreground">
+                    Suporta colunas separadas por tabulação (Excel), vírgula ou ponto-e-vírgula.
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleProcessPastedText}
+                    disabled={isParsing || !pastedText.trim()}
+                    className="gap-1.5"
+                  >
+                    {isParsing ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analisando...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-3.5 w-3.5" /> Analisar e Validar
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -457,7 +614,8 @@ export function SchoolImportDialog({
                   <tr>
                     <th className="py-2.5 px-3 w-12 bg-muted font-semibold">#</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Escola</th>
-                    <th className="py-2.5 px-3 bg-muted font-semibold">Tipo Normalizado</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Tipo</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Bairro / Contato</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Rota</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Alunos</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">
@@ -513,6 +671,20 @@ export function SchoolImportDialog({
                               de: {row.rawTipo}
                             </span>
                           )}
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="space-y-0.5">
+                            <span className="block text-foreground">
+                              {row.bairro || (
+                                <span className="text-muted-foreground italic">-</span>
+                              )}
+                            </span>
+                            {row.contato && (
+                              <span className="text-[10px] text-muted-foreground block">
+                                Contato: {row.contato}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2 px-3">{row.rota}</td>
                         <td className="py-2 px-3 font-mono">
@@ -585,7 +757,7 @@ export function SchoolImportDialog({
                   })}
                   {displayRows.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-muted-foreground text-xs">
+                      <td colSpan={7} className="py-8 text-center text-muted-foreground text-xs">
                         Nenhuma linha encontrada neste filtro.
                       </td>
                     </tr>

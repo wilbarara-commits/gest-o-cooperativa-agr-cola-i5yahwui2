@@ -259,6 +259,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         email: s.email || '',
         tipo: s.tipo || '',
         alunos: s.alunos !== undefined && s.alunos !== null ? Number(s.alunos) : undefined,
+        bairro: s.bairro || '',
+        contatoResponsavel: s.contato || '',
       }))
       setSchools(mappedSchools)
 
@@ -379,6 +381,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             escolaEndereco: ce.expand?.escola_id?.endereco || sch?.address || '',
             escolaTelefone: ce.expand?.escola_id?.telefone || sch?.contact || '',
             escolaEmail: ce.expand?.escola_id?.email || sch?.email || '',
+            escolaBairro: ce.expand?.escola_id?.bairro || sch?.bairro || '',
+            escolaContato: ce.expand?.escola_id?.contato || sch?.contatoResponsavel || '',
             escolaTipo: ce.expand?.escola_id?.tipo || sch?.tipo || '',
             escolaAlunos: ce.expand?.escola_id?.alunos ?? sch?.alunos,
             rotaNome: rotaPlanilhaNome,
@@ -711,6 +715,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           email: s.email || '',
           tipo: s.tipo || '',
           alunos: s.alunos !== undefined && s.alunos !== null ? Number(s.alunos) : undefined,
+          bairro: s.bairro || '',
+          contatoResponsavel: s.contato || '',
         }
         return [...prev, mapped]
       })

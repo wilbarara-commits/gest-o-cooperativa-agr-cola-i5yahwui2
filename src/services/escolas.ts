@@ -50,6 +50,8 @@ export const escolasService = {
       endereco?: string
       telefone?: string
       email?: string
+      bairro?: string
+      contato?: string
       // Colunas que estavam presentes no arquivo
       presentColumns?: {
         tipo: boolean
@@ -58,6 +60,8 @@ export const escolasService = {
         endereco: boolean
         telefone: boolean
         email: boolean
+        bairro?: boolean
+        contato?: boolean
       }
     }>,
     mode: 'merge' | 'overwrite', // 'merge' = atualiza apenas preenchidos, 'overwrite' = sobrescreve
@@ -82,6 +86,8 @@ export const escolasService = {
             endereco: item.endereco || '',
             telefone: item.telefone || '',
             email: item.email || '',
+            bairro: item.bairro || '',
+            contato: item.contato || '',
           }
           if (item.alunos !== undefined) {
             payload.alunos = item.alunos
@@ -100,8 +106,10 @@ export const escolasService = {
             if (item.presentColumns?.endereco) payload.endereco = item.endereco || ''
             if (item.presentColumns?.telefone) payload.telefone = item.telefone || ''
             if (item.presentColumns?.email) payload.email = item.email || ''
+            if (item.presentColumns?.bairro) payload.bairro = item.bairro || ''
+            if (item.presentColumns?.contato) payload.contato = item.contato || ''
           } else {
-            // 'merge': grava o campo apenas quando a coluna existir no CSV e tiver valor não vazio
+            // 'merge': grava o campo apenas quando a coluna existir no CSV/colagem e tiver valor não vazio
             if (item.presentColumns?.tipo && item.tipo) {
               payload.tipo = item.tipo
             }
@@ -119,6 +127,12 @@ export const escolasService = {
             }
             if (item.presentColumns?.email && item.email && item.email.trim()) {
               payload.email = item.email.trim()
+            }
+            if (item.presentColumns?.bairro && item.bairro && item.bairro.trim()) {
+              payload.bairro = item.bairro.trim()
+            }
+            if (item.presentColumns?.contato && item.contato && item.contato.trim()) {
+              payload.contato = item.contato.trim()
             }
           }
 

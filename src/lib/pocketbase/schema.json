@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-18T13:58:55.874Z",
+  "generatedAt": "2026-09-18T14:51:58.524Z",
   "collections": [
     {
       "name": "users",
@@ -93,22 +93,6 @@
           "system": false
         },
         {
-          "name": "categoria",
-          "type": "select",
-          "required": false,
-          "system": false,
-          "selectValues": [
-            "Hortaliças",
-            "Frutas",
-            "Grãos",
-            "Legumes",
-            "Folhosas",
-            "Ovos",
-            "Tubérculos",
-            "Outros"
-          ]
-        },
-        {
           "name": "unidade",
           "type": "text",
           "required": true,
@@ -149,6 +133,12 @@
         },
         {
           "name": "apelidos",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "categoria",
           "type": "text",
           "required": false,
           "system": false

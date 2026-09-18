@@ -1,7 +1,7 @@
 export interface ProdutoRecord {
   id: string
   nome: string
-  categoria: 'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
+  categoria: string
   unidade: string
   estoque: number
   preco_unitario: number
@@ -246,7 +246,7 @@ export interface ImportacaoRecord {
 export interface Product {
   id: string
   name: string
-  category: 'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
+  category: string
   stock: number
   unit: string
   price: number

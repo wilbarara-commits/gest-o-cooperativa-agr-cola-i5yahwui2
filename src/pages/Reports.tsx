@@ -51,9 +51,27 @@ import {
 } from '@/lib/exportUtils'
 import { MonthlyReportButton } from '@/components/MonthlyReportButton'
 import { getMonthlyClosingStatus } from '@/lib/monthlyClosing'
+import { BASE_PRODUCT_CATEGORIES, areCategoriesEqual } from '@/lib/productCsvImporter'
 
 export default function Reports() {
   const { contracts, orders, schools, products, isLoading, refreshData } = useApp()
+
+  const availableCategories = useMemo(() => {
+    const set = new Map<string, string>()
+    BASE_PRODUCT_CATEGORIES.forEach((c) => {
+      set.set(c.toLowerCase(), c)
+    })
+    products.forEach((p) => {
+      if (p.category && p.category.trim()) {
+        const trimmed = p.category.trim()
+        const norm = trimmed.toLowerCase()
+        if (!set.has(norm)) {
+          set.set(norm, trimmed)
+        }
+      }
+    })
+    return Array.from(set.values()).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [products])
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'faturamento' | 'entregas' | 'produtos'>('faturamento')
@@ -273,7 +291,7 @@ export default function Reports() {
         const subtotal = preco * qtd
 
         // Apply category filter
-        if (filterCategoria !== 'todas' && categoria !== filterCategoria) {
+        if (filterCategoria !== 'todas' && !areCategoriesEqual(categoria, filterCategoria)) {
           continue
         }
 
@@ -1336,11 +1354,11 @@ export default function Reports() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todas">Todas as Categorias</SelectItem>
-                      <SelectItem value="Hortaliças">Hortaliças</SelectItem>
-                      <SelectItem value="Frutas">Frutas</SelectItem>
-                      <SelectItem value="Grãos">Grãos</SelectItem>
-                      <SelectItem value="Legumes">Legumes</SelectItem>
-                      <SelectItem value="Outros">Outros</SelectItem>
+                      {availableCategories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>
+                          {cat}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

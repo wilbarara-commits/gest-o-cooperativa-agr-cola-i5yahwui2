@@ -617,13 +617,39 @@ export function ProductImportDialog({
                           )}
                         </td>
                         <td className="py-2 px-3">
-                          <Badge variant="secondary" className="text-[10px] font-normal">
-                            {row.categoria}
-                          </Badge>
-                          {!row.presentColumns.categoria && isCreate && (
-                            <span className="text-[9px] text-muted-foreground block italic">
-                              (default)
-                            </span>
+                          {isUpdate && row.fieldChanges.some((fc) => fc.field === 'categoria') ? (
+                            <div className="flex flex-col gap-0.5">
+                              {(() => {
+                                const catChange = row.fieldChanges.find(
+                                  (fc) => fc.field === 'categoria',
+                                )!
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <span className="line-through text-muted-foreground text-[10px]">
+                                      {catChange.oldValue}
+                                    </span>
+                                    <ArrowRight className="h-2.5 w-2.5 text-blue-600 dark:text-blue-400" />
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] font-semibold bg-blue-100/80 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200 border-blue-300 dark:border-blue-700"
+                                    >
+                                      {catChange.newValue}
+                                    </Badge>
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          ) : (
+                            <>
+                              <Badge variant="secondary" className="text-[10px] font-normal">
+                                {row.categoria}
+                              </Badge>
+                              {!row.presentColumns.categoria && isCreate && (
+                                <span className="text-[9px] text-muted-foreground block italic">
+                                  (default)
+                                </span>
+                              )}
+                            </>
                           )}
                         </td>
                         <td className="py-2 px-3">

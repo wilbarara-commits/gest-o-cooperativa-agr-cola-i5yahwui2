@@ -4,10 +4,22 @@ import { parsePtBrNumber } from '@/lib/numberParser'
 import type { Product } from '@/lib/types'
 import * as XLSX from 'xlsx'
 
-export type ProdutoCategoria = 'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
+export type ProdutoCategoria = string
 export type ProdutoDisponibilidade = 'normal' | 'escassez' | 'abundancia'
 
 export const DEFAULT_PRODUCT_UNIT = 'kg'
+export const DEFAULT_PRODUCT_CATEGORY = 'Hortaliças'
+
+export const BASE_PRODUCT_CATEGORIES = [
+  'Hortaliças',
+  'Frutas',
+  'Grãos',
+  'Legumes',
+  'Folhosas',
+  'Ovos',
+  'Tubérculos',
+  'Outros',
+] as const
 
 export interface ProductFieldChange {
   field: 'categoria' | 'unidade' | 'estoque' | 'preco_unitario' | 'disponibilidade'
@@ -71,51 +83,36 @@ export interface ProductCsvParseResult {
 }
 
 /**
- * Normaliza a categoria informada para uma das opções aceitas pela collection:
- * 'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
- * Tolerante a acentuação e variações como "Hortifrúti", "Hortaliça", "Fruta", "Grão", "Legume".
+ * Normaliza e preserva a categoria informada na planilha:
+ * - O texto da planilha é aceito e gravado preservando rigorosamente o case (apenas trim das bordas).
+ *   Ex.: "folhosas" grava "folhosas", "Folhosas" grava "Folhosas", "tuberculos" grava "tuberculos".
+ * - NENHUMA categoria válida informada no arquivo é remapeada para "Outras".
+ * - A comparação para igualdade/consolidação é tolerante a acentos e maiúsculas:
+ *   "tuberculos" = "Tubérculos" = "TUBERCULOS".
  */
 export function normalizeProdutoCategoria(rawCategoria: string): {
-  categoria: ProdutoCategoria | ''
+  categoria: string
   isExactOrMapped: boolean
 } {
-  const trimmed = rawCategoria.trim()
+  const trimmed = rawCategoria ? rawCategoria.trim() : ''
   if (!trimmed) {
     return { categoria: '', isExactOrMapped: false }
   }
 
-  const norm = normalizeName(trimmed)
+  return {
+    categoria: trimmed,
+    isExactOrMapped: true,
+  }
+}
 
-  if (norm === 'hortalicas' || norm === 'hortalica' || norm === 'verduras' || norm === 'verdura') {
-    return { categoria: 'Hortaliças', isExactOrMapped: true }
-  }
-  if (norm === 'frutas' || norm === 'fruta') {
-    return { categoria: 'Frutas', isExactOrMapped: true }
-  }
-  if (norm === 'graos' || norm === 'grao' || norm === 'cereais' || norm === 'cereal') {
-    return { categoria: 'Grãos', isExactOrMapped: true }
-  }
-  if (norm === 'legumes' || norm === 'legume' || norm === 'tuberculos' || norm === 'tuberculo') {
-    return { categoria: 'Legumes', isExactOrMapped: true }
-  }
-  if (norm === 'outros' || norm === 'outro') {
-    return { categoria: 'Outros', isExactOrMapped: true }
-  }
-
-  // Se vier "hortifruti", enquadra em Hortaliças como padrão do grupo hortícola
-  if (norm.includes('hortifruti') || norm.includes('hortifrutigranjeiro')) {
-    return { categoria: 'Hortaliças', isExactOrMapped: true }
-  }
-
-  // Casar diretamente se já for idêntico a um valor válido
-  if (trimmed === 'Hortaliças') return { categoria: 'Hortaliças', isExactOrMapped: true }
-  if (trimmed === 'Frutas') return { categoria: 'Frutas', isExactOrMapped: true }
-  if (trimmed === 'Grãos') return { categoria: 'Grãos', isExactOrMapped: true }
-  if (trimmed === 'Legumes') return { categoria: 'Legumes', isExactOrMapped: true }
-  if (trimmed === 'Outros') return { categoria: 'Outros', isExactOrMapped: true }
-
-  // Valor não reconhecido: não inventa categoria, deixa 'Outros' com aviso ou mantém vazio
-  return { categoria: 'Outros', isExactOrMapped: false }
+/**
+ * Compara duas categorias de produto com tolerância total a acentos, maiúsculas e espaços extras.
+ * Ex: "tuberculos" == "Tubérculos" == "TUBERCULOS" -> true
+ */
+export function areCategoriesEqual(catA?: string | null, catB?: string | null): boolean {
+  if (!catA && !catB) return true
+  if (!catA || !catB) return false
+  return normalizeName(catA.trim()) === normalizeName(catB.trim())
 }
 
 /**
@@ -462,7 +459,7 @@ export async function parseProductsInput(
         rawPreco,
         rawDisponibilidade,
         nome: '',
-        categoria: 'Hortaliças',
+        categoria: DEFAULT_PRODUCT_CATEGORY,
         unidade: DEFAULT_PRODUCT_UNIT,
         estoque: 0,
         preco_unitario: 0,
@@ -495,7 +492,7 @@ export async function parseProductsInput(
         rawPreco,
         rawDisponibilidade,
         nome: rawNome,
-        categoria: 'Hortaliças',
+        categoria: rawCategoria ? rawCategoria.trim() : DEFAULT_PRODUCT_CATEGORY,
         unidade: rawUnidade ? rawUnidade.trim() : DEFAULT_PRODUCT_UNIT,
         estoque: 0,
         preco_unitario: 0,
@@ -583,27 +580,24 @@ export async function parseProductsInput(
     // --- Parse individual dos campos ---
 
     // A. Categoria
-    let finalCategoria: ProdutoCategoria = 'Hortaliças'
+    let finalCategoria: string = DEFAULT_PRODUCT_CATEGORY
     if (hasRawCategoria) {
-      const { categoria: mapped, isExactOrMapped } = normalizeProdutoCategoria(rawCategoria)
+      const { categoria: mapped } = normalizeProdutoCategoria(rawCategoria)
       if (mapped) {
         finalCategoria = mapped
-        if (!isExactOrMapped) {
-          warnings.push(`Categoria "${rawCategoria}" não usual; mapeada para "Outros".`)
-        }
       } else {
-        warnings.push(`Categoria "${rawCategoria}" não reconhecida; mantida categoria padrão.`)
-        finalCategoria = isExisting ? (existingMaster!.category as ProdutoCategoria) : 'Hortaliças'
+        finalCategoria = isExisting
+          ? existingMaster!.category || DEFAULT_PRODUCT_CATEGORY
+          : DEFAULT_PRODUCT_CATEGORY
       }
     } else {
       // Em branco:
       // se existente -> mantém existente
       // se novo -> default: 'Hortaliças'
       if (isExisting) {
-        finalCategoria = existingMaster!.category as ProdutoCategoria
+        finalCategoria = existingMaster!.category || DEFAULT_PRODUCT_CATEGORY
       } else {
-        finalCategoria = 'Hortaliças'
-        // Documentado na regra: assume default
+        finalCategoria = DEFAULT_PRODUCT_CATEGORY
       }
     }
 
@@ -679,11 +673,11 @@ export async function parseProductsInput(
 
     // Se existente, calcular fieldChanges campo a campo
     if (isExisting && existingMaster) {
-      if (hasRawCategoria && finalCategoria !== existingMaster.category) {
+      if (hasRawCategoria && !areCategoriesEqual(finalCategoria, existingMaster.category)) {
         fieldChanges.push({
           field: 'categoria',
           label: 'Categoria',
-          oldValue: existingMaster.category,
+          oldValue: existingMaster.category || '(vazio)',
           newValue: finalCategoria,
         })
       }
@@ -739,7 +733,7 @@ export async function parseProductsInput(
         'Nome ambíguo com múltiplos produtos cadastrados; será criado como novo produto.'
     } else {
       const defaultsApplied: string[] = []
-      if (!hasRawCategoria) defaultsApplied.push('categoria "Hortaliças"')
+      if (!hasRawCategoria) defaultsApplied.push(`categoria "${DEFAULT_PRODUCT_CATEGORY}"`)
       if (!hasRawUnidade) defaultsApplied.push(`unidade "${DEFAULT_PRODUCT_UNIT}"`)
       if (!hasRawEstoque) defaultsApplied.push('estoque 0')
       if (!hasRawPreco) defaultsApplied.push('preço R$ 0,00')

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-18T12:15:17.091Z",
+  "generatedAt": "2026-09-18T13:58:55.874Z",
   "collections": [
     {
       "name": "users",
@@ -95,9 +95,18 @@
         {
           "name": "categoria",
           "type": "select",
-          "required": true,
+          "required": false,
           "system": false,
-          "selectValues": ["Hortaliças", "Frutas", "Grãos", "Legumes", "Outros"]
+          "selectValues": [
+            "Hortaliças",
+            "Frutas",
+            "Grãos",
+            "Legumes",
+            "Folhosas",
+            "Ovos",
+            "Tubérculos",
+            "Outros"
+          ]
         },
         {
           "name": "unidade",

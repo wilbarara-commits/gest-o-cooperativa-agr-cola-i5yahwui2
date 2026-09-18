@@ -219,16 +219,19 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
   const marginX = 20
   const contentWidth = pageWidth - marginX * 2 // 170mm
 
+  const itemCount = data.items.length
+  const isDense = itemCount > 12 // Condensação progressiva para caber até 20 produtos em 1 página
+
   // 1. CABEÇALHO COM LOGOTIPO OU SÍMBOLO
-  let startY = 14
+  let startY = isDense ? 10 : 13
 
   if (data.logoUrl) {
     try {
       const imgInfo = await loadImageDataUrl(data.logoUrl)
       if (imgInfo) {
-        // Logotipo no topo centralizado preservando a proporção de aspecto (máximo 45mm x 22mm)
-        const maxW = 45
-        const maxH = 22
+        // Logotipo no topo centralizado preservando a proporção de aspecto
+        const maxW = isDense ? 38 : 44
+        const maxH = isDense ? 16 : 20
         let imgWidth = maxW
         let imgHeight = imgWidth / imgInfo.aspectRatio
 
@@ -247,13 +250,11 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
           undefined,
           'FAST',
         )
-        startY += imgHeight + 4
+        startY += imgHeight + (isDense ? 2 : 3)
       } else {
-        // Notifica falha no carregamento do logo se callback estiver configurado
         data.onLogoError?.(new Error('Logotipo inacessível ou formato inválido'))
       }
     } catch (e) {
-      // continua sem imagem sem travar a geração (degradante, não bloqueante)
       console.warn('Não foi possível embutir o logotipo no PDF:', e)
       data.onLogoError?.(e)
     }
@@ -261,40 +262,41 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
 
   // Nome da Cooperativa em destaque no topo
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
+  doc.setFontSize(isDense ? 10 : 11)
   doc.setTextColor(30, 41, 59)
   const coopLabel = (data.nomeCooperativa || 'CooperGestão').toUpperCase()
   doc.text(coopLabel, pageWidth / 2, startY, { align: 'center' })
-  startY += 6
+  startY += isDense ? 4.5 : 5.5
 
   // Título do documento oficial
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
+  doc.setFontSize(isDense ? 9.5 : 10.5)
   doc.setTextColor(15, 23, 42)
   const chamadaNum = data.numeroChamada?.trim() || 'Nº'
-  const docTitle = `TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA-N° ${chamadaNum}`
+  const docTitle = `TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA - N° ${chamadaNum}`
 
   const splitTitle = doc.splitTextToSize(docTitle, contentWidth)
   doc.text(splitTitle, pageWidth / 2, startY, { align: 'center' })
-  startY += splitTitle.length * 5.2 + 6
+  startY += splitTitle.length * (isDense ? 4.2 : 5) + (isDense ? 1.5 : 2.5)
 
-  // Linha sutil separadora
+  // Número / Identificação do Atesto em destaque no cabeçalho
+  if (data.numeroAtesto) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(isDense ? 8.5 : 9.5)
+    doc.setTextColor(51, 65, 85)
+    doc.text(`ATESTO Nº ${data.numeroAtesto}`, pageWidth / 2, startY, { align: 'center' })
+    startY += isDense ? 3.5 : 4.5
+  }
+
+  // Linha sutil separadora do cabeçalho
   doc.setDrawColor(203, 213, 225)
-  doc.setLineWidth(0.4)
+  doc.setLineWidth(0.3)
   doc.line(marginX, startY, pageWidth - marginX, startY)
-  startY += 7
-
-  // Número do Atesto (referência)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(100, 116, 139)
-  doc.text(`Identificador do Atesto: ${data.numeroAtesto}`, pageWidth - marginX, startY - 2, {
-    align: 'right',
-  })
+  startY += isDense ? 4.5 : 6
 
   // 2. PARÁGRAFO DE ATESTO
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10.5)
+  doc.setFontSize(isDense ? 9 : 10)
   doc.setTextColor(30, 41, 59)
 
   const nomeEscola = data.nomeEscola || 'Unidade Escolar'
@@ -303,11 +305,28 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
 
   const splitAtesto = doc.splitTextToSize(atestoParagraph, contentWidth)
   doc.text(splitAtesto, marginX, startY)
-  startY += splitAtesto.length * 5 + 4
+  startY += splitAtesto.length * (isDense ? 4 : 4.8) + (isDense ? 2.5 : 4)
 
   // 3. TABELA DE PRODUTOS
-  // Uma linha por produto com PRODUTOS e QUANTIDADE (KG)
+  // Centralizada na página com proporções fiéis ao modelo oficial
   const totalQuantidade = data.items.reduce((sum, item) => sum + (Number(item.quantidade) || 0), 0)
+
+  // Definir dimensões da tabela para centralização perfeita
+  const tableWidth = 140 // mm
+  const tableMarginLeft = (pageWidth - tableWidth) / 2 // 35mm cada lado para 210mm total
+  const col1Width = 92 // PRODUTOS
+  const col2Width = 48 // QUANTIDADE (KG)
+
+  // Calcular preenchimento dinâmico para comportar confortavelmente 20 produtos em 1 página
+  let cellPaddingY = 2.4
+  let tableFontSize = 8.5
+  if (itemCount > 15) {
+    cellPaddingY = 1.3
+    tableFontSize = 7.5
+  } else if (itemCount > 10) {
+    cellPaddingY = 1.8
+    tableFontSize = 8
+  }
 
   const head = [['PRODUTOS', 'QUANTIDADE (KG)']]
   const body = data.items.map((item) => [
@@ -315,103 +334,108 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
     formatQuantityBR(item.quantidade),
   ])
 
+  // Se houver poucos itens (menos de 6), adiciona linhas tracejadas conforme o modelo oficial
+  if (itemCount < 6) {
+    const emptyRowsNeeded = Math.min(2, 6 - itemCount)
+    for (let i = 0; i < emptyRowsNeeded; i++) {
+      body.push(['-----', '-----'])
+    }
+  }
+
   const foot = [['Total de itens', formatQuantityBR(totalQuantidade)]]
 
   runAutoTable(doc, {
     startY: startY,
+    tableWidth: tableWidth,
     head: head,
     body: body,
     foot: foot,
     theme: 'grid',
     styles: {
       font: 'helvetica',
-      fontSize: 9,
-      cellPadding: 2.8,
+      fontSize: tableFontSize,
+      cellPadding: { top: cellPaddingY, bottom: cellPaddingY, left: 2.5, right: 2.5 },
       textColor: [30, 41, 59],
-      lineColor: [100, 116, 139],
+      lineColor: [15, 23, 42],
       lineWidth: 0.25,
+      valign: 'middle',
     },
     headStyles: {
-      fillColor: [241, 245, 249],
+      fillColor: [245, 247, 250],
       textColor: [15, 23, 42],
       fontStyle: 'bold',
-      halign: 'left',
+      halign: 'center',
       lineWidth: 0.25,
-      lineColor: [100, 116, 139],
+      lineColor: [15, 23, 42],
     },
     columnStyles: {
-      0: { halign: 'left', cellWidth: 125 },
-      1: { halign: 'center', cellWidth: 45, fontStyle: 'bold' },
+      0: { halign: 'left', cellWidth: col1Width },
+      1: { halign: 'center', cellWidth: col2Width, fontStyle: 'bold' },
     },
     footStyles: {
-      fillColor: [248, 250, 252],
+      fillColor: [255, 255, 255],
       textColor: [15, 23, 42],
       fontStyle: 'bold',
       halign: 'left',
-      lineWidth: 0.35,
-      lineColor: [100, 116, 139],
+      lineWidth: 0.3,
+      lineColor: [15, 23, 42],
     },
-    margin: { left: marginX, right: marginX },
+    margin: { left: tableMarginLeft, right: tableMarginLeft },
   })
 
   // Coordenada Y após a tabela
   const finalY = (doc as any).lastAutoTable?.finalY || startY + 40
-  let textY = finalY + 8
+  let textY = finalY + (isDense ? 4 : 7)
 
   // 4. TEXTO DE DECLARAÇÃO
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9.5)
+  doc.setFontSize(isDense ? 8 : 9)
   doc.setTextColor(30, 41, 59)
 
   const declaracao1 =
     'Nestes termos, os produtos entregues estão de acordo com o contrato assinado.'
   doc.text(declaracao1, marginX, textY)
-  textY += 6
+  textY += isDense ? 4 : 5.5
 
   const declaracao2 =
     'Declaro ainda que os produtos estão de acordo com os padrões de qualidade aceitos por esta instituição, pelos quais concedemos a aceitabilidade, comprometendo-nos a dar a destinação final aos produtos recebidos, conforme estabelecido na aquisição da Agricultura Familiar para Alimentação Escolar.'
 
   const splitDecl2 = doc.splitTextToSize(declaracao2, contentWidth)
   doc.text(splitDecl2, marginX, textY, { align: 'justify', maxWidth: contentWidth })
-  textY += splitDecl2.length * 4.8 + 10
+  textY += splitDecl2.length * (isDense ? 3.6 : 4.4) + (isDense ? 5 : 8)
 
-  // 5. LOCAL E DATA (CENTRALIZADO)
+  // 5. ORDEM DO BLOCO DE ASSINATURA CONFORME O MODELO OFICIAL ESPECIFICADO:
+  // a) Data centralizada ("Teresópolis, 1 de janeiro de 2026.")
   const localDataStr = formatExtendDateBR(data.cidadeUf, data.dataEmissao)
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9.5)
+  doc.setFontSize(isDense ? 8.5 : 9.5)
   doc.text(localDataStr, pageWidth / 2, textY, { align: 'center' })
-  textY += 14
+  textY += isDense ? 9 : 14
 
-  // 6. IDENTIFICAÇÃO DO PRODUTOR / CONFERENTE (Matrícula ou CPT / CPF ACIMA da linha de assinatura)
+  // b) Logo ABAIXO da data centralizada: uma linha (traço) para assinatura SEM nenhuma identificação abaixo dela
   const sigX = pageWidth / 2
-  const sigLineWidth = 110
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9.5)
-  doc.text('Representante da Unidade Escolar (conferente)', sigX, textY, { align: 'center' })
-  textY += 4.5
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.text(nomeEscola, sigX, textY, { align: 'center' })
-  textY += 5
-
-  // Matrícula ou CPT/CPF fica ACIMA da linha de assinatura
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.text('Matrícula ou CPT: ___________________________', sigX, textY, { align: 'center' })
-  textY += 14
-
-  // Linha de assinatura
+  const sigLineWidth = 120
   doc.setDrawColor(30, 41, 59)
-  doc.setLineWidth(0.4)
+  doc.setLineWidth(0.35)
   doc.line(sigX - sigLineWidth / 2, textY, sigX + sigLineWidth / 2, textY)
-  textY += 4
+  textY += isDense ? 4 : 5.5
 
-  doc.setFont('helvetica', 'italic')
-  doc.setFontSize(8)
-  doc.setTextColor(100, 116, 139)
-  doc.text('Assinatura do Recebedor', sigX, textY, { align: 'center' })
+  // c) Logo a seguir: a linha "Matrícula ou CPF: ___________________________" com espaço em branco para preencher
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(isDense ? 8.5 : 9)
+  doc.text('Matrícula ou CPF: ___________________________', sigX, textY, { align: 'center' })
+  textY += isDense ? 4 : 5.5
+
+  // d) Em seguida: identificação do conferente
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(isDense ? 8.5 : 9.5)
+  doc.text('Representante da Unidade Escolar (conferente)', sigX, textY, { align: 'center' })
+  textY += isDense ? 4 : 5
+
+  // e) A ÚLTIMA linha do bloco inferior deve ser o NOME DA ESCOLA
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(isDense ? 9 : 10)
+  doc.text(nomeEscola.toUpperCase(), sigX, textY, { align: 'center' })
 
   return doc
 }

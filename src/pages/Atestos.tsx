@@ -909,79 +909,133 @@ function DocumentoOficialView({
         ]
 
   const totalQuantidade = items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)
+  const isDense = items.length > 12
+
+  // Linhas tracejadas de preenchimento caso haja poucos itens (conforme modelo oficial)
+  const emptyRowsCount = items.length < 6 ? Math.min(2, 6 - items.length) : 0
 
   return (
     <div
       id="atesto-documento-oficial"
-      className="bg-white text-slate-900 border border-slate-300 shadow-md p-8 sm:p-10 rounded-sm font-sans space-y-6 max-w-[680px] mx-auto text-sm leading-relaxed print:p-0 print:border-none print:shadow-none"
+      className={`bg-white text-slate-900 border border-slate-300 shadow-md ${
+        isDense ? 'p-6 sm:p-8 space-y-4' : 'p-8 sm:p-10 space-y-5'
+      } rounded-sm font-sans max-w-[680px] mx-auto text-sm leading-relaxed print:p-0 print:border-none print:shadow-none print:max-w-none`}
     >
-      {/* Cabeçalho */}
-      <div className="text-center space-y-2 pb-4 border-b border-slate-300">
+      {/* 1. Cabeçalho com logotipo, nome da cooperativa e título oficial */}
+      <div className="text-center space-y-1.5 pb-3 border-b border-slate-300">
         {logoUrl ? (
-          <div className="flex justify-center mb-2">
+          <div className="flex justify-center mb-1.5">
             <img
               src={logoUrl}
               alt="Logotipo Cooperativa"
-              className="h-14 max-w-[160px] object-contain"
+              className={`${isDense ? 'h-11 max-w-[140px]' : 'h-13 max-w-[160px]'} object-contain`}
             />
           </div>
         ) : (
           <div className="flex justify-center mb-1">
-            <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
-              <Sprout className="h-6 w-6" />
+            <div className="h-9 w-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
+              <Sprout className="h-5 w-5" />
             </div>
           </div>
         )}
-        <h2 className="font-bold text-xs uppercase tracking-wider text-slate-700">{nomeCoop}</h2>
-        <h1 className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight leading-snug">
-          TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA-N°{' '}
+        <h2 className="font-bold text-[11px] uppercase tracking-wider text-slate-700">
+          {nomeCoop}
+        </h2>
+        <h1 className="font-extrabold text-xs sm:text-[13px] text-slate-900 tracking-tight leading-snug">
+          TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA - N°{' '}
           {numeroChamada || 'Nº'}
         </h1>
-        <p className="text-[11px] text-slate-500 text-right">
-          Atesto Nº: <span className="font-semibold text-slate-800">{numeroAtesto}</span>
-        </p>
+        {numeroAtesto && (
+          <p className="text-xs font-bold text-slate-700 tracking-wide pt-0.5">
+            ATESTO Nº {numeroAtesto}
+          </p>
+        )}
       </div>
 
-      {/* Parágrafo de Atesto */}
-      <div className="text-justify text-[13px] text-slate-800">
+      {/* 2. Parágrafo de Atesto */}
+      <div className="text-justify text-[12.5px] text-slate-800">
         <p>
           Atesto que a <strong>{nomeEscola}</strong> recebeu os produtos listados abaixo da{' '}
           <strong>{nomeCoop}</strong>.
         </p>
       </div>
 
-      {/* Tabela de Produtos */}
-      <div className="overflow-hidden border border-slate-400 rounded-xs">
-        <table className="w-full text-xs text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-100 border-b border-slate-400 font-bold text-slate-900">
-              <th className="py-2 px-3">PRODUTOS</th>
-              <th className="py-2 px-3 text-right w-36">QUANTIDADE (KG)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-300">
-            {items.map((it, idx) => (
-              <tr key={idx} className="hover:bg-slate-50/60">
-                <td className="py-1.5 px-3 uppercase text-slate-800 font-medium">{it.name}</td>
-                <td className="py-1.5 px-3 text-right font-mono font-semibold text-slate-900">
-                  {formatQuantityBR(it.quantity)}
+      {/* 3. Tabela de Produtos centralizada */}
+      <div className="flex justify-center">
+        <div className="w-full max-w-[540px] overflow-hidden border border-slate-800 rounded-none shadow-none">
+          <table className="w-full text-xs text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-800 font-bold text-slate-900 text-center">
+                <th
+                  className={`border-r border-slate-800 ${isDense ? 'py-1 px-2.5' : 'py-1.5 px-3'} text-left`}
+                >
+                  PRODUTOS
+                </th>
+                <th className={`${isDense ? 'py-1 px-2.5 w-36' : 'py-1.5 px-3 w-40'} text-center`}>
+                  QUANTIDADE (KG)
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {items.map((it, idx) => (
+                <tr key={idx}>
+                  <td
+                    className={`border-r border-slate-800 ${
+                      isDense ? 'py-0.5 px-2.5 text-[11px]' : 'py-1 px-3 text-xs'
+                    } uppercase text-slate-800 font-medium`}
+                  >
+                    {it.name}
+                  </td>
+                  <td
+                    className={`${
+                      isDense ? 'py-0.5 px-2.5 text-[11px]' : 'py-1 px-3 text-xs'
+                    } text-center font-bold text-slate-900`}
+                  >
+                    {formatQuantityBR(it.quantity)}
+                  </td>
+                </tr>
+              ))}
+              {Array.from({ length: emptyRowsCount }).map((_, i) => (
+                <tr key={`empty-${i}`}>
+                  <td
+                    className={`border-r border-slate-800 ${
+                      isDense ? 'py-0.5 px-2.5 text-[11px]' : 'py-1 px-3 text-xs'
+                    } text-center text-slate-400`}
+                  >
+                    -----
+                  </td>
+                  <td
+                    className={`${
+                      isDense ? 'py-0.5 px-2.5 text-[11px]' : 'py-1 px-3 text-xs'
+                    } text-center text-slate-400`}
+                  >
+                    -----
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-50 border-t-2 border-slate-800 font-bold text-slate-900">
+                <td
+                  className={`border-r border-slate-800 ${isDense ? 'py-1 px-2.5 text-xs' : 'py-1.5 px-3 text-xs'} text-slate-900`}
+                >
+                  Total de itens
+                </td>
+                <td
+                  className={`${isDense ? 'py-1 px-2.5 text-xs' : 'py-1.5 px-3 text-xs'} text-center text-slate-900 font-bold`}
+                >
+                  {formatQuantityBR(totalQuantidade)}
                 </td>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="bg-slate-100/80 border-t-2 border-slate-400 font-bold text-slate-900">
-              <td className="py-2 px-3 text-slate-900">Total de itens</td>
-              <td className="py-2 px-3 text-right font-mono text-slate-900 text-[13px]">
-                {formatQuantityBR(totalQuantidade)}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
-      {/* Texto de Declaração */}
-      <div className="space-y-2 text-[12.5px] text-slate-800 leading-normal text-justify">
+      {/* 4. Texto de Declaração */}
+      <div
+        className={`space-y-1.5 ${isDense ? 'text-[11.5px]' : 'text-[12px]'} text-slate-800 leading-normal text-justify`}
+      >
         <p>Nestes termos, os produtos entregues estão de acordo com o contrato assinado.</p>
         <p>
           Declaro ainda que os produtos estão de acordo com os padrões de qualidade aceitos por esta
@@ -991,22 +1045,34 @@ function DocumentoOficialView({
         </p>
       </div>
 
-      {/* Local e Data (Centralizado) */}
-      <div className="pt-3 text-[13px] text-slate-900 text-center">
-        <p>{formatExtendDateBR(cidadeUf, dataEmissao)}</p>
-      </div>
+      {/* 5. Bloco de Assinatura ordenado estritamente conforme o modelo oficial */}
+      <div className="pt-2 text-center space-y-2">
+        {/* a) Data centralizada */}
+        <p className={`${isDense ? 'text-xs' : 'text-[12.5px]'} text-slate-900 font-normal`}>
+          {formatExtendDateBR(cidadeUf, dataEmissao)}
+        </p>
 
-      {/* Identificação e Assinatura (Matrícula ou CPT acima da linha de assinatura) */}
-      <div className="pt-6 pb-2 text-center space-y-1">
-        <p className="text-xs font-bold text-slate-900">
+        {/* b) Linha (traço) para assinatura SEM nenhuma identificação abaixo dela */}
+        <div className="pt-4 pb-2">
+          <div className="mx-auto w-72 sm:w-96 border-t border-slate-800" />
+        </div>
+
+        {/* c) Matrícula ou CPF com espaço em branco para preencher */}
+        <p className={`${isDense ? 'text-[11px]' : 'text-xs'} text-slate-800 font-normal`}>
+          Matrícula ou CPF: ___________________________
+        </p>
+
+        {/* d) Identificação do conferente */}
+        <p className={`${isDense ? 'text-xs' : 'text-[12.5px]'} font-bold text-slate-900`}>
           Representante da Unidade Escolar (conferente)
         </p>
-        <p className="text-[12px] text-slate-700 font-medium">{nomeEscola}</p>
-        <p className="text-[11px] text-slate-600 tracking-wide pb-4">
-          Matrícula ou CPT: ___________________________
+
+        {/* e) A ÚLTIMA linha do bloco inferior é o NOME DA ESCOLA */}
+        <p
+          className={`${isDense ? 'text-xs' : 'text-sm'} font-bold text-slate-900 uppercase tracking-wide`}
+        >
+          {nomeEscola}
         </p>
-        <div className="mx-auto w-72 sm:w-80 border-t border-slate-800 pt-1" />
-        <p className="text-[10px] text-slate-500 italic">Assinatura do Recebedor</p>
       </div>
     </div>
   )

@@ -30,6 +30,8 @@ export interface ParsedOrderItem {
   productNameRaw: string
   productId?: string
   productNameMatched?: string
+  nomeContratoMatched?: string
+  matchedViaContractItem?: boolean
   matchedViaAlias?: string
   isAmbiguous?: boolean
   quantity: number
@@ -48,6 +50,8 @@ export interface PendingZeroItem {
 export interface ProductMatchResult {
   product: Product | null
   matchedViaAlias?: string
+  nomeContratoMatched?: string
+  matchedViaContractItem?: boolean
   isAmbiguous?: boolean
   candidateCount?: number
 }
@@ -233,6 +237,7 @@ export function extractProductAliases(p: Product | { apelidos?: string }): strin
 export function matchProductNameDetailed(
   rawName: string,
   allProducts: Product[],
+  contractItems?: ContratoItemRecord[],
 ): ProductMatchResult {
   if (!rawName) return { product: null }
 
@@ -252,7 +257,223 @@ export function matchProductNameDetailed(
   const normRaw = normalizeName(rawName)
   if (!normCleaned && !normRaw) return { product: null }
 
-  // 1. Match exato pelo nome oficial do produto (prioridade máxima)
+  // =========================================================================
+  // NÍVEL 1: MATCH EM CASCATA — ITENS DO CONTRATO (nome_contrato + apelidos do contrato)
+  // O usuário pediu explicitamente:
+  // "A importação tem que bater com o nome do produto no contrato...
+  //  1º nome no contrato + apelidos do item de contrato (tolerante, bidirecional, como hoje)"
+  // =========================================================================
+  if (contractItems && contractItems.length > 0) {
+    // Mapear cada item de contrato para o seu produto mestre
+    type ContractCandidate = {
+      item: ContratoItemRecord
+      product: Product
+      effectiveNomeContrato: string
+      aliases: string[]
+    }
+
+    const candidates: ContractCandidate[] = []
+    for (const ci of contractItems) {
+      const prod = allProducts.find((p) => p.id === ci.produto_id)
+      if (!prod) continue
+      const effectiveNomeContrato = (ci.nome_contrato || prod.name || '').trim()
+      const aliases = (ci.apelidos || '')
+        .split(/[,;]/)
+        .map((a) => a.trim())
+        .filter(Boolean)
+      candidates.push({
+        item: ci,
+        product: prod,
+        effectiveNomeContrato,
+        aliases,
+      })
+    }
+
+    // 1.1 Match exato pelo nome no contrato
+    for (const c of candidates) {
+      const normNC = normalizeName(c.effectiveNomeContrato)
+      if (normNC && (normNC === normCleaned || normNC === normRaw)) {
+        return {
+          product: c.product,
+          nomeContratoMatched: c.effectiveNomeContrato,
+          matchedViaContractItem: true,
+        }
+      }
+    }
+
+    // 1.2 Match exato por apelido cadastrado no item de contrato
+    const exactContractAliasMatches: Array<{ cand: ContractCandidate; alias: string }> = []
+    for (const c of candidates) {
+      for (const a of c.aliases) {
+        const normA = normalizeName(a)
+        if (normA && (normA === normCleaned || normA === normRaw)) {
+          exactContractAliasMatches.push({ cand: c, alias: a })
+        }
+      }
+    }
+
+    if (exactContractAliasMatches.length === 1) {
+      const m = exactContractAliasMatches[0]
+      return {
+        product: m.cand.product,
+        nomeContratoMatched: m.cand.effectiveNomeContrato,
+        matchedViaAlias: m.alias,
+        matchedViaContractItem: true,
+      }
+    } else if (exactContractAliasMatches.length > 1) {
+      const exactNameMatch = exactContractAliasMatches.find(
+        (m) =>
+          normalizeName(m.cand.effectiveNomeContrato) === normCleaned ||
+          normalizeName(m.cand.effectiveNomeContrato) === normRaw,
+      )
+      if (exactNameMatch) {
+        return {
+          product: exactNameMatch.cand.product,
+          nomeContratoMatched: exactNameMatch.cand.effectiveNomeContrato,
+          matchedViaContractItem: true,
+        }
+      }
+      return {
+        product: null,
+        isAmbiguous: true,
+        candidateCount: exactContractAliasMatches.length,
+      }
+    }
+
+    // 1.3 Match por inclusão direta no nome no contrato ou nos apelidos do item de contrato
+    // Ordenar decrescente pelo comprimento do nome no contrato
+    const sortedCandidates = [...candidates].sort(
+      (a, b) => b.effectiveNomeContrato.length - a.effectiveNomeContrato.length,
+    )
+    for (const c of sortedCandidates) {
+      const normNC = normalizeName(c.effectiveNomeContrato)
+      if (normNC) {
+        if (normCleaned && (normCleaned.includes(normNC) || normNC.includes(normCleaned))) {
+          return {
+            product: c.product,
+            nomeContratoMatched: c.effectiveNomeContrato,
+            matchedViaContractItem: true,
+          }
+        }
+        if (normRaw && (normRaw.includes(normNC) || normNC.includes(normRaw))) {
+          return {
+            product: c.product,
+            nomeContratoMatched: c.effectiveNomeContrato,
+            matchedViaContractItem: true,
+          }
+        }
+      }
+
+      for (const a of c.aliases) {
+        const normA = normalizeName(a)
+        if (normA) {
+          if (normCleaned && (normCleaned.includes(normA) || normA.includes(normCleaned))) {
+            return {
+              product: c.product,
+              nomeContratoMatched: c.effectiveNomeContrato,
+              matchedViaAlias: a,
+              matchedViaContractItem: true,
+            }
+          }
+          if (normRaw && (normRaw.includes(normA) || normA.includes(normRaw))) {
+            return {
+              product: c.product,
+              nomeContratoMatched: c.effectiveNomeContrato,
+              matchedViaAlias: a,
+              matchedViaContractItem: true,
+            }
+          }
+        }
+      }
+    }
+
+    // 1.4 Match por tokens de palavras significativas (> 2 caracteres) nos itens de contrato
+    const tokensCleaned = (normCleaned || normRaw).split(/\s+/).filter((t) => t.length > 2)
+    if (tokensCleaned.length > 0) {
+      // 1.4a Todos os tokens do nome no contrato estão na planilha
+      const fullMatch = sortedCandidates.find((c) => {
+        const cTokens = normalizeName(c.effectiveNomeContrato)
+          .split(/\s+/)
+          .filter((t) => t.length > 2)
+        return cTokens.length > 0 && cTokens.every((ct) => tokensCleaned.includes(ct))
+      })
+      if (fullMatch) {
+        return {
+          product: fullMatch.product,
+          nomeContratoMatched: fullMatch.effectiveNomeContrato,
+          matchedViaContractItem: true,
+        }
+      }
+
+      // 1.4b Todos os tokens de um apelido do contrato estão na planilha
+      for (const c of sortedCandidates) {
+        for (const a of c.aliases) {
+          const aTokens = normalizeName(a)
+            .split(/\s+/)
+            .filter((t) => t.length > 2)
+          if (aTokens.length > 0 && aTokens.every((at) => tokensCleaned.includes(at))) {
+            return {
+              product: c.product,
+              nomeContratoMatched: c.effectiveNomeContrato,
+              matchedViaAlias: a,
+              matchedViaContractItem: true,
+            }
+          }
+        }
+      }
+
+      // 1.4c Todos os tokens da planilha estão no nome no contrato
+      const subsetMatch = sortedCandidates.find((c) => {
+        const normNC = normalizeName(c.effectiveNomeContrato)
+        return tokensCleaned.every((t) => normNC.includes(t))
+      })
+      if (subsetMatch) {
+        return {
+          product: subsetMatch.product,
+          nomeContratoMatched: subsetMatch.effectiveNomeContrato,
+          matchedViaContractItem: true,
+        }
+      }
+
+      // 1.4d Todos os tokens da planilha estão no apelido do contrato
+      for (const c of sortedCandidates) {
+        for (const a of c.aliases) {
+          const normA = normalizeName(a)
+          if (tokensCleaned.every((t) => normA.includes(t))) {
+            return {
+              product: c.product,
+              nomeContratoMatched: c.effectiveNomeContrato,
+              matchedViaAlias: a,
+              matchedViaContractItem: true,
+            }
+          }
+        }
+      }
+
+      // 1.4e Primeiro token significativo (>= 4 caracteres)
+      const firstToken = tokensCleaned[0]
+      if (firstToken && firstToken.length >= 4) {
+        const firstMatch = sortedCandidates.find((c) => {
+          const normNC = normalizeName(c.effectiveNomeContrato)
+          const cTokens = normNC.split(/\s+/).filter((t) => t.length > 2)
+          return cTokens.includes(firstToken)
+        })
+        if (firstMatch) {
+          return {
+            product: firstMatch.product,
+            nomeContratoMatched: firstMatch.effectiveNomeContrato,
+            matchedViaContractItem: true,
+          }
+        }
+      }
+    }
+  }
+
+  // =========================================================================
+  // NÍVEL 2: FALLBACK — CATÁLOGO MESTRE DE PRODUTOS + APELIDOS GLOBAIS
+  // =========================================================================
+
+  // 2.1. Match exato pelo nome oficial do produto (prioridade máxima do fallback)
   for (const p of allProducts) {
     const normP = normalizeName(p.name)
     if (normP === normCleaned || normP === normRaw) {
@@ -260,7 +481,7 @@ export function matchProductNameDetailed(
     }
   }
 
-  // 2. Match exato por apelido cadastrado
+  // 2.2. Match exato por apelido cadastrado globalmente no produto
   const exactAliasMatches: Array<{ product: Product; alias: string }> = []
   for (const p of allProducts) {
     const aliases = extractProductAliases(p)
@@ -294,8 +515,7 @@ export function matchProductNameDetailed(
     }
   }
 
-  // 3. Match por inclusão direta (nome oficial ou apelido)
-  // Ordena por tamanho decrescente do nome para priorizar "COUVE MINEIRA" antes de "COUVE"
+  // 2.3. Match por inclusão direta (nome oficial ou apelido global)
   const sortedProds = [...allProducts].sort((a, b) => b.name.length - a.name.length)
   for (const p of sortedProds) {
     const normP = normalizeName(p.name)
@@ -321,10 +541,10 @@ export function matchProductNameDetailed(
     }
   }
 
-  // 4. Match por tokens de palavras significativas (> 2 caracteres)
+  // 2.4. Match por tokens de palavras significativas (> 2 caracteres)
   const tokensCleaned = (normCleaned || normRaw).split(/\s+/).filter((t) => t.length > 2)
   if (tokensCleaned.length > 0) {
-    // 4a. Todos os tokens do catálogo estão no texto da planilha
+    // 2.4a. Todos os tokens do catálogo estão no texto da planilha
     const fullMatch = sortedProds.find((p) => {
       const pTokens = normalizeName(p.name)
         .split(/\s+/)
@@ -333,7 +553,7 @@ export function matchProductNameDetailed(
     })
     if (fullMatch) return { product: fullMatch }
 
-    // 4b. Todos os tokens de um apelido estão no texto da planilha
+    // 2.4b. Todos os tokens de um apelido estão no texto da planilha
     for (const p of sortedProds) {
       const aliases = extractProductAliases(p)
       for (const a of aliases) {
@@ -346,14 +566,14 @@ export function matchProductNameDetailed(
       }
     }
 
-    // 4c. Todos os tokens da planilha estão no nome do produto
+    // 2.4c. Todos os tokens da planilha estão no nome do produto
     const subsetMatch = sortedProds.find((p) => {
       const normP = normalizeName(p.name)
       return tokensCleaned.every((t) => normP.includes(t))
     })
     if (subsetMatch) return { product: subsetMatch }
 
-    // 4d. Todos os tokens da planilha estão no apelido
+    // 2.4d. Todos os tokens da planilha estão no apelido
     for (const p of sortedProds) {
       const aliases = extractProductAliases(p)
       for (const a of aliases) {
@@ -364,7 +584,7 @@ export function matchProductNameDetailed(
       }
     }
 
-    // 4e. Primeiro token significativo (ex: "AIPIM" de "AIPIM COM CASCA")
+    // 2.4e. Primeiro token significativo (ex: "AIPIM" de "AIPIM COM CASCA")
     const firstToken = tokensCleaned[0]
     if (firstToken && firstToken.length >= 4) {
       const firstMatch = sortedProds.find((p) => {
@@ -383,8 +603,12 @@ export function matchProductNameDetailed(
  * Match de produto pelo nome com normalização avançada e tokens.
  * Mantido para compatibilidade, agora delegando para matchProductNameDetailed.
  */
-export function matchProductName(rawName: string, allProducts: Product[]): Product | null {
-  return matchProductNameDetailed(rawName, allProducts).product
+export function matchProductName(
+  rawName: string,
+  allProducts: Product[],
+  contractItems?: ContratoItemRecord[],
+): Product | null {
+  return matchProductNameDetailed(rawName, allProducts, contractItems).product
 }
 
 /**
@@ -834,7 +1058,7 @@ export function parseSecretaryExcel(
           qty = 0
         }
 
-        const matchInfo = matchProductNameDetailed(productDescRaw, allProducts)
+        const matchInfo = matchProductNameDetailed(productDescRaw, allProducts, contractItems)
         const matchedProd = matchInfo.product
 
         if (!matchedProd) {
@@ -843,7 +1067,9 @@ export function parseSecretaryExcel(
               `Nome ambíguo: "${productDescRaw}" coincide com o apelido de ${matchInfo.candidateCount} produtos diferentes.`,
             )
           } else {
-            baseIssues.push(`Produto "${productDescRaw}" não encontrado no catálogo de produtos.`)
+            baseIssues.push(
+              `Produto "${productDescRaw}" não encontrado no contrato nem no catálogo de produtos.`,
+            )
           }
           items.push({
             productNameRaw: productDescRaw,
@@ -855,15 +1081,19 @@ export function parseSecretaryExcel(
           continue
         }
 
-        // Resolução do Preço a partir de contrato_itens do contrato selecionado
+        // Resolução do Preço e Nome do Contrato a partir de contrato_itens do contrato selecionado
         let resolvedPrice = 0
         let foundInContract = false
+        let resolvedNomeContrato = matchInfo.nomeContratoMatched
 
         if (contractItems && contractItems.length > 0) {
           const matchedContractItem = contractItems.find((ci) => ci.produto_id === matchedProd.id)
           if (matchedContractItem) {
             resolvedPrice = Number(matchedContractItem.preco) || 0
             foundInContract = true
+            if (!resolvedNomeContrato) {
+              resolvedNomeContrato = matchedContractItem.nome_contrato || matchedProd.name
+            }
           } else {
             baseIssues.push(
               `Produto "${matchedProd.name}" (${productDescRaw}) não consta nos itens contratados deste contrato.`,
@@ -879,6 +1109,8 @@ export function parseSecretaryExcel(
           productNameRaw: productDescRaw,
           productId: matchedProd.id,
           productNameMatched: matchedProd.name,
+          nomeContratoMatched: resolvedNomeContrato,
+          matchedViaContractItem: matchInfo.matchedViaContractItem,
           matchedViaAlias: matchInfo.matchedViaAlias,
           quantity: qty,
           price: resolvedPrice,

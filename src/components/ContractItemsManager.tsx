@@ -65,6 +65,8 @@ export interface ContractItemForm {
   productId: string
   price: number
   quantity?: number // quantidade contratada (opcional)
+  nomeContrato?: string
+  apelidos?: string
 }
 
 interface ContractItemsManagerProps {
@@ -217,6 +219,8 @@ export function ContractItemsManager({
           productId: prodId,
           price: prod?.price || 0,
           quantity: 0,
+          nomeContrato: prod?.name || '',
+          apelidos: '',
         })
         addedCount++
       }
@@ -246,6 +250,30 @@ export function ContractItemsManager({
       return {
         ...it,
         quantity: isNaN(newQuantity) ? 0 : Math.max(0, newQuantity),
+      }
+    })
+    onChange(updated)
+  }
+
+  // Edição inline de Nome no Contrato
+  const handleNomeContratoChange = (index: number, newNome: string) => {
+    const updated = items.map((it, idx) => {
+      if (idx !== index) return it
+      return {
+        ...it,
+        nomeContrato: newNome,
+      }
+    })
+    onChange(updated)
+  }
+
+  // Edição inline de Apelidos / AKAs no Contrato
+  const handleApelidosChange = (index: number, newApelidos: string) => {
+    const updated = items.map((it, idx) => {
+      if (idx !== index) return it
+      return {
+        ...it,
+        apelidos: newApelidos,
       }
     })
     onChange(updated)
@@ -400,12 +428,17 @@ export function ContractItemsManager({
         if (match.quantity > 0) {
           existing.quantity = match.quantity
         }
+        if (!existing.nomeContrato) {
+          existing.nomeContrato = match.product.name
+        }
         updatedCount++
       } else {
         currentMap.set(match.product.id, {
           productId: match.product.id,
           price: match.price,
           quantity: match.quantity,
+          nomeContrato: match.product.name,
+          apelidos: '',
         })
         addedCount++
       }
@@ -452,16 +485,22 @@ export function ContractItemsManager({
 
     for (const row of fileParseResult.validRows) {
       if (!row.product) continue
+      const importedNomeContrato = row.nomeContrato || row.rawProduct || row.product.name
       if (currentMap.has(row.product.id)) {
         const existing = currentMap.get(row.product.id)!
         existing.price = row.price
         existing.quantity = row.quantity
+        if (importedNomeContrato) {
+          existing.nomeContrato = importedNomeContrato
+        }
         updatedCount++
       } else {
         currentMap.set(row.product.id, {
           productId: row.product.id,
           price: row.price,
           quantity: row.quantity,
+          nomeContrato: importedNomeContrato,
+          apelidos: '',
         })
         addedCount++
       }
@@ -627,16 +666,17 @@ export function ContractItemsManager({
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="rounded-md border max-h-[340px] overflow-y-auto">
+          <div className="rounded-md border max-h-[380px] overflow-y-auto">
             <Table>
               <TableHeader className="bg-muted/30 sticky top-0 z-10 backdrop-blur-xs">
                 <TableRow className="text-xs">
-                  <TableHead className="w-[34%]">Produto / Categoria</TableHead>
-                  <TableHead className="w-[10%] text-center">Unidade</TableHead>
-                  <TableHead className="w-[20%]">Preço Unit. (R$)</TableHead>
-                  <TableHead className="w-[18%]">Qtd. Contratada</TableHead>
-                  <TableHead className="w-[12%] text-right">Subtotal (R$)</TableHead>
-                  <TableHead className="w-[6%] text-right"></TableHead>
+                  <TableHead className="w-[32%]">Nome no Contrato & AKA</TableHead>
+                  <TableHead className="w-[18%]">Produto Mestre / Catálogo</TableHead>
+                  <TableHead className="w-[8%] text-center">Unidade</TableHead>
+                  <TableHead className="w-[16%]">Preço Unit. (R$)</TableHead>
+                  <TableHead className="w-[14%]">Qtd. Contratada</TableHead>
+                  <TableHead className="w-[8%] text-right">Subtotal</TableHead>
+                  <TableHead className="w-[4%] text-right"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -648,15 +688,57 @@ export function ContractItemsManager({
                     item.quantity !== undefined && item.quantity !== null ? item.quantity : 0
                   const subtotal = item.price * qty
 
+                  const nomeContratoEfetivo =
+                    item.nomeContrato !== undefined ? item.nomeContrato : prod?.name || ''
+                  const isNomeDiferente = Boolean(
+                    nomeContratoEfetivo &&
+                    prod?.name &&
+                    nomeContratoEfetivo.trim().toLowerCase() !== prod.name.trim().toLowerCase(),
+                  )
+
                   return (
                     <TableRow key={item.productId || index} className="text-xs hover:bg-muted/10">
-                      {/* Nome e categoria */}
+                      {/* Nome no Contrato e AKAs no contrato */}
+                      <TableCell className="py-2">
+                        <div className="space-y-1.5 max-w-[280px]">
+                          <div>
+                            <Input
+                              value={nomeContratoEfetivo}
+                              onChange={(e) => handleNomeContratoChange(index, e.target.value)}
+                              placeholder={prod?.name || 'Nome no contrato'}
+                              className="h-7 text-xs font-semibold text-foreground"
+                              title="Nome oficial do produto no contrato (usado na importação de pedidos e atestos)"
+                            />
+                          </div>
+                          <div>
+                            <Input
+                              value={item.apelidos || ''}
+                              onChange={(e) => handleApelidosChange(index, e.target.value)}
+                              placeholder="Nomes Alternativos (AKA no Contrato - vírgulas)"
+                              className="h-6 text-[11px] text-muted-foreground"
+                              title="Nomes alternativos do produto na planilha da secretaria para este contrato (separados por vírgula)"
+                            />
+                          </div>
+                        </div>
+                      </TableCell>
+
+                      {/* Produto mestre */}
                       <TableCell className="py-2">
                         <div className="flex flex-col">
-                          <span className="font-semibold text-foreground">
+                          <span
+                            className={`text-xs ${
+                              isNomeDiferente
+                                ? 'text-muted-foreground line-clamp-1 italic'
+                                : 'font-medium text-foreground'
+                            }`}
+                            title={`Produto Mestre: ${prod?.name || 'Não encontrado'}`}
+                          >
                             {prod?.name || 'Produto não encontrado'}
                           </span>
-                          <div className="flex items-center gap-1.5 mt-0.5">
+                          {isNomeDiferente && (
+                            <span className="text-[10px] text-muted-foreground/70">(mestre)</span>
+                          )}
+                          <div className="flex items-center gap-1 mt-0.5">
                             {prod?.category && (
                               <Badge
                                 variant="outline"
@@ -688,7 +770,7 @@ export function ContractItemsManager({
                       {/* Preço editável inline */}
                       <TableCell className="py-2">
                         <div className="space-y-1">
-                          <div className="relative max-w-[130px]">
+                          <div className="relative max-w-[120px]">
                             <span className="absolute left-2 top-1.5 text-[11px] text-muted-foreground pointer-events-none font-medium">
                               R$
                             </span>
@@ -728,7 +810,7 @@ export function ContractItemsManager({
 
                       {/* Quantidade contratada inline */}
                       <TableCell className="py-2">
-                        <div className="relative max-w-[120px]">
+                        <div className="relative max-w-[110px]">
                           <Input
                             type="number"
                             step="any"

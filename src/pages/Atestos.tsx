@@ -46,8 +46,16 @@ import {
 } from '@/lib/atestoPdfGenerator'
 
 export default function Atestos() {
-  const { atestos, orders, contracts, contractSchools, generateAtesto, confirmAtesto, isLoading } =
-    useApp()
+  const {
+    atestos,
+    orders,
+    contracts,
+    contractSchools,
+    contractItems,
+    generateAtesto,
+    confirmAtesto,
+    isLoading,
+  } = useApp()
   const [config, setConfig] = useState<ConfiguracoesRecord | null>(null)
   const [isConfigLoading, setIsConfigLoading] = useState(true)
 
@@ -112,12 +120,38 @@ export default function Atestos() {
     const numeroChamada = getNumeroChamadaForSchool(order.schoolId)
     const numeroAtesto = atestoNumero || `AT-${String(atestos.length + 1).padStart(3, '0')}`
 
+    // Determinar o contrato vinculado a esta escola
+    const schoolLink = contractSchools.find((cs) => cs.escola_id === order.schoolId)
+    const linkedContractId =
+      schoolLink?.contrato_id || contracts.find((c) => c.status === 'Ativo')?.id
+
     const items =
       order.items && order.items.length > 0
-        ? order.items.map((i) => ({
-            nome: i.name,
-            quantidade: i.quantity,
-          }))
+        ? order.items.map((i) => {
+            // Regra oficial de Atestos: O nome impresso no atesto é o NOME NO CONTRATO
+            // Fallback: se não tiver nome_contrato no item, usa o nome do produto
+            let nomeParaAtesto = i.name
+            if (linkedContractId && contractItems && contractItems.length > 0) {
+              const matchedCI = contractItems.find(
+                (ci) => ci.contrato_id === linkedContractId && ci.produto_id === i.productId,
+              )
+              if (matchedCI?.nome_contrato?.trim()) {
+                nomeParaAtesto = matchedCI.nome_contrato.trim()
+              }
+            } else if (contractItems && contractItems.length > 0) {
+              const anyCI = contractItems.find(
+                (ci) => ci.produto_id === i.productId && ci.nome_contrato?.trim(),
+              )
+              if (anyCI?.nome_contrato?.trim()) {
+                nomeParaAtesto = anyCI.nome_contrato.trim()
+              }
+            }
+
+            return {
+              nome: nomeParaAtesto,
+              quantidade: i.quantity,
+            }
+          })
         : [
             {
               nome: 'Gêneros alimentícios da agricultura familiar conforme nota de entrega',
@@ -286,6 +320,14 @@ export default function Atestos() {
             expand: 'produto_id',
           })
 
+          // Buscar contrato_itens para garantir o nome no contrato
+          let fallbackContractItems: any[] = []
+          try {
+            fallbackContractItems = await pb.collection('contrato_itens').getFullList<any>()
+          } catch {
+            /* intentionally ignored */
+          }
+
           if (pedRec) {
             relatedOrder = {
               id: pedRec.id,
@@ -300,13 +342,22 @@ export default function Atestos() {
               status: pedRec.status,
               entregue_em: pedRec.entregue_em,
               total: 0,
-              items: pedItens.map((it: any) => ({
-                id: it.id,
-                productId: it.produto_id,
-                name: it.expand?.produto_id?.nome || 'Gêneros Alimentícios',
-                quantity: Number(it.quantidade) || 0,
-                price: Number(it.preco_unitario) || 0,
-              })),
+              items: pedItens.map((it: any) => {
+                const ciMatch = fallbackContractItems.find(
+                  (c) => c.produto_id === it.produto_id && c.nome_contrato?.trim(),
+                )
+                const nomeContrato =
+                  ciMatch?.nome_contrato?.trim() ||
+                  it.expand?.produto_id?.nome ||
+                  'Gêneros Alimentícios'
+                return {
+                  id: it.id,
+                  productId: it.produto_id,
+                  name: nomeContrato,
+                  quantity: Number(it.quantidade) || 0,
+                  price: Number(it.preco_unitario) || 0,
+                }
+              }),
             }
           }
         } catch (fetchPedErr) {

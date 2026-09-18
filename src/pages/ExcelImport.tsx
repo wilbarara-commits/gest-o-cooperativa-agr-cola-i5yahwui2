@@ -958,6 +958,24 @@ export default function ExcelImport() {
                                       apelido
                                     </span>
                                   )}
+                                  {po.items.some(
+                                    (i) =>
+                                      i.matchedViaContractItem &&
+                                      i.nomeContratoMatched &&
+                                      i.nomeContratoMatched !== i.productNameMatched,
+                                  ) && (
+                                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                      {
+                                        po.items.filter(
+                                          (i) =>
+                                            i.matchedViaContractItem &&
+                                            i.nomeContratoMatched &&
+                                            i.nomeContratoMatched !== i.productNameMatched,
+                                        ).length
+                                      }{' '}
+                                      casado(s) via nome no contrato
+                                    </span>
+                                  )}
                                 </div>
                               )}
                               {po.pendingZeroItems && po.pendingZeroItems.length > 0 && (

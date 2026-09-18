@@ -63,9 +63,10 @@ const MODULES: ModuleSpec[] = [
     route: '/contratos',
     goal: 'Gestão institucional dos contratos PNAE/PAA, vínculo de N escolas participantes, rotas logísticas, quantidades contratadas por produto e tabela de preços acordados com valor total automático ou informado diretamente.',
     details: [
+      'Modelo de Dois Níveis de Nome de Produto (Nome no Contrato vs Nome Mestre): Na collection contrato_itens, cada item possui os campos nome_contrato e apelidos (AKAs no contrato). O nome no contrato nasce pré-preenchido com o nome do produto mestre e pode ser customizado livremente para refletir a redação exata do edital/contrato assinado. A interface exibe o Nome no Contrato em destaque com campo editável e o nome mestre do catálogo atenuado quando diferente.',
       'Quantidades Contratadas por Produto & Valor Total Calculado: Cada item do contrato permite informar preço unitário e quantidade contratada (campo quantidade_contratada em contrato_itens). Quando os itens têm quantidades informadas, o Valor Total Contratado é a soma exata dos produtos (preço × quantidade contratada) e o campo total é recalculado automaticamente em tempo real.',
       'Opção sem Quantidades (Total Informado Diretamente): É permitido não preencher quantidades contratadas e informar o valor_total do contrato diretamente na aba Dados Gerais. O sistema identifica e sinaliza claramente na interface o modo em uso: "Total calculado pelos itens" ou "Total informado diretamente".',
-      'Importação em Massa via Planilha / CSV: Suporte a upload de arquivo (.xlsx ou .csv) contendo Produto, Preço Unitário e Quantidade Contratada, com preview estruturado, validação estrita contra o catálogo de produtos, cálculo do total da planilha e confirmação em lote. Download de modelo de planilha (.xlsx) disponível com 1 clique.',
+      'Importação em Massa via Planilha / CSV: Suporte a upload de arquivo (.xlsx ou .csv) contendo Produto, Preço Unitário e Quantidade Contratada, com preview estruturado, validação estrita contra o catálogo de produtos, cálculo do total da planilha e confirmação em lote. O nome original na planilha é gravado no campo nome_contrato do item.',
       'Colar em Massa com Quantidades: Aceita colar linhas copiadas do Excel ou texto com separadores (tabulação, ponto-e-vírgula ou vírgula) nas colunas "Produto; Preço; Quantidade", com preview comparativo e resolução inteligente de nomes contra o catálogo.',
       'Execução e Cotas de Referência: O realizado do contrato continua derivado dos pedidos entregues. A quantidade contratada cadastrada no item passa a atuar como cota do produto no contrato, permitindo acompanhar o saldo e a porcentagem de execução por produto e por escola participante.',
       'Nº de Rotas Logísticas Opcional no Contrato: No modal de criação/edição de contrato, o campo "Número de Rotas Logísticas" é opcional (sem valor pré-fixado obrigatório). Caso não seja preenchido, o contrato aceita rotas logísticas ilimitadas.',
@@ -99,7 +100,8 @@ const MODULES: ModuleSpec[] = [
     route: '/importacao',
     goal: 'Carga de pedidos em contratos centralizados via planilha .xlsx da Secretaria de Educação.',
     details: [
-      'Matching contra o Cadastro Mestre Global: A identificação das colunas é feita contra o diretório global de escolas (e não somente contra os vínculos prévios do contrato).',
+      'Matching de Produtos em Cascata (Dois Níveis): A identificação do produto na planilha da secretaria prioriza em 1º lugar os itens vinculados ao contrato (nome_contrato e apelidos/AKAs do contrato, tolerante a ruídos, pontuação e sufixos); em 2º lugar recorre ao catálogo mestre global (nome e apelidos globais do produto). Se não houver correspondência em nenhum dos níveis, o item é tratado como pendência bloqueante no preview da importação.',
+      'Matching contra o Cadastro Mestre Global de Escolas: A identificação das colunas é feita contra o diretório global de escolas (e não somente contra os vínculos prévios do contrato).',
       'Fluxo de Pendências Inteligente: Se a escola existe no cadastro mestre mas não está vinculada ao contrato atual, exibe a pendência "Vincular ao contrato" com rota e vínculo pré-preenchidos para confirmação com 1 clique. Se não existe no cadastro mestre, exibe a pendência "Cadastrar escola" (o importador continua sem criar registros automaticamente na surdina).',
       'Regras Estritas de Matching: Mantém regras de tolerância a acentos, maiúsculas, pontuação e apelidos entre parênteses (CEDAL, CEROM, CMEI Várzea), com tratamento comprovado dos casos "EM PAULINO CUSTÓDUIO REZENDE" ≡ "EM PAULINO CUSTÓDIO DE REZENDE" e distinção mandatória "CM LAR DE ISABEL" ≠ "EM LAR DE ISABEL".',
       'Suporte a 5 abas: ROTA A, ROTA B, ROTA C (a importar), TOTAL e TODAS UNIDADES (a ignorar).',
@@ -177,6 +179,7 @@ const MODULES: ModuleSpec[] = [
     route: '/atestos',
     goal: 'Produzir o documento oficial da cooperativa ("TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS") em formato A4, com pré-visualização, geração de PDF gravado no banco e download posterior.',
     details: [
+      'Nome do Produto no Atesto é o Nome no Contrato: Em estrita conformidade com a exigência dos órgãos fiscalizadores e da secretaria, o documento oficial e seu PDF timbrado imprimem o Nome no Contrato (contratoItem.nome_contrato com fallback para produto.nome), garantindo correspondência jurídica perfeita com a nota de empenho e o contrato firmado.',
       'Estrutura Oficial do Documento (A4 - 1 página): Cabeçalho com logotipo da cooperativa e título central "TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA-N° {numero_chamada}".',
       'Parágrafo de Atesto: "Atesto que a {nome_da_escola} recebeu os produtos listados abaixo da {nome_da_cooperativa}".',
       'Tabela de Produtos: Colunas PRODUTOS e QUANTIDADE (KG), uma linha por produto entregue em formato brasileiro (vírgula decimal), e linha final "Total de itens" com a soma das quantidades.',
@@ -297,7 +300,7 @@ const DATA_MODEL = [
   'rotas_logisticas (id, contrato_id → contratos, nome, ordem, ativa [bool]) [Rotas Logísticas da Cooperativa - Distribuição]',
   'paradas_rota (id, rota_logistica_id → rotas_logisticas, escola_id → escolas, ordem) [Sequenciamento Drag-and-Drop]',
   'despachos (id, contrato_id → contratos, ciclo_id → ciclos, rota_logistica_id → rotas_logisticas, data_despacho, usuario_id → users, status [Em Rota/Entregue/Cancelado])',
-  'contrato_itens (id, contrato_id → contratos, produto_id → produtos, preco, quantidade_contratada [numérico opcional])',
+  'contrato_itens (id, contrato_id → contratos, produto_id → produtos, preco, quantidade_contratada [numérico opcional], nome_contrato [texto opcional], apelidos [texto opcional])',
   'pedidos (id, numero, escola_id → escolas, ciclo_id → ciclos, origem [excel/whatsapp/manual], rota_id → rotas, rota_logistica_id → rotas_logisticas, validacao [json], data_prevista, status [Pendente/Em Rota/Entregue/Cancelado], entregue_em, entregue_por → users, cancelamento_motivo, motivo_cancelamento, cancelado_em)',
   'pedido_itens (id, pedido_id → pedidos, produto_id → produtos, quantidade, preco_unitario)',
   'envios_whatsapp (id, ciclo_id → ciclos, escola_id → escolas, status [pendente/enviado/falha], enviado_em)',

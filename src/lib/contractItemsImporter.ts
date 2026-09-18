@@ -8,6 +8,7 @@ export interface ParsedContractItemRow {
   rawProduct: string
   rawPrice: string
   rawQuantity: string
+  nomeContrato?: string
   product?: Product
   matchedViaAlias?: string
   price: number
@@ -377,6 +378,7 @@ export async function parseContractItemsFile(
       rawProduct,
       rawPrice,
       rawQuantity,
+      nomeContrato: rawProduct,
       product: matchedProduct,
       matchedViaAlias: matchDetail.matchedViaAlias,
       price: finalPrice,

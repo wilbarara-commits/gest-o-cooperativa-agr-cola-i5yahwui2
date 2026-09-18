@@ -242,6 +242,8 @@ export default function Contracts() {
         productId: it.produto_id,
         price: Number(it.preco) || 0,
         quantity: it.quantidade_contratada ? Number(it.quantidade_contratada) : 0,
+        nomeContrato: it.nome_contrato || it.expand?.produto_id?.nome || '',
+        apelidos: it.apelidos || '',
       }))
       setContractItems(mapped)
 
@@ -666,7 +668,7 @@ export default function Contracts() {
           })
         }
 
-        // 3. Sincronizar itens, preços e quantidades contratadas acordadas
+        // 3. Sincronizar itens, preços, quantidades contratadas, nome_contrato e apelidos acordados
         const validItems = contractItems.filter((i) => i.productId && i.price > 0)
         await contratosService.syncItems(
           contractId,
@@ -675,6 +677,8 @@ export default function Contracts() {
             produto_id: it.productId,
             preco: it.price,
             quantidade_contratada: it.quantity && it.quantity > 0 ? it.quantity : undefined,
+            nome_contrato: it.nomeContrato || undefined,
+            apelidos: it.apelidos || undefined,
           })),
         )
       }

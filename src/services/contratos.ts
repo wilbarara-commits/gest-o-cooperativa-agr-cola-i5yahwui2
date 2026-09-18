@@ -78,6 +78,8 @@ export const contratosService = {
       produto_id: string
       preco: number
       quantidade_contratada?: number
+      nome_contrato?: string
+      apelidos?: string
     }>,
   ): Promise<void> {
     const existingItems = await pb.collection('contrato_itens').getFullList<ContratoItemRecord>({
@@ -95,6 +97,9 @@ export const contratosService = {
           ? item.quantidade_contratada
           : null
 
+      const nomeContrato = item.nome_contrato !== undefined ? item.nome_contrato.trim() : undefined
+      const apelidos = item.apelidos !== undefined ? item.apelidos.trim() : undefined
+
       if (item.id && existingMap.has(item.id)) {
         keptItemIds.add(item.id)
         const current = existingMap.get(item.id)!
@@ -105,15 +110,24 @@ export const contratosService = {
             ? current.quantidade_contratada
             : null
 
+        const currentNomeContrato = (current.nome_contrato || '').trim()
+        const currentApelidos = (current.apelidos || '').trim()
+        const newNomeContrato = nomeContrato !== undefined ? nomeContrato : currentNomeContrato
+        const newApelidos = apelidos !== undefined ? apelidos : currentApelidos
+
         if (
           current.produto_id !== item.produto_id ||
           Math.abs(Number(current.preco) - Number(item.preco)) > 0.0001 ||
-          currentQtd !== qtd
+          currentQtd !== qtd ||
+          currentNomeContrato !== newNomeContrato ||
+          currentApelidos !== newApelidos
         ) {
           await pb.collection('contrato_itens').update(item.id, {
             produto_id: item.produto_id,
             preco: item.preco,
             quantidade_contratada: qtd,
+            nome_contrato: newNomeContrato,
+            apelidos: newApelidos,
           })
         }
       } else {
@@ -122,6 +136,8 @@ export const contratosService = {
           produto_id: item.produto_id,
           preco: item.preco,
           quantidade_contratada: qtd,
+          nome_contrato: nomeContrato || '',
+          apelidos: apelidos || '',
         })
         keptItemIds.add(created.id)
       }

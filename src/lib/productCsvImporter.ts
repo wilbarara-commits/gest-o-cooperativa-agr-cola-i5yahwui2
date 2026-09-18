@@ -45,6 +45,8 @@ export interface ParsedCsvProductRow {
   // Se existente no banco
   existingProductId?: string
   existingProductName?: string
+  matchedViaAlias?: string
+  isAmbiguous?: boolean
   fieldChanges: ProductFieldChange[]
 
   // Status de validação e destino
@@ -384,6 +386,9 @@ export async function parseProductsInput(
   const masterByNorm = new Map<string, Product>()
   // 2. Mapa secundário com despluralização (fallback para tolerância singular/plural)
   const masterByDePlural = new Map<string, Product>()
+  // 3. Mapa de apelidos normalizados (aliasNorm -> list of { product, aliasOriginal })
+  const masterByAlias = new Map<string, Array<{ product: Product; alias: string }>>()
+  const masterByAliasDePlural = new Map<string, Array<{ product: Product; alias: string }>>()
 
   for (const p of existingProducts) {
     const n = normalizeName(p.name)
@@ -394,6 +399,28 @@ export async function parseProductsInput(
       const deplural = dePluralizeName(n)
       if (deplural && !masterByDePlural.has(deplural)) {
         masterByDePlural.set(deplural, p)
+      }
+    }
+
+    if (p.apelidos) {
+      const aliases = p.apelidos
+        .split(/[,;]/)
+        .map((a) => a.trim())
+        .filter(Boolean)
+      for (const a of aliases) {
+        const aNorm = normalizeName(a)
+        if (aNorm) {
+          const list = masterByAlias.get(aNorm) || []
+          list.push({ product: p, alias: a })
+          masterByAlias.set(aNorm, list)
+
+          const aDeplural = dePluralizeName(aNorm)
+          if (aDeplural) {
+            const depList = masterByAliasDePlural.get(aDeplural) || []
+            depList.push({ product: p, alias: a })
+            masterByAliasDePlural.set(aDeplural, depList)
+          }
+        }
       }
     }
   }
@@ -491,12 +518,49 @@ export async function parseProductsInput(
     }
 
     // Identificar se o produto já existe no banco de dados
-    // Tenta primeiro match exato normalizado; se falhar, tenta fallback despluralizado
+    // Ordem de resolução:
+    // 1. Match exato normalizado pelo nome oficial
+    // 2. Match por apelido exato (com detecção de ambiguidade se mapear para múltiplos produtos)
+    // 3. Fallback despluralizado pelo nome oficial
+    // 4. Fallback despluralizado por apelido
     let existingMaster = masterByNorm.get(normNome)
+    let matchedViaAlias: string | undefined
+    let isAmbiguous = false
+
     if (!existingMaster) {
+      const aliasMatches = masterByAlias.get(normNome)
+      if (aliasMatches && aliasMatches.length > 0) {
+        if (aliasMatches.length === 1) {
+          existingMaster = aliasMatches[0].product
+          matchedViaAlias = aliasMatches[0].alias
+        } else {
+          // Conflito entre apelidos de produtos distintos
+          const exactNameInConflict = aliasMatches.find(
+            (m) => normalizeName(m.product.name) === normNome,
+          )
+          if (exactNameInConflict) {
+            existingMaster = exactNameInConflict.product
+          } else {
+            isAmbiguous = true
+            warnings.push(
+              `Nome ambíguo: "${rawNome}" coincide com o apelido de ${aliasMatches.length} produtos diferentes (${aliasMatches.map((m) => m.product.name).join(', ')}). Será criado como novo produto.`,
+            )
+          }
+        }
+      }
+    }
+
+    if (!existingMaster && !isAmbiguous) {
       const depluralInput = dePluralizeName(normNome)
       if (depluralInput) {
         existingMaster = masterByDePlural.get(depluralInput)
+        if (!existingMaster) {
+          const aliasDepMatches = masterByAliasDePlural.get(depluralInput)
+          if (aliasDepMatches && aliasDepMatches.length === 1) {
+            existingMaster = aliasDepMatches[0].product
+            matchedViaAlias = aliasDepMatches[0].alias
+          }
+        }
       }
     }
     const isExisting = Boolean(existingMaster)
@@ -663,12 +727,16 @@ export async function parseProductsInput(
     let statusReason: string
 
     if (isExisting) {
+      const aliasNote = matchedViaAlias ? ` (via apelido "${matchedViaAlias}")` : ''
       if (fieldChanges.length > 0) {
         const changedNames = fieldChanges.map((f) => f.label).join(', ')
-        statusReason = `Produto existente; atualizará: ${changedNames}.`
+        statusReason = `Produto existente${aliasNote}; atualizará: ${changedNames}.`
       } else {
-        statusReason = 'Produto existente; dados no arquivo idênticos aos já cadastrados.'
+        statusReason = `Produto existente${aliasNote}; dados no arquivo idênticos aos já cadastrados.`
       }
+    } else if (isAmbiguous) {
+      statusReason =
+        'Nome ambíguo com múltiplos produtos cadastrados; será criado como novo produto.'
     } else {
       const defaultsApplied: string[] = []
       if (!hasRawCategoria) defaultsApplied.push('categoria "Hortaliças"')
@@ -701,6 +769,8 @@ export async function parseProductsInput(
       presentColumns,
       existingProductId: existingMaster?.id,
       existingProductName: existingMaster?.name,
+      matchedViaAlias,
+      isAmbiguous,
       fieldChanges,
       status,
       statusReason,

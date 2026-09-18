@@ -245,6 +245,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         unit: p.unidade,
         price: Number(p.preco_unitario) || 0,
         disponibilidade: p.disponibilidade || 'normal',
+        apelidos: p.apelidos || '',
       }))
       setProducts(mappedProds)
 

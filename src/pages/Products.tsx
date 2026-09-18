@@ -35,27 +35,57 @@ export default function Products() {
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Estados de edição de produto (unidade, disponibilidade, estoque e preço)
+  // Estados de edição de produto (unidade, disponibilidade, estoque, preço e apelidos)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<any>(null)
   const [editPreco, setEditPreco] = useState('')
   const [editEstoque, setEditEstoque] = useState('')
   const [editUnidade, setEditUnidade] = useState(DEFAULT_PRODUCT_UNIT)
+  const [editApelidos, setEditApelidos] = useState('')
   const [editDisponibilidade, setEditDisponibilidade] = useState<
     'normal' | 'escassez' | 'abundancia'
   >('normal')
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()),
-  )
+  // Estado de criação de novo produto
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [newNome, setNewNome] = useState('')
+  const [newCategoria, setNewCategoria] = useState<
+    'Hortaliças' | 'Frutas' | 'Grãos' | 'Legumes' | 'Outros'
+  >('Hortaliças')
+  const [newUnidade, setNewUnidade] = useState(DEFAULT_PRODUCT_UNIT)
+  const [newPreco, setNewPreco] = useState('')
+  const [newEstoque, setNewEstoque] = useState('')
+  const [newApelidos, setNewApelidos] = useState('')
+  const [newDisponibilidade, setNewDisponibilidade] = useState<
+    'normal' | 'escassez' | 'abundancia'
+  >('normal')
+
+  const filteredProducts = products.filter((p) => {
+    const term = search.toLowerCase()
+    return (
+      p.name.toLowerCase().includes(term) || (p.apelidos && p.apelidos.toLowerCase().includes(term))
+    )
+  })
 
   const handleOpenEdit = (p: any) => {
     setEditingProduct(p)
     setEditPreco(String(p.price ?? 0))
     setEditEstoque(String(p.stock ?? 0))
     setEditUnidade(p.unit || DEFAULT_PRODUCT_UNIT)
+    setEditApelidos(p.apelidos || '')
     setEditDisponibilidade(p.disponibilidade || 'normal')
     setEditDialogOpen(true)
+  }
+
+  const handleOpenCreate = () => {
+    setNewNome('')
+    setNewCategoria('Hortaliças')
+    setNewUnidade(DEFAULT_PRODUCT_UNIT)
+    setNewPreco('0')
+    setNewEstoque('0')
+    setNewApelidos('')
+    setNewDisponibilidade('normal')
+    setCreateDialogOpen(true)
   }
 
   const handleSaveProductConfig = async () => {
@@ -81,6 +111,7 @@ export default function Products() {
         estoque: parsedStock,
         unidade: trimmedUnidade,
         disponibilidade: editDisponibilidade,
+        apelidos: editApelidos.trim(),
       })
       toast.success(`Produto "${editingProduct.name}" atualizado com sucesso!`)
       setEditDialogOpen(false)
@@ -88,6 +119,38 @@ export default function Products() {
     } catch (err) {
       console.error('Erro ao atualizar produto:', err)
       toast.error('Falha ao atualizar parâmetros do produto.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleCreateProduct = async () => {
+    const trimmedNome = newNome.trim()
+    if (!trimmedNome) {
+      toast.error('Informe o nome do produto.')
+      return
+    }
+
+    const parsedPrice = parseFloat(newPreco.replace(',', '.')) || 0
+    const parsedStock = parseInt(newEstoque, 10) || 0
+
+    setIsSubmitting(true)
+    try {
+      await produtosService.create({
+        nome: trimmedNome,
+        categoria: newCategoria,
+        unidade: newUnidade.trim() || DEFAULT_PRODUCT_UNIT,
+        preco_unitario: parsedPrice,
+        estoque: parsedStock,
+        disponibilidade: newDisponibilidade,
+        apelidos: newApelidos.trim(),
+      })
+      toast.success(`Produto "${trimmedNome}" cadastrado com sucesso!`)
+      setCreateDialogOpen(false)
+      await refreshData()
+    } catch (err) {
+      console.error('Erro ao cadastrar produto:', err)
+      toast.error('Falha ao cadastrar novo produto.')
     } finally {
       setIsSubmitting(false)
     }
@@ -108,7 +171,7 @@ export default function Products() {
               <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               Importar CSV
             </Button>
-            <Button onClick={() => toast.info('Cadastro de novos produtos disponível no banco.')}>
+            <Button onClick={handleOpenCreate}>
               <Plus className="mr-2 h-4 w-4" /> Novo Produto
             </Button>
           </div>
@@ -177,7 +240,21 @@ export default function Products() {
 
                     return (
                       <TableRow key={product.id}>
-                        <TableCell className="font-medium">{product.name}</TableCell>
+                        <TableCell className="font-medium">
+                          <div>
+                            <span>{product.name}</span>
+                            {product.apelidos && (
+                              <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                <span className="font-semibold text-[10px] uppercase tracking-wider text-primary/80">
+                                  AKA:
+                                </span>
+                                <span className="truncate max-w-[280px]" title={product.apelidos}>
+                                  {product.apelidos}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="font-normal">
                             {product.category}
@@ -293,6 +370,25 @@ export default function Products() {
                 <option value="escassez">Escassez (Restrição / Compensar em Correção)</option>
               </select>
             </div>
+
+            <div className="space-y-1.5 pt-1">
+              <Label htmlFor="edit-apelidos" className="text-sm font-semibold">
+                Nomes Alternativos (AKA — "Also Known As")
+              </Label>
+              <Input
+                id="edit-apelidos"
+                type="text"
+                value={editApelidos}
+                onChange={(e) => setEditApelidos(e.target.value)}
+                placeholder="Ex: TANGERINA PONCÃ; TANGERINA PONKAN; MEXERICA"
+                className="w-full h-9 text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Separe os apelidos por vírgula ou ponto-e-vírgula. Nomes na planilha de pedidos ou
+                no contrato que coincidirem com esses apelidos casarão automaticamente com este
+                produto.
+              </p>
+            </div>
           </div>
 
           <DialogFooter className="pt-2">
@@ -311,6 +407,148 @@ export default function Products() {
                 </>
               ) : (
                 'Salvar Alterações'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Cadastro de Novo Produto */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Novo Produto</DialogTitle>
+            <DialogDescription>
+              Cadastre um novo produto no catálogo mestre da cooperativa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label htmlFor="new-nome" className="text-sm font-semibold">
+                Nome do Produto <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="new-nome"
+                type="text"
+                value={newNome}
+                onChange={(e) => setNewNome(e.target.value)}
+                placeholder="Ex: Tangerina Ponkan"
+                className="w-full h-9"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Categoria</Label>
+                <select
+                  value={newCategoria}
+                  onChange={(e) => setNewCategoria(e.target.value as any)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="Hortaliças">Hortaliças</option>
+                  <option value="Frutas">Frutas</option>
+                  <option value="Grãos">Grãos</option>
+                  <option value="Legumes">Legumes</option>
+                  <option value="Outros">Outros</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="new-unidade" className="text-sm font-semibold">
+                  Unidade
+                </Label>
+                <Input
+                  id="new-unidade"
+                  type="text"
+                  value={newUnidade}
+                  onChange={(e) => setNewUnidade(e.target.value)}
+                  placeholder="Ex: kg, Dúzia..."
+                  className="w-full h-9"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="new-preco" className="text-sm font-semibold">
+                  Preço Unitário (R$)
+                </Label>
+                <Input
+                  id="new-preco"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={newPreco}
+                  onChange={(e) => setNewPreco(e.target.value)}
+                  placeholder="Ex: 5.50"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="new-estoque" className="text-sm font-semibold">
+                  Estoque Inicial
+                </Label>
+                <Input
+                  id="new-estoque"
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={newEstoque}
+                  onChange={(e) => setNewEstoque(e.target.value)}
+                  placeholder="Ex: 100"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Disponibilidade</Label>
+              <select
+                value={newDisponibilidade}
+                onChange={(e) => setNewDisponibilidade(e.target.value as any)}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="normal">Normal (Estoque Regular)</option>
+                <option value="abundancia">Abundância</option>
+                <option value="escassez">Escassez</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <Label htmlFor="new-apelidos" className="text-sm font-semibold">
+                Nomes Alternativos (AKA — "Also Known As")
+              </Label>
+              <Input
+                id="new-apelidos"
+                type="text"
+                value={newApelidos}
+                onChange={(e) => setNewApelidos(e.target.value)}
+                placeholder="Ex: TANGERINA PONCÃ; TANGERINA PONKAN; MEXERICA"
+                className="w-full h-9 text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Separe os apelidos por vírgula ou ponto-e-vírgula. Usado nas importações de
+                planilhas.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateDialogOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateProduct} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cadastrando...
+                </>
+              ) : (
+                'Cadastrar Produto'
               )}
             </Button>
           </DialogFooter>

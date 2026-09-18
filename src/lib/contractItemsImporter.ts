@@ -9,6 +9,7 @@ export interface ParsedContractItemRow {
   rawPrice: string
   rawQuantity: string
   product?: Product
+  matchedViaAlias?: string
   price: number
   quantity: number
   subtotal: number
@@ -45,38 +46,122 @@ export function parseBRLNumber(val: any): { value: number; isValid: boolean } {
 }
 
 /**
- * Encontra o produto mais compatível no catálogo
+ * Encontra o produto mais compatível no catálogo com suporte detalhado a apelidos (AKA)
+ */
+export function matchCatalogProductDetailed(
+  rawName: string,
+  catalogProducts: Product[],
+): {
+  product: Product | undefined
+  matchedViaAlias?: string
+  isAmbiguous?: boolean
+  candidateCount?: number
+} {
+  if (!rawName) return { product: undefined }
+  const normInput = normalizeName(rawName)
+  if (!normInput) return { product: undefined }
+
+  // 1. Match exato normalizado pelo nome oficial
+  const exact = catalogProducts.find((p) => normalizeName(p.name) === normInput)
+  if (exact) return { product: exact }
+
+  // 2. Match exato por apelido
+  const exactAliasMatches: Array<{ product: Product; alias: string }> = []
+  for (const p of catalogProducts) {
+    if (!p.apelidos) continue
+    const aliases = p.apelidos
+      .split(/[,;]/)
+      .map((a) => a.trim())
+      .filter(Boolean)
+    for (const a of aliases) {
+      if (normalizeName(a) === normInput) {
+        exactAliasMatches.push({ product: p, alias: a })
+      }
+    }
+  }
+
+  if (exactAliasMatches.length === 1) {
+    return {
+      product: exactAliasMatches[0].product,
+      matchedViaAlias: exactAliasMatches[0].alias,
+    }
+  } else if (exactAliasMatches.length > 1) {
+    // Conflito entre apelidos de mais de um produto
+    const exactNameMatch = exactAliasMatches.find(
+      (m) => normalizeName(m.product.name) === normInput,
+    )
+    if (exactNameMatch) {
+      return { product: exactNameMatch.product }
+    }
+    return {
+      product: undefined,
+      isAmbiguous: true,
+      candidateCount: exactAliasMatches.length,
+    }
+  }
+
+  // 3. Match por inclusão (nome oficial ou apelidos)
+  for (const p of catalogProducts) {
+    const normP = normalizeName(p.name)
+    if (normP.includes(normInput) || normInput.includes(normP)) {
+      return { product: p }
+    }
+    if (p.apelidos) {
+      const aliases = p.apelidos
+        .split(/[,;]/)
+        .map((a) => a.trim())
+        .filter(Boolean)
+      for (const a of aliases) {
+        const normA = normalizeName(a)
+        if (normA && (normA.includes(normInput) || normInput.includes(normA))) {
+          return { product: p, matchedViaAlias: a }
+        }
+      }
+    }
+  }
+
+  // 4. Match de tokens de palavras principais
+  const tokens = normInput.split(/\s+/).filter((t) => t.length > 2)
+  if (tokens.length > 0) {
+    // 4a. Tokens no nome
+    const tokenMatch = catalogProducts.find((p) => {
+      const normP = normalizeName(p.name)
+      return tokens.every((t) => normP.includes(t))
+    })
+    if (tokenMatch) return { product: tokenMatch }
+
+    // 4b. Tokens no apelido
+    for (const p of catalogProducts) {
+      if (!p.apelidos) continue
+      const aliases = p.apelidos
+        .split(/[,;]/)
+        .map((a) => a.trim())
+        .filter(Boolean)
+      for (const a of aliases) {
+        const aTokens = normalizeName(a)
+          .split(/\s+/)
+          .filter((t) => t.length > 2)
+        if (aTokens.length > 0 && aTokens.every((at) => tokens.includes(at))) {
+          return { product: p, matchedViaAlias: a }
+        }
+        if (tokens.every((t) => normalizeName(a).includes(t))) {
+          return { product: p, matchedViaAlias: a }
+        }
+      }
+    }
+  }
+
+  return { product: undefined }
+}
+
+/**
+ * Encontra o produto mais compatível no catálogo (compatibilidade com chamadas simples)
  */
 export function matchCatalogProduct(
   rawName: string,
   catalogProducts: Product[],
 ): Product | undefined {
-  if (!rawName) return undefined
-  const normInput = normalizeName(rawName)
-  if (!normInput) return undefined
-
-  // 1. Match exato normalizado
-  const exact = catalogProducts.find((p) => normalizeName(p.name) === normInput)
-  if (exact) return exact
-
-  // 2. Match por inclusão
-  const partial = catalogProducts.find((p) => {
-    const normP = normalizeName(p.name)
-    return normP.includes(normInput) || normInput.includes(normP)
-  })
-  if (partial) return partial
-
-  // 3. Match de tokens de palavras principais
-  const tokens = normInput.split(/\s+/).filter((t) => t.length > 2)
-  if (tokens.length > 0) {
-    const tokenMatch = catalogProducts.find((p) => {
-      const normP = normalizeName(p.name)
-      return tokens.every((t) => normP.includes(t))
-    })
-    if (tokenMatch) return tokenMatch
-  }
-
-  return undefined
+  return matchCatalogProductDetailed(rawName, catalogProducts).product
 }
 
 /**
@@ -232,11 +317,14 @@ export async function parseContractItemsFile(
       return
     }
 
-    const matchedProduct = matchCatalogProduct(rawProduct, catalogProducts)
+    const matchDetail = matchCatalogProductDetailed(rawProduct, catalogProducts)
+    const matchedProduct = matchDetail.product
 
     if (!matchedProduct) {
       status = 'error'
-      statusReason = `Produto "${rawProduct}" não encontrado no cadastro de produtos`
+      statusReason = matchDetail.isAmbiguous
+        ? `Nome ambíguo: "${rawProduct}" coincide com o apelido de ${matchDetail.candidateCount} produtos diferentes`
+        : `Produto "${rawProduct}" não encontrado no cadastro de produtos`
       unmatchedCount++
       errorCount++
       allRows.push({
@@ -290,6 +378,7 @@ export async function parseContractItemsFile(
       rawPrice,
       rawQuantity,
       product: matchedProduct,
+      matchedViaAlias: matchDetail.matchedViaAlias,
       price: finalPrice,
       quantity: finalQuantity,
       subtotal,

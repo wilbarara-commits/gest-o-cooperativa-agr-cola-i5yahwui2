@@ -877,11 +877,13 @@ export default function ExcelImport() {
                               title={
                                 po.items.length > 0
                                   ? po.items
-                                      .map(
-                                        (i) =>
-                                          `${i.quantity}x ${i.productNameMatched || i.productNameRaw} (R$ ${i.price.toFixed(2)})`,
-                                      )
-                                      .join(', ')
+                                      .map((i) => {
+                                        const aliasInfo = i.matchedViaAlias
+                                          ? ` [via apelido "${i.matchedViaAlias}"]`
+                                          : ''
+                                        return `${i.quantity}x ${i.productNameMatched || i.productNameRaw}${aliasInfo} (R$ ${i.price.toFixed(2)})`
+                                      })
+                                      .join('\n')
                                   : 'Nenhum produto'
                               }
                             >
@@ -890,7 +892,15 @@ export default function ExcelImport() {
                                   0 produtos
                                 </Badge>
                               ) : (
-                                `${po.items.length} produto(s)`
+                                <div className="space-y-0.5">
+                                  <span>{po.items.length} produto(s)</span>
+                                  {po.items.some((i) => i.matchedViaAlias) && (
+                                    <span className="text-[10px] text-primary flex items-center gap-1 font-medium">
+                                      ✓ {po.items.filter((i) => i.matchedViaAlias).length} via
+                                      apelido
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </span>
                           </TableCell>

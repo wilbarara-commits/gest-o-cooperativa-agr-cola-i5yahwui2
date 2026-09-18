@@ -51,6 +51,7 @@ import {
 import { normalizeName } from '@/lib/excelImporter'
 import {
   matchCatalogProduct,
+  matchCatalogProductDetailed,
   parseBRLNumber,
   parseContractItemsFile,
   type ContractItemsFileParseResult,
@@ -90,6 +91,7 @@ export function ContractItemsManager({
   const [pastePreview, setPastePreview] = useState<{
     matched: Array<{
       product: Product
+      matchedViaAlias?: string
       price: number
       quantity: number
       subtotal: number
@@ -292,6 +294,7 @@ export function ContractItemsManager({
 
     const matched: Array<{
       product: Product
+      matchedViaAlias?: string
       price: number
       quantity: number
       subtotal: number
@@ -337,7 +340,8 @@ export function ContractItemsManager({
       }
 
       // Normaliza e faz matching contra o catálogo
-      const found = matchCatalogProduct(namePart, catalogProducts)
+      const matchDetail = matchCatalogProductDetailed(namePart, catalogProducts)
+      const found = matchDetail.product
 
       if (!found) {
         unmatched.push(line)
@@ -366,6 +370,7 @@ export function ContractItemsManager({
 
       matched.push({
         product: found,
+        matchedViaAlias: matchDetail.matchedViaAlias,
         price,
         quantity,
         subtotal,
@@ -1048,6 +1053,11 @@ export function ContractItemsManager({
                         <div className="truncate mr-2">
                           <span className="font-semibold">{m.product.name}</span>
                           <span className="text-muted-foreground ml-1">({m.product.unit})</span>
+                          {m.matchedViaAlias && (
+                            <span className="text-[10px] text-primary block">
+                              ✓ Casado via apelido "{m.matchedViaAlias}"
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 font-mono shrink-0">
                           <span className="text-muted-foreground">R$ {m.price.toFixed(2)}</span>
@@ -1240,8 +1250,20 @@ export function ContractItemsManager({
                             {r.product ? (
                               <div className="flex flex-col">
                                 <span className="font-semibold text-foreground">
-                                  {r.product.name}
+                                  {r.rawProduct !== r.product.name ? (
+                                    <>
+                                      {r.rawProduct} →{' '}
+                                      <span className="text-primary">{r.product.name}</span>
+                                    </>
+                                  ) : (
+                                    r.product.name
+                                  )}
                                 </span>
+                                {r.matchedViaAlias && (
+                                  <span className="text-[10px] text-primary/90 font-medium">
+                                    ✓ Casado via apelido "{r.matchedViaAlias}"
+                                  </span>
+                                )}
                                 {r.warnings.length > 0 && (
                                   <span className="text-[10px] text-amber-600">
                                     {r.warnings[0]}

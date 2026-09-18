@@ -6,6 +6,7 @@ export interface ProdutoRecord {
   estoque: number
   preco_unitario: number
   disponibilidade?: 'normal' | 'escassez' | 'abundancia'
+  apelidos?: string
   created?: string
   updated?: string
 }
@@ -248,6 +249,7 @@ export interface Product {
   unit: string
   price: number
   disponibilidade: 'normal' | 'escassez' | 'abundancia'
+  apelidos?: string
 }
 
 export interface School {

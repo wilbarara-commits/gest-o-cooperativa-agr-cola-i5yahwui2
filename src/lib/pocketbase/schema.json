@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-18T20:06:55.809Z",
+  "generatedAt": "2026-09-18T20:28:03.413Z",
   "collections": [
     {
       "name": "users",
@@ -64,20 +64,8 @@
           "system": false
         },
         {
-          "name": "alunos",
-          "type": "number",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "bairro",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "contato",
-          "type": "text",
+          "name": "ativo",
+          "type": "bool",
           "required": false,
           "system": false
         }

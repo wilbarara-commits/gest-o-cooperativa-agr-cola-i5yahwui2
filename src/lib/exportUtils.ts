@@ -1,6 +1,31 @@
 import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import autoTable, { applyPlugin } from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
+
+try {
+  if (typeof applyPlugin === 'function') {
+    applyPlugin(jsPDF)
+  }
+} catch {
+  // Ignora se já inicializado
+}
+
+function runAutoTable(doc: jsPDF, options: any): void {
+  const docAny = doc as any
+  if (typeof autoTable === 'function') {
+    autoTable(doc, options)
+    return
+  }
+  if ((autoTable as any)?.default && typeof (autoTable as any).default === 'function') {
+    ;(autoTable as any).default(doc, options)
+    return
+  }
+  if (typeof docAny.autoTable === 'function') {
+    docAny.autoTable(options)
+    return
+  }
+  throw new Error('Falha ao executar autoTable do jsPDF')
+}
 
 export interface ReportFilterSummary {
   label: string
@@ -263,7 +288,7 @@ export function exportToPdf(options: ExportReportOptions): void {
     }
   })
 
-  autoTable(doc, {
+  runAutoTable(doc, {
     startY: currentY,
     head,
     body,

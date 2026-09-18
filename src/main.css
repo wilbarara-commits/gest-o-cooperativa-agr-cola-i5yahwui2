@@ -85,3 +85,27 @@
     }
   }
 }
+
+/* Impressão oficial isolada para o Atesto (sem botões, sem cabeçalhos do modal ou da aplicação) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #atesto-documento-oficial,
+  #atesto-documento-oficial * {
+    visibility: visible;
+  }
+  #atesto-documento-oficial {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 18mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+  }
+}

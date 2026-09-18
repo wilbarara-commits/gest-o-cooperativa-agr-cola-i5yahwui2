@@ -1,6 +1,35 @@
 import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import autoTable, { applyPlugin } from 'jspdf-autotable'
 import type { Order, ConfiguracoesRecord } from '@/lib/types'
+
+// Assegura que o plugin autoTable esteja devidamente acoplado ao protótipo do jsPDF
+try {
+  if (typeof applyPlugin === 'function') {
+    applyPlugin(jsPDF)
+  }
+} catch {
+  // Ignora se já estiver inicializado
+}
+
+/**
+ * Função segura para chamar o autoTable em qualquer ambiente (Vite dev/build ESM/CJS interop)
+ */
+function runAutoTable(doc: jsPDF, options: any): void {
+  const docAny = doc as any
+  if (typeof autoTable === 'function') {
+    autoTable(doc, options)
+    return
+  }
+  if ((autoTable as any)?.default && typeof (autoTable as any).default === 'function') {
+    ;(autoTable as any).default(doc, options)
+    return
+  }
+  if (typeof docAny.autoTable === 'function') {
+    docAny.autoTable(options)
+    return
+  }
+  throw new Error('Falha ao carregar o motor de tabela autoTable do jsPDF')
+}
 
 export interface AtestoDocumentData {
   numeroAtesto: string
@@ -288,7 +317,7 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
 
   const foot = [['Total de itens', formatQuantityBR(totalQuantidade)]]
 
-  autoTable(doc, {
+  runAutoTable(doc, {
     startY: startY,
     head: head,
     body: body,
@@ -346,22 +375,16 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
   doc.text(splitDecl2, marginX, textY, { align: 'justify', maxWidth: contentWidth })
   textY += splitDecl2.length * 4.8 + 10
 
-  // 5. LOCAL E DATA
+  // 5. LOCAL E DATA (CENTRALIZADO)
   const localDataStr = formatExtendDateBR(data.cidadeUf, data.dataEmissao)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9.5)
-  doc.text(localDataStr, marginX, textY)
-  textY += 18
+  doc.text(localDataStr, pageWidth / 2, textY, { align: 'center' })
+  textY += 14
 
-  // 6. RODAPÉ DE ASSINATURA (Linha de assinatura e identificação)
-  // Matrícula ou CPF fica em branco para preenchimento manual após a impressão
+  // 6. IDENTIFICAÇÃO DO PRODUTOR / CONFERENTE (Matrícula ou CPT / CPF ACIMA da linha de assinatura)
   const sigX = pageWidth / 2
   const sigLineWidth = 110
-
-  doc.setDrawColor(30, 41, 59)
-  doc.setLineWidth(0.4)
-  doc.line(sigX - sigLineWidth / 2, textY, sigX + sigLineWidth / 2, textY)
-  textY += 5
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9.5)
@@ -371,11 +394,24 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.text(nomeEscola, sigX, textY, { align: 'center' })
-  textY += 6
+  textY += 5
 
+  // Matrícula ou CPT/CPF fica ACIMA da linha de assinatura
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text('Matrícula ou CPF: ___________________________', sigX, textY, { align: 'center' })
+  doc.text('Matrícula ou CPT: ___________________________', sigX, textY, { align: 'center' })
+  textY += 14
+
+  // Linha de assinatura
+  doc.setDrawColor(30, 41, 59)
+  doc.setLineWidth(0.4)
+  doc.line(sigX - sigLineWidth / 2, textY, sigX + sigLineWidth / 2, textY)
+  textY += 4
+
+  doc.setFont('helvetica', 'italic')
+  doc.setFontSize(8)
+  doc.setTextColor(100, 116, 139)
+  doc.text('Assinatura do Recebedor', sigX, textY, { align: 'center' })
 
   return doc
 }

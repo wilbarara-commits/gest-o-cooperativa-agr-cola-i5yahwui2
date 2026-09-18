@@ -430,6 +430,7 @@ export default function Atestos() {
   }
 
   const handlePrint = () => {
+    // Garantir que a impressão dispare após renderização do DOM
     window.print()
   }
 
@@ -910,7 +911,10 @@ function DocumentoOficialView({
   const totalQuantidade = items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)
 
   return (
-    <div className="bg-white text-slate-900 border border-slate-300 shadow-md p-8 sm:p-10 rounded-sm font-sans space-y-6 max-w-[680px] mx-auto text-sm leading-relaxed">
+    <div
+      id="atesto-documento-oficial"
+      className="bg-white text-slate-900 border border-slate-300 shadow-md p-8 sm:p-10 rounded-sm font-sans space-y-6 max-w-[680px] mx-auto text-sm leading-relaxed print:p-0 print:border-none print:shadow-none"
+    >
       {/* Cabeçalho */}
       <div className="text-center space-y-2 pb-4 border-b border-slate-300">
         {logoUrl ? (
@@ -987,21 +991,22 @@ function DocumentoOficialView({
         </p>
       </div>
 
-      {/* Local e Data */}
-      <div className="pt-2 text-[13px] text-slate-900">
+      {/* Local e Data (Centralizado) */}
+      <div className="pt-3 text-[13px] text-slate-900 text-center">
         <p>{formatExtendDateBR(cidadeUf, dataEmissao)}</p>
       </div>
 
-      {/* Rodapé de Assinatura */}
-      <div className="pt-8 pb-2 text-center space-y-1">
-        <div className="mx-auto w-72 sm:w-80 border-t border-slate-800" />
-        <p className="text-xs font-bold text-slate-900 pt-1">
+      {/* Identificação e Assinatura (Matrícula ou CPT acima da linha de assinatura) */}
+      <div className="pt-6 pb-2 text-center space-y-1">
+        <p className="text-xs font-bold text-slate-900">
           Representante da Unidade Escolar (conferente)
         </p>
         <p className="text-[12px] text-slate-700 font-medium">{nomeEscola}</p>
-        <p className="text-[11px] text-slate-600 tracking-wide pt-1">
-          Matrícula ou CPF: ___________________________
+        <p className="text-[11px] text-slate-600 tracking-wide pb-4">
+          Matrícula ou CPT: ___________________________
         </p>
+        <div className="mx-auto w-72 sm:w-80 border-t border-slate-800 pt-1" />
+        <p className="text-[10px] text-slate-500 italic">Assinatura do Recebedor</p>
       </div>
     </div>
   )

@@ -170,6 +170,7 @@ export default function ExcelImport() {
         products,
         contractRotas,
         currentContractItems,
+        selectedContract.numero,
       )
 
       setParsedData(result)
@@ -256,6 +257,7 @@ export default function ExcelImport() {
       products,
       contractRotas,
       currentContractItems,
+      selectedContract.numero,
     )
     setParsedData(result)
   }
@@ -1023,8 +1025,10 @@ export default function ExcelImport() {
                                 <p className="text-[10px] text-destructive leading-tight">
                                   {po.issues.find(
                                     (iss) =>
+                                      iss.includes('não consta nos itens do contrato') ||
                                       iss.includes('não consta nos itens') ||
-                                      iss.includes('não encontrado'),
+                                      iss.includes('não encontrado') ||
+                                      iss.includes('somente produtos do contrato'),
                                   ) || 'Itens inválidos'}
                                 </p>
                               </div>

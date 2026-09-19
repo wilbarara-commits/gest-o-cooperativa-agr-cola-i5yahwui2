@@ -961,6 +961,20 @@ export function parseSecretaryExcel(
     const extractedCols: ExtractedColumnData[] = []
 
     for (const sc of schoolColumns) {
+      // Matching da escola:
+      // REGRA: Na importação de pedidos, só podem gerar pedido as escolas VINCULADAS ao contrato ativo.
+      // Coluna de escola da planilha que não casar com uma escola vinculada ao contrato deve ser
+      // IGNORADA silenciosamente no preview (sem criar pedido, sem erro bloqueante, sem aviso)
+      // — mesma política de "só produtos do contrato".
+      const matchResult = matchSchoolName(sc.schoolNameRaw, availableSchools, contractSchools)
+      const matchedSchool = matchResult.school
+      const isLinked = matchResult.isLinked
+
+      // Se não for casada com escola vinculada ao contrato, descartar silenciosamente
+      if (!matchedSchool || !isLinked) {
+        continue
+      }
+
       const normSchool = normalizeName(sc.schoolNameRaw)
 
       // Rastrear contagem de colunas por aba (para estatística / auditoria / rastreio)
@@ -972,31 +986,8 @@ export function parseSecretaryExcel(
       sheetMap.set(sheetName, (sheetMap.get(sheetName) || 0) + 1)
 
       const baseIssues: string[] = []
-
-      // Matching da escola contra o CADASTRO MESTRE GLOBAL
-      const matchResult = matchSchoolName(sc.schoolNameRaw, availableSchools, contractSchools)
-      const matchedSchool = matchResult.school
-      const isLinked = matchResult.isLinked
-
-      let matchStatus: SchoolMatchStatus = 'ok'
-      let prefilledLink: { escolaId: string; escolaNome: string; rotaSugerida: string } | undefined
-
-      if (!matchedSchool) {
-        matchStatus = 'needs_register'
-        baseIssues.push(
-          `Cadastrar escola: "${sc.schoolNameRaw}" não existe no cadastro mestre global de escolas.`,
-        )
-      } else if (!isLinked) {
-        matchStatus = 'needs_link'
-        prefilledLink = {
-          escolaId: matchedSchool.id,
-          escolaNome: matchedSchool.name,
-          rotaSugerida: suggestedRotaName,
-        }
-        baseIssues.push(
-          `Vincular ao contrato: Escola "${matchedSchool.name}" existe no cadastro mestre, mas não está vinculada ao contrato.`,
-        )
-      }
+      const matchStatus: SchoolMatchStatus = 'ok'
+      const prefilledLink = undefined
 
       // Ler dinamicamente todos os produtos entre o cabeçalho e os totais
       const items: ParsedOrderItem[] = []
@@ -1165,16 +1156,14 @@ export function parseSecretaryExcel(
         }
       }
 
-      const schDisplayName = firstCol.matchedSchool?.name || firstCol.schoolNameRaw
-
-      // Regra "pelo menos 1 item":
-      // Qualquer escola da planilha cujo pedido resultaria em 0 itens válidos NÃO deve gerar pedido gravado
-      // — deve aparecer como pendência clara no preview (nome da escola + rota + motivo "nenhum item com quantidade").
+      // REGRA: "Escola vinculada ao contrato mas sem nenhum item solicitado na planilha é
+      // comportamento NORMAL (nenhum pedido, nenhum aviso) — não deve aparecer no preview como se fosse problema."
+      // Pedido sem nenhum item válido NÃO é criado nem exibido no preview.
       if (validItems.length === 0) {
-        issueSet.add(
-          `Nenhum item com quantidade para a escola ${schDisplayName} na rota ${sheetName}. Um pedido deve conter pelo menos 1 item válido.`,
-        )
+        continue
       }
+
+      const schDisplayName = firstCol.matchedSchool?.name || firstCol.schoolNameRaw
 
       // Se ocorreu em mais de uma coluna nesta mesma aba, registrar observação informativa (não anomalia/não erro)
       if (colCount > 1) {

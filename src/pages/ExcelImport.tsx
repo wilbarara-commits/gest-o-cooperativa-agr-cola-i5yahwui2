@@ -434,9 +434,7 @@ export default function ExcelImport() {
     )
 
     if (validOrders.length === 0) {
-      toast.error(
-        'Nenhum pedido pode ser importado. Resolva as pendências de vinculação das escolas ou de escolas sem itens através das orientações na tabela.',
-      )
+      toast.error('Nenhum pedido válido encontrado para importação neste contrato.')
       return
     }
 

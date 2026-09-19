@@ -812,20 +812,27 @@ export function parseSecretaryExcel(
     if (data.length < 10) continue // Planilha vazia ou com formato incorreto
 
     // Localizar a linha que contém o cabeçalho das escolas
-    // Normalmente na linha 7 (índice 6), mas buscamos dinamicamente caso haja deslocamento
+    // Normalmente na Linha 7 (índice 6), mas com tolerância caso haja deslocamento
     let schoolRowIndex = 6
-    for (let r = 0; r < Math.min(data.length, 12); r++) {
-      const row = data[r] || []
-      const rowStr = row.map((c) => String(c || '').toUpperCase()).join(' ')
-      if (rowStr.includes('NOME DA ESCOLA') || (rowStr.includes('ESCOLA') && r >= 4)) {
-        schoolRowIndex = r
-        break
+    if (data.length > 6) {
+      const r6Str = (data[6] || []).map((c) => String(c || '').toUpperCase()).join(' ')
+      if (!r6Str.includes('ESCOLA') && !r6Str.includes('NOME')) {
+        for (let r = 0; r < Math.min(data.length, 12); r++) {
+          const row = data[r] || []
+          const rowStr = row.map((c) => String(c || '').toUpperCase()).join(' ')
+          if (rowStr.includes('NOME DA ESCOLA') || (rowStr.includes('ESCOLA') && r >= 4)) {
+            schoolRowIndex = r
+            break
+          }
+        }
       }
     }
     const schoolRow = data[schoolRowIndex] || []
 
-    // Identificar a linha inicial dos produtos: logo após cabeçalho de Item/Descrição (ex: "ITEM", "DESCRIÇÃO")
-    let startProductRow = schoolRowIndex + 1
+    // Identificar a linha inicial dos produtos: normalmente Linhas 10 a 34 (índice 9 a 33)
+    // Localizar dinamicamente buscando cabeçalho "ITEM" / "DESCRIÇÃO" ou fallback para índice 9
+    let startProductRow = 9
+    let foundHeaderRow = false
     for (let r = schoolRowIndex + 1; r < Math.min(data.length, schoolRowIndex + 6); r++) {
       const row = data[r] || []
       const rowStr = row.map((c) => String(c || '').toUpperCase()).join(' ')
@@ -836,13 +843,18 @@ export function parseSecretaryExcel(
         rowStr.includes('ITEM')
       ) {
         startProductRow = r + 1
+        foundHeaderRow = true
         break
       }
     }
+    if (!foundHeaderRow && data.length > 9) {
+      startProductRow = 9
+    }
 
-    // Identificar dinamicamente a linha final dos produtos varrendo até a linha de totais da aba
-    // Sem janela fixa de 25 linhas!
-    let endProductRow = data.length - 1
+    // Identificar a linha final dos produtos:
+    // A LINHA 35 é a linha de TOTAIS — nunca importar como produto/pedido.
+    // Usar varredura até a linha de TOTAL/TOTAIS da aba como âncora/heurística principal.
+    let endProductRow = Math.min(data.length - 1, startProductRow + 24)
     for (let r = startProductRow; r < data.length; r++) {
       const row = data[r] || []
       const col0 = String(row[0] || '')
@@ -862,31 +874,59 @@ export function parseSecretaryExcel(
         rowStartStr.includes('TOTAL GERAL') ||
         col0 === 'TOTAL' ||
         col1 === 'TOTAL' ||
-        col2 === 'TOTAL'
+        col2 === 'TOTAL' ||
+        col0 === 'TOTAIS' ||
+        col1 === 'TOTAIS' ||
+        col2 === 'TOTAIS'
       ) {
         endProductRow = r - 1
         break
       }
     }
 
-    // Identificar colunas que contêm escolas (geralmente da coluna D em diante, índice 3 em diante)
-    // Parar se encontrar coluna com cabeçalho "FIXOS", "TOTAL" ou vazio
+    // Identificar colunas que contêm escolas respeitando as regras do usuário:
+    // 1. SOMENTE O PRIMEIRO GRUPAMENTO de escolas é considerado (antes da coluna de TOTAL).
+    // 2. Após a coluna de TOTAL, as colunas repetidas com quantidades de referência são completamente IGNORADAS e NÃO somadas.
+    // 3. A seção "FIXOS" deve ser COMPLETAMENTE IGNORADA.
+    // 4. Para cada escola, considerar apenas a PRIMEIRA coluna com seu nome; ocorrências posteriores são descartadas.
     const schoolColumns: { colIndex: number; schoolNameRaw: string }[] = []
+    const seenSchoolsInFirstGroup = new Set<string>()
 
     for (let col = 3; col < schoolRow.length; col++) {
       const cellVal = String(schoolRow[col] || '').trim()
       const upperVal = cellVal.toUpperCase()
 
-      // Ignorar seção FIXOS ou colunas de totais
+      // A coluna TOTAL marca o fim do primeiro grupamento de escolas:
+      // Ignora completamente tudo após a coluna de total!
+      if (upperVal.includes('TOTAL') || upperVal.includes('TOTAIS')) {
+        break
+      }
+
+      // Seção FIXOS: se encontrada como coluna, encerra/ignora
+      if (upperVal.includes('FIXO')) {
+        break
+      }
+
+      // Pular colunas vazias ou cabeçalhos residuais não-escola
       if (
         !cellVal ||
-        upperVal.includes('FIXO') ||
-        upperVal.includes('TOTAL') ||
-        upperVal.includes('UNIDADE') ||
-        upperVal === 'COD'
+        upperVal === 'COD' ||
+        upperVal === 'UNIDADE' ||
+        upperVal === 'UNID' ||
+        upperVal === 'QTD' ||
+        upperVal === 'ITEM' ||
+        upperVal === 'DESCRIÇÃO' ||
+        upperVal === 'DESCRICAO'
       ) {
         continue
       }
+
+      // Desduplicação: considerar apenas a PRIMEIRA coluna com o nome de cada escola
+      const normColSchool = normalizeName(cellVal)
+      if (seenSchoolsInFirstGroup.has(normColSchool)) {
+        continue
+      }
+      seenSchoolsInFirstGroup.add(normColSchool)
 
       schoolColumns.push({
         colIndex: col,

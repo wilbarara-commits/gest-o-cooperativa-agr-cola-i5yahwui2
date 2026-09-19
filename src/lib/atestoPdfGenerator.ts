@@ -208,13 +208,14 @@ async function loadImageDataUrl(url: string): Promise<LoadedImageInfo | null> {
 /**
  * Constrói o documento oficial jsPDF de Termo de Recebimento (modelo A4 de 1 página)
  */
-export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise<jsPDF> {
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: 'a4',
-  })
-
+/**
+ * Renderiza uma página completa de Atesto no jsPDF fornecido
+ */
+export async function renderAtestoPageToDoc(
+  doc: jsPDF,
+  data: AtestoDocumentData,
+  preloadedLogo?: LoadedImageInfo | null,
+): Promise<void> {
   const pageWidth = doc.internal.pageSize.getWidth() // 210mm
   const marginX = 20
   const contentWidth = pageWidth - marginX * 2 // 170mm
@@ -225,39 +226,44 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
   // 1. CABEÇALHO COM LOGOTIPO OU SÍMBOLO
   let startY = isDense ? 10 : 13
 
-  if (data.logoUrl) {
+  let imgInfo = preloadedLogo !== undefined ? preloadedLogo : null
+  if (imgInfo === null && data.logoUrl && preloadedLogo === undefined) {
     try {
-      const imgInfo = await loadImageDataUrl(data.logoUrl)
-      if (imgInfo) {
-        // Logotipo no topo centralizado preservando a proporção de aspecto
-        const maxW = isDense ? 38 : 44
-        const maxH = isDense ? 16 : 20
-        let imgWidth = maxW
-        let imgHeight = imgWidth / imgInfo.aspectRatio
+      imgInfo = await loadImageDataUrl(data.logoUrl)
+    } catch {
+      imgInfo = null
+    }
+  }
 
-        if (imgHeight > maxH) {
-          imgHeight = maxH
-          imgWidth = imgHeight * imgInfo.aspectRatio
-        }
+  if (imgInfo) {
+    try {
+      const maxW = isDense ? 38 : 44
+      const maxH = isDense ? 16 : 20
+      let imgWidth = maxW
+      let imgHeight = imgWidth / imgInfo.aspectRatio
 
-        doc.addImage(
-          imgInfo.dataUrl,
-          imgInfo.format,
-          (pageWidth - imgWidth) / 2,
-          startY,
-          imgWidth,
-          imgHeight,
-          undefined,
-          'FAST',
-        )
-        startY += imgHeight + (isDense ? 2 : 3)
-      } else {
-        data.onLogoError?.(new Error('Logotipo inacessível ou formato inválido'))
+      if (imgHeight > maxH) {
+        imgHeight = maxH
+        imgWidth = imgHeight * imgInfo.aspectRatio
       }
+
+      doc.addImage(
+        imgInfo.dataUrl,
+        imgInfo.format,
+        (pageWidth - imgWidth) / 2,
+        startY,
+        imgWidth,
+        imgHeight,
+        undefined,
+        'FAST',
+      )
+      startY += imgHeight + (isDense ? 2 : 3)
     } catch (e) {
-      console.warn('Não foi possível embutir o logotipo no PDF:', e)
+      console.warn('Não foi possível embutir o logotipo na página do PDF:', e)
       data.onLogoError?.(e)
     }
+  } else if (data.logoUrl && preloadedLogo === null) {
+    data.onLogoError?.(new Error('Logotipo inacessível ou formato inválido'))
   }
 
   // Nome da Cooperativa em destaque no topo
@@ -436,8 +442,108 @@ export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(isDense ? 9 : 10)
   doc.text(nomeEscola.toUpperCase(), sigX, textY, { align: 'center' })
+}
+
+/**
+ * Constrói o documento oficial jsPDF de Termo de Recebimento (modelo A4 de 1 página)
+ */
+export async function createOfficialAtestoPdf(data: AtestoDocumentData): Promise<jsPDF> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  })
+
+  let preloadedLogo: LoadedImageInfo | null = null
+  if (data.logoUrl) {
+    preloadedLogo = await loadImageDataUrl(data.logoUrl)
+  }
+
+  await renderAtestoPageToDoc(doc, data, preloadedLogo)
+  return doc
+}
+
+/**
+ * Constrói um único PDF contendo múltiplos Termos de Recebimento, um por página,
+ * preservando exatamente o layout oficial.
+ */
+export async function createBatchAtestosPdf(documents: AtestoDocumentData[]): Promise<jsPDF> {
+  if (documents.length === 0) {
+    throw new Error('Nenhum atesto fornecido para geração do lote.')
+  }
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  })
+
+  // Pré-carregar logotipo apenas uma vez para o lote inteiro
+  const firstLogoUrl = documents.find((d) => d.logoUrl)?.logoUrl
+  let preloadedLogo: LoadedImageInfo | null = null
+  if (firstLogoUrl) {
+    try {
+      preloadedLogo = await loadImageDataUrl(firstLogoUrl)
+    } catch {
+      preloadedLogo = null
+    }
+  }
+
+  for (let i = 0; i < documents.length; i++) {
+    if (i > 0) {
+      doc.addPage('a4', 'portrait')
+    }
+    await renderAtestoPageToDoc(doc, documents[i], preloadedLogo)
+  }
 
   return doc
+}
+
+/**
+ * Abre um documento jsPDF diretamente na janela de impressão do navegador ou abre uma aba com o Blob
+ */
+export function openPdfForPrint(doc: jsPDF): void {
+  const blob = doc.output('blob')
+  const blobUrl = window.URL.createObjectURL(blob)
+
+  // Tenta abrir em iframe oculto para window.print() direto
+  try {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    iframe.src = blobUrl
+
+    iframe.onload = () => {
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus()
+          iframe.contentWindow?.print()
+        } catch (e) {
+          console.warn('Impressão direta via iframe falhou, abrindo em nova aba:', e)
+          window.open(blobUrl, '_blank')
+        }
+      }, 500)
+    }
+
+    document.body.appendChild(iframe)
+
+    // Limpeza após 3 minutos
+    setTimeout(() => {
+      try {
+        document.body.removeChild(iframe)
+        window.URL.revokeObjectURL(blobUrl)
+      } catch {
+        // ignore
+      }
+    }, 180000)
+  } catch (err) {
+    console.warn('Erro ao configurar iframe de impressão:', err)
+    window.open(blobUrl, '_blank')
+  }
 }
 
 /**

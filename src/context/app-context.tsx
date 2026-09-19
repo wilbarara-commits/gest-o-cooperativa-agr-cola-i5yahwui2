@@ -255,7 +255,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name: s.nome,
         address: s.endereco || '',
         contact: s.telefone || '',
-        route: s.rota || 'Sem Rota',
+        route: '',
         email: s.email || '',
         tipo: s.tipo || '',
         alunos: s.alunos !== undefined && s.alunos !== null ? Number(s.alunos) : undefined,
@@ -280,7 +280,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ped.expand?.escola_id?.nome || schoolObj?.name || 'Escola não identificada'
 
         const rotaObj = rawRotas.find((r) => r.id === ped.rota_id)
-        const rotaNome = ped.expand?.rota_id?.nome || rotaObj?.nome || schoolObj?.route
+        const rotaNome = ped.expand?.rota_id?.nome || rotaObj?.nome
 
         // Derivar Rota Logística prioritariamente da ESCOLA (paradas_rota) e fallback para ped.rota_logistica_id
         const paradaEscola = escolaParadaMap.get(ped.escola_id)
@@ -360,8 +360,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const ceRotaRaw = ce.rota?.trim()
           const ceRotaTexto = ceRotaRaw && !/^[a-z0-9]{15}$/.test(ceRotaRaw) ? ceRotaRaw : undefined
 
-          const rotaPlanilhaNome =
-            ceRotaTexto || ce.expand?.rota_id?.nome || rt?.nome || sch?.route || 'Sem Rota'
+          const rotaPlanilhaNome = ceRotaTexto || ce.expand?.rota_id?.nome || rt?.nome || 'Sem Rota'
 
           // Rota logística da cooperativa associada a esta escola
           const paradaEscola = rawParadasRota.find((p) => p.escola_id === ce.escola_id)
@@ -465,7 +464,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const rotaLogObj = rotasLogisticas.find((r) => r.id === effectiveRotaLogisticaId)
         const rotaLogisticaNome = rotaLogObj?.nome || rec.expand?.rota_logistica_id?.nome
         const rotaObj = rotas.find((r) => r.id === rec.rota_id)
-        const rotaNome = rec.expand?.rota_id?.nome || rotaObj?.nome || schoolObj?.route
+        const rotaNome = rec.expand?.rota_id?.nome || rotaObj?.nome
 
         if (idx !== -1) {
           const existing = prev[idx]
@@ -695,7 +694,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             name: s.nome !== undefined ? s.nome : copy[existingIdx].name,
             address: s.endereco !== undefined ? s.endereco : copy[existingIdx].address,
             contact: s.telefone !== undefined ? s.telefone : copy[existingIdx].contact,
-            route: s.rota !== undefined ? s.rota : copy[existingIdx].route,
+            route: '',
             email: s.email !== undefined ? s.email : copy[existingIdx].email,
             tipo: s.tipo !== undefined ? s.tipo : copy[existingIdx].tipo,
             alunos:
@@ -711,7 +710,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           name: s.nome,
           address: s.endereco || '',
           contact: s.telefone || '',
-          route: s.rota || 'Sem Rota',
+          route: '',
           email: s.email || '',
           tipo: s.tipo || '',
           alunos: s.alunos !== undefined && s.alunos !== null ? Number(s.alunos) : undefined,
@@ -805,6 +804,92 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   })
 
+  useRealtime<any>('contrato_escolas', async (_e) => {
+    // Quando houver criação, alteração ou exclusão de vínculo escola↔contrato,
+    // recarregar vínculos e contratos para manter o estado global e a tela /escolas sincronizados
+    try {
+      const [updatedContratoEscolas, rawContratos, rawRotas, rawParadasRota, rawRotasLogisticas] =
+        await Promise.all([
+          contratosService.getEscolas(),
+          contratosService.getAll(),
+          rotasService.getAll(),
+          rotasLogisticasService.getParadas(),
+          rotasLogisticasService.getAll(),
+        ])
+
+      setContractSchools(updatedContratoEscolas)
+      setRotas(rawRotas)
+      setParadasRota(rawParadasRota)
+      setRotasLogisticas(rawRotasLogisticas)
+
+      setContracts((prevContracts) => {
+        return (rawContratos.length > 0 ? rawContratos : prevContracts).map((c) => {
+          const links = updatedContratoEscolas.filter((ce) => ce.contrato_id === c.id)
+          const linkedSchools = links.map((ce) => {
+            const sch = schools.find((s) => s.id === ce.escola_id)
+            const rt = rawRotas.find((r) => r.id === ce.rota_id)
+            const ceRotaRaw = ce.rota?.trim()
+            const ceRotaTexto =
+              ceRotaRaw && !/^[a-z0-9]{15}$/.test(ceRotaRaw) ? ceRotaRaw : undefined
+
+            const rotaPlanilhaNome =
+              ceRotaTexto || ce.expand?.rota_id?.nome || rt?.nome || 'Sem Rota'
+
+            const paradaEscola = rawParadasRota.find((p) => p.escola_id === ce.escola_id)
+            const rotaLogId = ce.rota_logistica_id || paradaEscola?.rota_logistica_id
+            const rotaLogObj = rawRotasLogisticas.find((r) => r.id === rotaLogId)
+            const rotaLogisticaNome = ce.expand?.rota_logistica_id?.nome || rotaLogObj?.nome
+
+            return {
+              id: ce.id,
+              contratoId: ce.contrato_id,
+              escolaId: ce.escola_id,
+              rotaId: ce.rota_id,
+              rotaPlanilha: rotaPlanilhaNome,
+              rotaLogisticaId: rotaLogId,
+              rotaLogisticaNome: rotaLogisticaNome,
+              escolaNome: ce.expand?.escola_id?.nome || sch?.name || 'Escola',
+              escolaEndereco: ce.expand?.escola_id?.endereco || sch?.address || '',
+              escolaTelefone: ce.expand?.escola_id?.telefone || sch?.contact || '',
+              escolaEmail: ce.expand?.escola_id?.email || sch?.email || '',
+              escolaBairro: ce.expand?.escola_id?.bairro || sch?.bairro || '',
+              escolaContato: ce.expand?.escola_id?.contato || sch?.contatoResponsavel || '',
+              escolaTipo: ce.expand?.escola_id?.tipo || sch?.tipo || '',
+              escolaAlunos: ce.expand?.escola_id?.alunos ?? sch?.alunos,
+              rotaNome: rotaPlanilhaNome,
+            }
+          })
+
+          const totalValue = Number(c.valor_total) || 0
+          const participatingSchoolIds = new Set(linkedSchools.map((l) => l.escolaId))
+          const contractOrders = orders.filter(
+            (o) => participatingSchoolIds.has(o.schoolId) && o.status !== 'Cancelado',
+          )
+          const consumed = contractOrders.reduce((acc, o) => acc + o.total, 0)
+          const balance = Math.max(0, totalValue - consumed)
+
+          return {
+            id: c.id,
+            numero: c.numero,
+            numero_chamada: c.numero_chamada || '',
+            tipo: c.tipo || 'PNAE',
+            modalidade_pedido: c.modalidade_pedido || 'individualizado',
+            num_rotas_logisticas:
+              c.num_rotas_logisticas !== undefined && c.num_rotas_logisticas !== null
+                ? Number(c.num_rotas_logisticas)
+                : undefined,
+            totalValue,
+            balance,
+            status: c.status,
+            escolas: linkedSchools,
+          }
+        })
+      })
+    } catch (err) {
+      console.error('Erro na sincronização realtime de contrato_escolas:', err)
+    }
+  })
+
   const addOrder = async (orderData: CreateOrderData): Promise<boolean> => {
     // Validação estrita: não permitir pedidos com zero itens ou itens com quantidade <= 0
     const rawItems = orderData.items || []
@@ -876,7 +961,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const rotaLogObj = rotasLogisticas.find((r) => r.id === rotaLogisticaIdFinal)
     const rotaLogisticaNome = rotaLogObj?.nome
     const rotaObj = rotas.find((r) => r.id === rotaId)
-    const rotaNome = rotaObj?.nome || schoolObj?.route
+    const rotaNome = rotaObj?.nome
 
     let total = 0
     formattedItens.forEach((it) => {

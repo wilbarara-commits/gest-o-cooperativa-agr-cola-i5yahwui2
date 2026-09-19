@@ -356,7 +356,7 @@ export default function ExcelImport() {
           telefone: newSchoolContact.trim(),
           email: newSchoolEmail.trim() || undefined,
           tipo: newSchoolTipo || undefined,
-          rota: newSchoolRota.trim() || pendingCreateOrder.routeRaw,
+          rota: '',
         })
         schoolId = created.id
         schoolNameResult = created.nome
@@ -390,7 +390,7 @@ export default function ExcelImport() {
             name: schoolNameResult,
             address: newSchoolAddress,
             contact: newSchoolContact,
-            route: newSchoolRota,
+            route: '',
             email: newSchoolEmail,
             tipo: newSchoolTipo,
           },

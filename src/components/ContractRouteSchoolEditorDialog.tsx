@@ -220,6 +220,7 @@ export function ContractRouteSchoolEditorDialog({
           nome: trimmed,
           endereco: newSchoolAddress.trim(),
           telefone: '',
+          rota: '',
         })
         targetSchool = {
           id: created.id,

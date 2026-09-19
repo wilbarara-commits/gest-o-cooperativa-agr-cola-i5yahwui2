@@ -54,12 +54,12 @@ export const escolasService = {
       contato?: string
       // Colunas que estavam presentes no arquivo
       presentColumns?: {
-        tipo: boolean
-        rota: boolean
-        alunos: boolean
-        endereco: boolean
-        telefone: boolean
-        email: boolean
+        tipo?: boolean
+        rota?: boolean
+        alunos?: boolean
+        endereco?: boolean
+        telefone?: boolean
+        email?: boolean
         bairro?: boolean
         contato?: boolean
       }
@@ -112,7 +112,7 @@ export const escolasService = {
           const payload: any = {
             nome: item.nome.trim(),
             tipo: item.tipo || '',
-            rota: item.rota || 'Sem Rota',
+            rota: '',
             endereco: item.endereco || '',
             telefone: item.telefone || '',
             email: item.email || '',
@@ -143,13 +143,7 @@ export const escolasService = {
             }
           }
 
-          if (item.presentColumns?.rota) {
-            if (item.rota && item.rota !== 'Sem Rota') {
-              payload.rota = item.rota
-            } else if (isClearMode) {
-              payload.rota = 'Sem Rota'
-            }
-          }
+          // Nota: a rota não é atualizada nem limpa pelo cadastro mestre (Regra 2)
 
           if (item.presentColumns?.alunos) {
             if (item.alunos !== undefined && item.alunos !== null) {

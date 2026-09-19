@@ -237,7 +237,6 @@ export function SchoolImportDialog({
         id: r.existingSchoolId,
         nome: r.nome,
         tipo: r.tipo,
-        rota: r.rota,
         alunos: r.alunos,
         endereco: r.endereco,
         telefone: r.telefone,
@@ -384,9 +383,10 @@ export function SchoolImportDialog({
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Colunas aceitas: <strong>Nome da Escola</strong> (obrigatória),{' '}
-                    <strong>Tipo</strong>, <strong>Rota</strong>, <strong>Nº Alunos</strong>,{' '}
-                    <strong>Telefone</strong>, <strong>Bairro</strong>, <strong>Endereço</strong>,{' '}
-                    <strong>Contato</strong>, <strong>E-mail</strong>
+                    <strong>Tipo</strong>, <strong>Nº Alunos</strong>, <strong>Telefone</strong>,{' '}
+                    <strong>Bairro</strong>, <strong>Endereço</strong>, <strong>Contato</strong>,{' '}
+                    <strong>E-mail</strong>.{' '}
+                    <em>(Nota: rotas são geridas exclusivamente por contrato)</em>
                   </p>
                 </div>
 
@@ -693,7 +693,6 @@ export function SchoolImportDialog({
                     <th className="py-2.5 px-3 w-10 bg-muted font-semibold">#</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Escola</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Tipo</th>
-                    <th className="py-2.5 px-3 bg-muted font-semibold">Rota</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Nº Alunos</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Telefone</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Bairro</th>
@@ -754,7 +753,6 @@ export function SchoolImportDialog({
                             </span>
                           )}
                         </td>
-                        <td className="py-2 px-3 whitespace-nowrap">{row.rota}</td>
                         <td className="py-2 px-3 font-mono text-center">
                           {row.alunos !== undefined ? (
                             row.alunos
@@ -885,7 +883,7 @@ export function SchoolImportDialog({
                   })}
                   {displayRows.length === 0 && (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-muted-foreground text-xs">
+                      <td colSpan={10} className="py-8 text-center text-muted-foreground text-xs">
                         Nenhuma linha encontrada neste filtro.
                       </td>
                     </tr>

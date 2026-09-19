@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx'
 export type BlankFieldMode = 'clear' | 'keep'
 
 export interface SchoolFieldChange {
-  field: 'tipo' | 'rota' | 'alunos' | 'endereco' | 'telefone' | 'email' | 'bairro' | 'contato'
+  field: 'tipo' | 'alunos' | 'endereco' | 'telefone' | 'email' | 'bairro' | 'contato'
   label: string
   oldValue: string
   newValue: string
@@ -42,7 +42,6 @@ export interface ParsedCsvSchoolRow {
   // Indicação de quais colunas estavam presentes no arquivo/colagem
   presentColumns: {
     tipo: boolean
-    rota: boolean
     alunos: boolean
     endereco: boolean
     telefone: boolean
@@ -75,7 +74,6 @@ export interface CsvParseResult {
     presentColumns: {
       nome: boolean
       tipo: boolean
-      rota: boolean
       alunos: boolean
       endereco: boolean
       telefone: boolean
@@ -89,7 +87,6 @@ export interface CsvParseResult {
     updateRowsWithBlankInPresentCols: number
     fieldsBlankCount: {
       tipo: number
-      rota: number
       alunos: number
       endereco: number
       telefone: number
@@ -522,10 +519,9 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
     throw new Error('O arquivo contém apenas a linha de cabeçalho, sem dados de escolas.')
   }
 
-  // Identificar quais colunas existem no cabeçalho
+  // Identificar quais colunas existem no cabeçalho (ROTA é intencionalmente ignorada no cadastro mestre)
   const presentColumns = {
     tipo: tipoIdx !== -1,
-    rota: rotaIdx !== -1,
     alunos: alunosIdx !== -1,
     endereco: enderecoIdx !== -1,
     telefone: telefoneIdx !== -1,
@@ -603,7 +599,7 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
         rawContato,
         nome: '',
         tipo: '',
-        rota: rawRota || 'Sem Rota',
+        rota: '',
         presentColumns,
         blankPresentFieldsCount: 0,
         blankPresentFieldsList: [],
@@ -644,8 +640,9 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
       }
     }
 
-    // 5. Rota padrão
-    const mappedRota = rawRota || 'Sem Rota'
+    // 5. Rota: no cadastro mestre, rota NÃO é atributo do cadastro global.
+    // Ignora completamente qualquer valor da coluna rota (não cria, não limpa, não atualiza).
+    const mappedRota = ''
 
     // 6. Endereço, telefone, e-mail, bairro e contato
     const mappedEndereco = rawEndereco || undefined
@@ -706,30 +703,6 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
               label: 'Tipo',
               oldValue: oldT,
               newValue: '(limpar)',
-              isCleared: true,
-            })
-          }
-        }
-
-        // Rota:
-        if (presentColumns.rota) {
-          const oldR = existing.rota || ''
-          if (rawRota) {
-            const newR = mappedRota
-            if (oldR !== newR) {
-              fieldChanges.push({
-                field: 'rota',
-                label: 'Rota',
-                oldValue: oldR || '(sem rota)',
-                newValue: newR,
-              })
-            }
-          } else if (blankMode === 'clear' && oldR && oldR !== 'Sem Rota') {
-            fieldChanges.push({
-              field: 'rota',
-              label: 'Rota',
-              oldValue: oldR,
-              newValue: 'Sem Rota',
               isCleared: true,
             })
           }
@@ -892,10 +865,9 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
       }
     }
 
-    // Identificar quais campos presentes nesta linha vieram em branco
+    // Identificar quais campos presentes nesta linha vieram em branco (rota ignorada)
     const blankPresentFieldsList: string[] = []
     if (presentColumns.tipo && !rawTipo) blankPresentFieldsList.push('Tipo')
-    if (presentColumns.rota && !rawRota) blankPresentFieldsList.push('Rota')
     if (presentColumns.alunos && !rawAlunos) blankPresentFieldsList.push('Nº Alunos')
     if (presentColumns.telefone && !rawTelefone) blankPresentFieldsList.push('Telefone')
     if (presentColumns.bairro && !rawBairro) blankPresentFieldsList.push('Bairro')
@@ -941,7 +913,6 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
   // Estatísticas de campos em branco em colunas reconhecidas e presentes
   const fieldsBlankCount = {
     tipo: 0,
-    rota: 0,
     alunos: 0,
     endereco: 0,
     telefone: 0,
@@ -958,11 +929,6 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
 
     if (presentColumns.tipo && !r.rawTipo) {
       fieldsBlankCount.tipo++
-      totalBlankCellsInPresentCols++
-      rowHasBlank = true
-    }
-    if (presentColumns.rota && !r.rawRota) {
-      fieldsBlankCount.rota++
       totalBlankCellsInPresentCols++
       rowHasBlank = true
     }

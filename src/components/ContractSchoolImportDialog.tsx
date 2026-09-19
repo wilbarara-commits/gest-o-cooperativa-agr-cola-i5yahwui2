@@ -115,11 +115,6 @@ export function ContractSchoolImportDialog({
   }, [contractRotas, selectedRota])
 
   const runParse = async (input: File | string, fileName?: string) => {
-    if (!selectedRota) {
-      toast.error('Selecione primeiro a Rota da Planilha deste contrato a atribuir às escolas.')
-      return
-    }
-
     setIsParsing(true)
     setImportSummary(null)
 
@@ -128,6 +123,7 @@ export function ContractSchoolImportDialog({
         fileOrText: input,
         fileName,
         selectedRota,
+        contractRotas,
         currentContractId: contractId,
         currentContractSchoolIds: currentLinkedSchoolIds,
         masterSchools,
@@ -137,9 +133,7 @@ export function ContractSchoolImportDialog({
       setParseResult(res)
 
       if (res.processableRows.length > 0) {
-        toast.info(
-          `${res.processableRows.length} escola(s) elegíveis para vincular com a rota "${selectedRota}".`,
-        )
+        toast.info(`${res.processableRows.length} escola(s) elegíveis para vinculação ao contrato.`)
       } else {
         toast.warning('Nenhuma escola elegível para importação identificada no arquivo.')
       }
@@ -147,6 +141,13 @@ export function ContractSchoolImportDialog({
       if (res.conflictOtherContractRows.length > 0) {
         toast.warning(
           `${res.conflictOtherContractRows.length} escola(s) vinculada(s) a outro contrato foram bloqueadas e não serão vinculadas.`,
+        )
+      }
+
+      const invalidRotasCount = res.allRows.filter((r) => r.status === 'invalid_rota').length
+      if (invalidRotasCount > 0) {
+        toast.error(
+          `${invalidRotasCount} escola(s) com rota não cadastrada no contrato bloqueadas no preview.`,
         )
       }
     } catch (err: any) {
@@ -191,11 +192,15 @@ export function ContractSchoolImportDialog({
   }
 
   const handleDownloadModel = () => {
+    const sampleRota1 = contractRotas[0]?.nome || 'ROTA A'
+    const sampleRota2 = contractRotas[1]?.nome || sampleRota1
+
     const wsData = [
-      ['Nome da Escola', 'Tipo', 'Nº Alunos', 'Telefone / WhatsApp', 'E-mail', 'Endereço'],
+      ['Nome da Escola', 'Tipo', 'Rota', 'Nº Alunos', 'Telefone / WhatsApp', 'E-mail', 'Endereço'],
       [
         'CMEI MARIA TEREZA PRIES DE ABREU',
         'CMEI',
+        sampleRota1,
         '125',
         '(21) 98765-4321',
         'cmei.maria@educacao.gov.br',
@@ -204,6 +209,7 @@ export function ContractSchoolImportDialog({
       [
         'CC LAR VOVÔ MIGUEL',
         'CRECHE',
+        sampleRota1,
         '47',
         '(21) 99887-1122',
         'creche.miguel@educacao.gov.br',
@@ -212,6 +218,7 @@ export function ContractSchoolImportDialog({
       [
         'EM ALICE SALDANHA',
         'FUNDAMENTAL',
+        sampleRota2,
         '171',
         '(21) 97766-3344',
         'em.alice@educacao.gov.br',
@@ -220,6 +227,7 @@ export function ContractSchoolImportDialog({
       [
         'CE ROSE DALMASO (CEDAL)',
         'INTEGRAL',
+        sampleRota2,
         '275',
         '(21) 96655-2211',
         'cedal@educacao.gov.br',
@@ -246,15 +254,11 @@ export function ContractSchoolImportDialog({
       const linksToForm: ImportedSchoolLinkResult[] = []
       const failedSchoolErrors: Array<{ nome: string; motivo: string }> = []
 
-      // Se contractId existir (contrato já salvo no banco), garantir que a rota existe na collection 'rotas'
-      let resolvedRotaRecordId: string | undefined
-      if (contractId) {
-        try {
-          const rotaRecord = await rotasService.findOrCreate(contractId, selectedRota)
-          resolvedRotaRecordId = rotaRecord.id
-        } catch (rotaErr: any) {
-          console.error(`Erro ao buscar ou criar rota [${selectedRota}]:`, rotaErr)
-          // Tentar continuar mesmo se falhar a criação em rotas
+      // Mapa local de rotaName -> rotaId para evitar queries duplicadas
+      const rotaIdCache = new Map<string, string>()
+      for (const cr of contractRotas) {
+        if (cr.id && cr.nome) {
+          rotaIdCache.set(cr.nome.toUpperCase().trim(), cr.id)
         }
       }
 
@@ -265,10 +269,23 @@ export function ContractSchoolImportDialog({
         try {
           let escolaId = row.existingSchoolId
           let escolaNome = row.existingSchoolName || row.nome
+          const rowAssignedRota = row.assignedRota || selectedRota || ''
+
+          let rowRotaId =
+            row.resolvedRotaId || rotaIdCache.get(rowAssignedRota.toUpperCase().trim())
+          if (!rowRotaId && contractId && rowAssignedRota) {
+            try {
+              const rotaRecord = await rotasService.findOrCreate(contractId, rowAssignedRota)
+              rowRotaId = rotaRecord.id
+              rotaIdCache.set(rowAssignedRota.toUpperCase().trim(), rowRotaId)
+            } catch (rotaErr: any) {
+              console.error(`Erro ao buscar ou criar rota [${rowAssignedRota}]:`, rotaErr)
+            }
+          }
 
           if (row.status === 'create_and_link') {
             // 1. Criar escola no cadastro mestre global
-            // Rota no mestre global fica como 'Sem Rota' (a rota da planilha é gravada estritamente no vínculo)
+            // Rota no mestre global fica vazia (a rota da planilha é gravada estritamente no vínculo do contrato)
             const created = await escolasService.create({
               nome: row.nome,
               tipo: row.tipo || undefined,
@@ -276,7 +293,7 @@ export function ContractSchoolImportDialog({
               telefone: row.telefone || '',
               email: row.email || undefined,
               endereco: row.endereco || '',
-              rota: 'Sem Rota',
+              rota: '',
             })
             createdCount++
             escolaId = created.id
@@ -311,13 +328,13 @@ export function ContractSchoolImportDialog({
           }
 
           // Se contractId existir (edição de contrato existente no banco):
-          // Persistência direta e atômica do vínculo em contrato_escolas
+          // Persistência direta e atômica do vínculo em contrato_escolas com a rota específica da escola
           if (contractId && escolaId) {
             await contratosService.linkEscola({
               contrato_id: contractId,
               escola_id: escolaId,
-              rota_id: resolvedRotaRecordId,
-              rota: selectedRota,
+              rota_id: rowRotaId,
+              rota: rowAssignedRota,
             })
           }
 
@@ -325,8 +342,8 @@ export function ContractSchoolImportDialog({
             linksToForm.push({
               escolaId,
               escolaNome,
-              rotaPlanilha: selectedRota,
-              rotaId: resolvedRotaRecordId,
+              rotaPlanilha: rowAssignedRota,
+              rotaId: rowRotaId,
             })
           }
         } catch (subErr: any) {
@@ -362,11 +379,11 @@ export function ContractSchoolImportDialog({
       if (failedSchoolErrors.length === 0) {
         if (contractId) {
           toast.success(
-            `Importação concluída e salva no banco: ${linksToForm.length} escola(s) vinculada(s) à rota "${selectedRota}" (${createdCount} nova(s), ${updatedCount} atualizada(s)).`,
+            `Importação concluída e salva no banco: ${linksToForm.length} escola(s) vinculada(s) (${createdCount} nova(s), ${updatedCount} atualizada(s)).`,
           )
         } else {
           toast.info(
-            `${linksToForm.length} escola(s) preparadas para a rota "${selectedRota}". Clique em "Cadastrar Contrato" para gravar os vínculos.`,
+            `${linksToForm.length} escola(s) preparadas com suas respectivas rotas. Clique em "Cadastrar Contrato" para gravar os vínculos.`,
           )
         }
       } else if (linksToForm.length > 0) {
@@ -399,7 +416,10 @@ export function ContractSchoolImportDialog({
       if (filterTab === 'updated')
         return row.status === 'update_and_link' || row.status === 'update_current_link'
       if (filterTab === 'conflicts') return row.status === 'conflict_other_contract'
-      if (filterTab === 'errors') return row.status === 'error' || row.status === 'duplicate_file'
+      if (filterTab === 'errors')
+        return (
+          row.status === 'error' || row.status === 'duplicate_file' || row.status === 'invalid_rota'
+        )
       return true
     }) || []
 
@@ -431,36 +451,35 @@ export function ContractSchoolImportDialog({
           <div className="space-y-0.5">
             <Label className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
               <Link2 className="h-4 w-4 text-primary" />
-              1. Rota da Planilha a atribuir no vínculo <span className="text-destructive">*</span>
+              1. Rota da Planilha (padrão / fallback)
             </Label>
             <p className="text-[11px] text-muted-foreground">
-              A rota da planilha selecionada será salva no vínculo deste contrato (nunca na escola
-              em si).
+              Se a planilha tiver a coluna <strong>Rota</strong>, a rota individual de cada escola
+              prevalece. Caso a planilha não tenha coluna Rota, esta rota selecionada será aplicada.
             </p>
           </div>
 
           <div className="w-full sm:w-64 shrink-0">
             {contractRotas.length === 0 ? (
               <div className="p-2 border border-destructive/40 bg-destructive/10 rounded text-[11px] text-destructive">
-                Nenhuma rota da planilha cadastrada neste contrato. Adicione uma rota no topo da aba
-                Escolas antes de importar.
+                Nenhuma rota cadastrada neste contrato. Cadastre rotas no contrato antes de
+                importar.
               </div>
             ) : (
               <Select
                 value={selectedRota}
                 onValueChange={(val) => {
                   setSelectedRota(val)
-                  // Se já analisou com outra rota, avisa para reprocessar
                   if (parseResult) {
                     toast.info(
-                      `Rota alterada para "${val}". Processe novamente para atualizar o preview.`,
+                      `Rota padrão alterada para "${val}". Processe novamente se desejar atualizar.`,
                     )
                   }
                 }}
                 disabled={isSaving}
               >
                 <SelectTrigger className="h-8 text-xs bg-background font-medium">
-                  <SelectValue placeholder="Selecione a Rota da Planilha..." />
+                  <SelectValue placeholder="Selecione a Rota padrão..." />
                 </SelectTrigger>
                 <SelectContent>
                   {contractRotas.map((cr, idx) => (
@@ -538,8 +557,8 @@ export function ContractSchoolImportDialog({
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Colunas aceitas: <strong>Nome da Escola</strong>, <strong>Tipo</strong>,{' '}
-                    <strong>Alunos</strong>, <strong>Telefone</strong>, <strong>E-mail</strong>,{' '}
-                    <strong>Endereço</strong>
+                    <strong>Rota</strong>, <strong>Alunos</strong>, <strong>Telefone</strong>,{' '}
+                    <strong>E-mail</strong>, <strong>Endereço</strong>
                   </p>
                 </div>
 
@@ -554,22 +573,23 @@ export function ContractSchoolImportDialog({
                       handleFileSelect(e.target.files[0])
                     }
                   }}
-                  disabled={isParsing || !selectedRota}
+                  disabled={isParsing}
                 />
 
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={isParsing || !selectedRota}
+                  disabled={isParsing}
                   onClick={() => fileInputRef.current?.click()}
                   className="mt-1"
                 >
                   Selecionar Arquivo do Computador
                 </Button>
                 {!selectedRota && (
-                  <p className="text-[11px] text-amber-600 font-medium">
-                    * Escolha a Rota da Planilha acima antes de selecionar o arquivo.
+                  <p className="text-[11px] text-muted-foreground">
+                    * Dica: Se o arquivo não tiver a coluna Rota, selecione uma Rota da Planilha
+                    acima como padrão.
                   </p>
                 )}
               </div>
@@ -589,7 +609,7 @@ export function ContractSchoolImportDialog({
                     type="button"
                     size="sm"
                     onClick={handleProcessPastedText}
-                    disabled={isParsing || !selectedRota || !pastedText.trim()}
+                    disabled={isParsing || !pastedText.trim()}
                     className="gap-1.5"
                   >
                     {isParsing ? (
@@ -804,16 +824,29 @@ export function ContractSchoolImportDialog({
                     Outro Contrato ({parseResult.conflictOtherContractRows.length})
                   </Button>
                 )}
-                {(parseResult.errorRows.length > 0 || parseResult.duplicateFileRows.length > 0) && (
+                {parseResult.allRows.some(
+                  (r) =>
+                    r.status === 'error' ||
+                    r.status === 'duplicate_file' ||
+                    r.status === 'invalid_rota',
+                ) && (
                   <Button
                     size="sm"
                     variant={filterTab === 'errors' ? 'default' : 'ghost'}
-                    className="h-7 text-xs px-2.5 text-destructive"
+                    className="h-7 text-xs px-2.5 text-destructive font-semibold"
                     onClick={() => setFilterTab('errors')}
                   >
                     <AlertCircle className="h-3 w-3 mr-1" />
                     Pendências/Erros (
-                    {parseResult.errorRows.length + parseResult.duplicateFileRows.length})
+                    {
+                      parseResult.allRows.filter(
+                        (r) =>
+                          r.status === 'error' ||
+                          r.status === 'duplicate_file' ||
+                          r.status === 'invalid_rota',
+                      ).length
+                    }
+                    )
                   </Button>
                 )}
                 <Button
@@ -859,6 +892,7 @@ export function ContractSchoolImportDialog({
                   {displayRows.map((row: ParsedContractSchoolRow) => {
                     const isConflictOther = row.status === 'conflict_other_contract'
                     const isError = row.status === 'error'
+                    const isInvalidRota = row.status === 'invalid_rota'
                     const isDuplicateFile = row.status === 'duplicate_file'
                     const isCreate = row.status === 'create_and_link'
                     const isUpdateAndLink = row.status === 'update_and_link'
@@ -870,8 +904,8 @@ export function ContractSchoolImportDialog({
                         className={
                           isConflictOther
                             ? 'bg-amber-500/10 hover:bg-amber-500/15'
-                            : isError
-                              ? 'bg-destructive/10'
+                            : isError || isInvalidRota
+                              ? 'bg-destructive/10 hover:bg-destructive/15'
                               : isDuplicateFile
                                 ? 'bg-amber-500/5'
                                 : isCreate
@@ -1005,6 +1039,19 @@ export function ContractSchoolImportDialog({
                               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                               <span title={row.statusReason}>Duplicada na planilha</span>
                             </span>
+                          )}
+
+                          {/* ERRO DE ROTA INVÁLIDA (BLOQUEANTE) */}
+                          {isInvalidRota && (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 text-destructive font-semibold">
+                                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                                Rota não cadastrada no contrato
+                              </span>
+                              <span className="text-[10px] text-destructive/90 block">
+                                {row.statusReason}
+                              </span>
+                            </div>
                           )}
 
                           {/* ERRO DE DADOS */}

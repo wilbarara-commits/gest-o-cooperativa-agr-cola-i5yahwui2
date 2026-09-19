@@ -158,7 +158,7 @@ export default function Schools() {
     return map
   }, [contracts, paradasRota, rotasLogisticas])
 
-  // Rotas da Planilha distintas (referência da secretaria)
+  // Rotas da Planilha distintas (referência da secretaria): exclusivamente a partir dos vínculos escola↔contrato (e tabela rotas dos contratos)
   const availableRotasPlanilha = useMemo(() => {
     const routeSet = new Set<string>()
 
@@ -175,14 +175,8 @@ export default function Schools() {
       }
     }
 
-    for (const s of schools) {
-      if (s.route && s.route.trim() && s.route !== 'Sem Rota') {
-        routeSet.add(s.route.trim())
-      }
-    }
-
     return Array.from(routeSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  }, [rotas, contracts, schools])
+  }, [rotas, contracts])
 
   // Rotas Logísticas da cooperativa distintas
   const availableRotasLogisticas = useMemo(() => {
@@ -199,11 +193,10 @@ export default function Schools() {
       const searchLower = search.trim().toLowerCase()
       const links = schoolContractLinksMap.get(s.id) || []
 
-      // Textual search: matches name, default route, address, email, tipo, or linked contract numbers/routes
+      // Textual search: matches name, address, email, tipo, or linked contract numbers/routes
       const matchesSearch =
         !searchLower ||
         s.name.toLowerCase().includes(searchLower) ||
-        (s.route && s.route.toLowerCase().includes(searchLower)) ||
         (s.address && s.address.toLowerCase().includes(searchLower)) ||
         (s.email && s.email.toLowerCase().includes(searchLower)) ||
         (s.tipo && s.tipo.toLowerCase().includes(searchLower)) ||
@@ -213,7 +206,9 @@ export default function Schools() {
         links.some(
           (l) =>
             l.contratoNumero.toLowerCase().includes(searchLower) ||
-            l.rotaPlanilha.toLowerCase().includes(searchLower) ||
+            (l.rotaPlanilha &&
+              l.rotaPlanilha !== 'Sem Rota' &&
+              l.rotaPlanilha.toLowerCase().includes(searchLower)) ||
             (l.rotaLogisticaNome && l.rotaLogisticaNome.toLowerCase().includes(searchLower)),
         )
 
@@ -229,16 +224,17 @@ export default function Schools() {
             ? links.length === 0
             : links.some((l) => l.contratoId === filterContrato)
 
-      // Filter by Rota da Planilha
+      // Filter by Rota da Planilha (Regra C: usa estritamente os vínculos escola↔contrato; escolas sem vínculo não aparecem se filtro ativo)
       const matchesRotaPlanilha =
         filterRotaPlanilha === 'todas'
           ? true
           : links.some(
               (l) =>
-                l.rotaPlanilha.trim().toLowerCase() === filterRotaPlanilha.trim().toLowerCase() ||
-                l.rotaId === filterRotaPlanilha,
-            ) ||
-            (s.route && s.route.trim().toLowerCase() === filterRotaPlanilha.trim().toLowerCase())
+                l.rotaPlanilha &&
+                l.rotaPlanilha !== 'Sem Rota' &&
+                (l.rotaPlanilha.trim().toLowerCase() === filterRotaPlanilha.trim().toLowerCase() ||
+                  l.rotaId === filterRotaPlanilha),
+            )
 
       // Filter by Rota Logística
       const matchesRotaLogistica = (() => {

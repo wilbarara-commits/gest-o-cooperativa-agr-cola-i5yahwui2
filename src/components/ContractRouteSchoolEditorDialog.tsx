@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeName } from '@/lib/excelImporter'
+import pb from '@/lib/pocketbase/client'
 import { escolasService } from '@/services/escolas'
 import { contratosService } from '@/services/contratos'
 import type { School, Contract } from '@/lib/types'
@@ -262,19 +263,39 @@ export function ContractRouteSchoolEditorDialog({
     if (!contract) return
     setIsProcessing(true)
     try {
-      // Localiza o vínculo contrato_escolas
-      const link = contract.escolas.find((e) => e.escolaId === escolaId)
-      if (link?.id) {
-        await contratosService.unlinkEscola(link.id)
+      // 1. Buscar os vínculos atuais do banco e deletar cada um, tolerando 404
+      const currentLinks = await pb.collection('contrato_escolas').getFullList({
+        filter: `contrato_id = "${contract.id}" && escola_id = "${escolaId}"`,
+      })
+
+      if (currentLinks.length > 0) {
+        for (const cl of currentLinks) {
+          try {
+            await pb.collection('contrato_escolas').delete(cl.id)
+          } catch (err: any) {
+            if (err?.status !== 404) throw err
+          }
+        }
       } else {
-        // Busca do banco se link.id não estiver disponível
-        const currentLinks = await contratosService.getEscolas(contract.id)
-        const match = currentLinks.find((cl) => cl.escola_id === escolaId)
-        if (match) {
-          await contratosService.unlinkEscola(match.id)
+        // 2. Fallback: se a busca não retornar nada, tentar deletar pelo link.id em memória, também tolerando 404
+        const link = contract.escolas.find((e) => e.escolaId === escolaId)
+        if (link?.id) {
+          try {
+            await pb.collection('contrato_escolas').delete(link.id)
+          } catch (err: any) {
+            if (err?.status !== 404) throw err
+          }
         }
       }
 
+      // 3. Limpeza defensiva do campo legado: pb.collection('escolas').update(escolaId, { rota: '' }) com try/catch silencioso
+      try {
+        await pb.collection('escolas').update(escolaId, { rota: '' })
+      } catch {
+        // Silencioso se campo não existir ou falhar
+      }
+
+      // 4. toast de sucesso com nome da escola e da rota, e await onSuccess() para refreshData() atualizar
       toast.success(
         `Escola "${escolaNome}" retirada da rota "${currentRouteName}". O cadastro mestre agora reflete o desvínculo.`,
       )

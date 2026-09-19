@@ -1411,8 +1411,11 @@ export default function Contracts() {
                     <div className="flex flex-wrap gap-1.5 max-h-[110px] overflow-y-auto">
                       {contractRotas.map((r, idx) => {
                         const countInForm = contractSchoolsForm.filter((cs) => {
-                          const rotaPlan = (cs.rotaId || '').trim().toLowerCase()
-                          return rotaPlan === r.nome.trim().toLowerCase()
+                          const val = (cs.rotaId || '').trim().toLowerCase()
+                          return (
+                            (r.id && val === r.id.toLowerCase()) ||
+                            val === r.nome.trim().toLowerCase()
+                          )
                         }).length
 
                         return (
@@ -1905,7 +1908,7 @@ export default function Contracts() {
               setContractSchoolsForm(
                 fresh.escolas.map((e) => ({
                   escolaId: e.escolaId,
-                  rotaId: e.rotaId || '',
+                  rotaId: e.rotaId || e.rotaPlanilha || '',
                 })),
               )
             }

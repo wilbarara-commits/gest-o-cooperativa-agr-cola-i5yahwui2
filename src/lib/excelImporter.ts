@@ -1052,19 +1052,8 @@ export function parseSecretaryExcel(
             ? contractItems.find((ci) => ci.produto_id === matchedProd.id)
             : undefined
 
+        // REGRA: "só produtos listados no contrato (...), linhas de produtos não listados/inválidos DESCARTADAS SILENCIOSAMENTE (sem pendência, sem erro)"
         if (!matchedProd || !matchedContractItem) {
-          const contractLabel = contractNumero ? ` [${contractNumero}]` : ''
-          const issueMsg = matchInfo.isAmbiguous
-            ? `Nome ambíguo: "${productDescRaw}" coincide com o apelido de ${matchInfo.candidateCount} produtos do contrato${contractLabel}.`
-            : `Produto "${productDescRaw}" não consta nos itens do contrato${contractLabel} — somente produtos do contrato podem ser solicitados.`
-          baseIssues.push(issueMsg)
-          items.push({
-            productNameRaw: productDescRaw,
-            isAmbiguous: matchInfo.isAmbiguous,
-            quantity: qty,
-            price: 0,
-            isContractItem: false,
-          })
           continue
         }
 
@@ -1121,14 +1110,12 @@ export function parseSecretaryExcel(
       // Consolidar itens preservando o que veio dos itens de cada coluna
       // Chave do produto: productId se matched e contratado, ou productNameRaw normalizado
       const itemMap = new Map<string, ParsedOrderItem>()
-      // Também rastrear itens com isContractItem === false separadamente ou juntos:
-      // se isContractItem === false, o item não é contratado, mas precisa ser mantido para acusar pendência bloqueante
+      // Chave do produto: productId se matched e contratado, ou productNameRaw normalizado
       for (const col of cols) {
         for (const item of col.items) {
-          const prodKey =
-            item.productId && item.isContractItem !== false
-              ? `id:${item.productId}`
-              : `raw:${normalizeName(item.productNameRaw)}`
+          const prodKey = item.productId
+            ? `id:${item.productId}`
+            : `raw:${normalizeName(item.productNameRaw)}`
           const existingItem = itemMap.get(prodKey)
           if (existingItem) {
             existingItem.quantity =
@@ -1146,17 +1133,11 @@ export function parseSecretaryExcel(
       // REGRA: "Produtos com quantidade zero, somente se a quantidade zero for em colunas da planilha."
       // Ou seja, se o produto aparece na planilha na coluna da escola e sua quantidade consolidada for 0,
       // gera aviso de validação (pendingZeroItems). Itens ausentes da planilha NUNCA geram pendência.
-      // Além disso, se o item não for do contrato (isContractItem === false), ele é bloqueante
-      // independentemente da quantidade ser 0 ou > 0!
       const validItems: ParsedOrderItem[] = []
-      const uncontractedItems: ParsedOrderItem[] = []
       const pendingZeroItems: PendingZeroItem[] = []
 
       for (const it of rawConsolidatedItems) {
-        if (it.isContractItem === false) {
-          // Não pertence ao contrato: item inválido bloqueante
-          uncontractedItems.push(it)
-        } else if (it.quantity > 0) {
+        if (it.quantity > 0) {
           validItems.push(it)
         } else {
           // Pertence ao contrato, esteve presente na planilha com quantidade 0 após consolidação
@@ -1218,7 +1199,7 @@ export function parseSecretaryExcel(
         isLinkedToContract: firstCol.isLinked,
         matchStatus: firstCol.matchStatus,
         prefilledLink: firstCol.prefilledLink,
-        items: [...validItems, ...uncontractedItems],
+        items: validItems,
         pendingZeroItems: pendingZeroItems.length > 0 ? pendingZeroItems : undefined,
         totalCalculated: Math.round(totalCalculated * 100) / 100,
         issues: Array.from(issueSet),
@@ -1278,7 +1259,7 @@ export function parseSecretaryExcel(
       po.isDuplicateInOtherSheets ||
       po.isSheetUnmatchedInContract ||
       po.items.length === 0 ||
-      po.items.some((it) => !it.productId || it.isContractItem === false)
+      po.items.some((it) => !it.productId)
 
     if (hasBlockingIssues) {
       pendingIssuesCount++
@@ -1287,7 +1268,7 @@ export function parseSecretaryExcel(
       totalZeroItemsPendingCount += po.pendingZeroItems.length
     }
     for (const it of po.items) {
-      if (it.isContractItem !== false && it.quantity > 0) {
+      if (it.quantity > 0) {
         totalItemsCount++
         totalWeight += it.quantity
       }

@@ -421,8 +421,8 @@ export default function ExcelImport() {
     if (!parsedData || !selectedContract) return
 
     // Validar se existem pedidos prontos sem pendências impeditivas:
-    // Deve ter escola cadastrada, vinculada ao contrato, conter pelo menos 1 item com quantidade > 0,
-    // e todos os itens devem pertencer aos itens contratados do contrato selecionado.
+    // Deve ter escola cadastrada, vinculada ao contrato, sem anomalia de duplicidade em outras abas,
+    // e conter pelo menos 1 item com quantidade > 0.
     const validOrders = parsedData.orders.filter(
       (o) =>
         o.schoolId &&
@@ -430,12 +430,12 @@ export default function ExcelImport() {
         !o.isDuplicateInOtherSheets &&
         !o.isSheetUnmatchedInContract &&
         o.items.length > 0 &&
-        o.items.every((it) => it.productId && it.isContractItem !== false),
+        o.items.every((it) => Boolean(it.productId)),
     )
 
     if (validOrders.length === 0) {
       toast.error(
-        'Nenhum pedido pode ser importado. Resolva as pendências de vinculação das escolas ou de produtos não contratados através das orientações na tabela.',
+        'Nenhum pedido pode ser importado. Resolva as pendências de vinculação das escolas ou de escolas sem itens através das orientações na tabela.',
       )
       return
     }
@@ -864,9 +864,6 @@ export default function ExcelImport() {
                   </TableHeader>
                   <TableBody>
                     {parsedData.orders.map((po, idx) => {
-                      const hasUnmatchedProducts = po.items.some(
-                        (it) => !it.productId || it.isContractItem === false,
-                      )
                       const hasZeroItems = po.items.length === 0
                       const hasBlockingIssues =
                         po.matchStatus !== 'ok' ||
@@ -874,7 +871,7 @@ export default function ExcelImport() {
                         po.isDuplicateInOtherSheets ||
                         po.isSheetUnmatchedInContract ||
                         hasZeroItems ||
-                        hasUnmatchedProducts
+                        po.items.some((it) => !it.productId)
 
                       return (
                         <TableRow key={idx} className={hasBlockingIssues ? 'bg-amber-500/5' : ''}>
@@ -1012,24 +1009,6 @@ export default function ExcelImport() {
                                   {po.issues.find((iss) =>
                                     iss.includes('Nenhum item com quantidade'),
                                   ) || 'Pedido retido: requer ao menos 1 item com quantidade.'}
-                                </p>
-                              </div>
-                            ) : hasUnmatchedProducts ? (
-                              <div className="space-y-1">
-                                <Badge
-                                  variant="destructive"
-                                  className="text-[10px] whitespace-normal"
-                                >
-                                  Produto não contratado
-                                </Badge>
-                                <p className="text-[10px] text-destructive leading-tight">
-                                  {po.issues.find(
-                                    (iss) =>
-                                      iss.includes('não consta nos itens do contrato') ||
-                                      iss.includes('não consta nos itens') ||
-                                      iss.includes('não encontrado') ||
-                                      iss.includes('somente produtos do contrato'),
-                                  ) || 'Itens inválidos'}
                                 </p>
                               </div>
                             ) : po.isLinkedToContract ? (

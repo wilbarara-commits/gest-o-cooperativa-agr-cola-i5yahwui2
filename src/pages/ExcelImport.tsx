@@ -39,6 +39,7 @@ import {
   ExternalLink,
   Building2,
   Sparkles,
+  Route,
 } from 'lucide-react'
 import {
   Dialog,
@@ -122,6 +123,102 @@ export default function ExcelImport() {
     if (!selectedContractId) return []
     return contractItems.filter((ci) => ci.contrato_id === selectedContractId)
   }, [contractItems, selectedContractId])
+
+  // Subtotais por aba de rota para a prévia da importação
+  interface RouteSubtotal {
+    sheetName: string
+    isIgnored: boolean
+    schoolsCount: number
+    totalWeight: number
+    validItemsCount: number
+    estimatedValue: number
+    contractRotaMatched?: string
+  }
+
+  const routeSubtotals = useMemo<RouteSubtotal[]>(() => {
+    if (!parsedData) return []
+
+    // Mapear métricas por rota ativa importada
+    const subtotalsMap = new Map<
+      string,
+      {
+        schoolsCount: number
+        totalWeight: number
+        validItemsCount: number
+        estimatedValue: number
+        contractRotaMatched?: string
+      }
+    >()
+
+    // Inicializar para todas as rotas lidas na ordem em que foram encontradas
+    for (const r of parsedData.routesFound) {
+      subtotalsMap.set(r, {
+        schoolsCount: 0,
+        totalWeight: 0,
+        validItemsCount: 0,
+        estimatedValue: 0,
+      })
+    }
+
+    // Acumular dados dos pedidos por aba/rota
+    for (const order of parsedData.orders) {
+      const entry = subtotalsMap.get(order.routeRaw) || {
+        schoolsCount: 0,
+        totalWeight: 0,
+        validItemsCount: 0,
+        estimatedValue: 0,
+      }
+
+      entry.schoolsCount += 1
+      entry.estimatedValue += order.totalCalculated || 0
+      if (order.sheetMatchedContractRota) {
+        entry.contractRotaMatched = order.sheetMatchedContractRota
+      }
+
+      for (const it of order.items) {
+        if (it.quantity > 0) {
+          entry.validItemsCount += 1
+          entry.totalWeight += it.quantity
+        }
+      }
+
+      subtotalsMap.set(order.routeRaw, entry)
+    }
+
+    const list: RouteSubtotal[] = parsedData.routesFound.map((sheetName) => {
+      const stats = subtotalsMap.get(sheetName) || {
+        schoolsCount: 0,
+        totalWeight: 0,
+        validItemsCount: 0,
+        estimatedValue: 0,
+      }
+      return {
+        sheetName,
+        isIgnored: false,
+        schoolsCount: stats.schoolsCount,
+        totalWeight: Math.round(stats.totalWeight * 100) / 100,
+        validItemsCount: stats.validItemsCount,
+        estimatedValue: Math.round(stats.estimatedValue * 100) / 100,
+        contractRotaMatched: stats.contractRotaMatched,
+      }
+    })
+
+    // Adicionar as abas ignoradas como linhas informativas
+    if (parsedData.ignoredUnmatchedSheets && parsedData.ignoredUnmatchedSheets.length > 0) {
+      for (const ignoredSheet of parsedData.ignoredUnmatchedSheets) {
+        list.push({
+          sheetName: ignoredSheet,
+          isIgnored: true,
+          schoolsCount: 0,
+          totalWeight: 0,
+          validItemsCount: 0,
+          estimatedValue: 0,
+        })
+      }
+    }
+
+    return list
+  }, [parsedData])
 
   // Carregar histórico de importações
   const loadHistory = async () => {
@@ -764,6 +861,140 @@ export default function ExcelImport() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Seção de Subtotais por Aba de Rota */}
+              {routeSubtotals.length > 0 && (
+                <div className="rounded-lg border bg-card p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Route className="h-4 w-4 text-primary" />
+                      <h4 className="text-sm font-semibold text-foreground">
+                        Subtotais por Aba de Rota
+                      </h4>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      Conferência rápida por aba antes de confirmar a importação
+                    </span>
+                  </div>
+
+                  <div className="rounded-md border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40">
+                          <TableHead className="font-semibold text-xs">Aba / Rota</TableHead>
+                          <TableHead className="font-semibold text-xs text-center">
+                            Escolas com Pedido
+                          </TableHead>
+                          <TableHead className="font-semibold text-xs text-center">
+                            Volume (Kg/Un)
+                          </TableHead>
+                          <TableHead className="font-semibold text-xs text-center">
+                            Itens Válidos
+                          </TableHead>
+                          <TableHead className="font-semibold text-xs text-right">
+                            Valor Estimado
+                          </TableHead>
+                          <TableHead className="font-semibold text-xs text-center">
+                            Status
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {routeSubtotals.map((row) => {
+                          if (row.isIgnored) {
+                            return (
+                              <TableRow
+                                key={`subtotal-${row.sheetName}`}
+                                className="bg-muted/20 opacity-70"
+                              >
+                                <TableCell className="text-xs font-mono">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground">{row.sheetName}</span>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] border-muted-foreground/30 text-muted-foreground"
+                                    >
+                                      Ignorada
+                                    </Badge>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-center text-xs text-muted-foreground">
+                                  —
+                                </TableCell>
+                                <TableCell className="text-center text-xs text-muted-foreground">
+                                  —
+                                </TableCell>
+                                <TableCell className="text-center text-xs text-muted-foreground">
+                                  —
+                                </TableCell>
+                                <TableCell className="text-right text-xs text-muted-foreground">
+                                  —
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] text-muted-foreground font-normal"
+                                  >
+                                    Sem rota no contrato
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          }
+
+                          return (
+                            <TableRow key={`subtotal-${row.sheetName}`}>
+                              <TableCell className="text-xs font-semibold text-primary">
+                                <div className="flex flex-col">
+                                  <span>{row.sheetName}</span>
+                                  {row.contractRotaMatched &&
+                                    row.contractRotaMatched !== row.sheetName && (
+                                      <span className="text-[10px] text-muted-foreground font-normal">
+                                        Rota no contrato: {row.contractRotaMatched}
+                                      </span>
+                                    )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center text-xs font-semibold">
+                                {row.schoolsCount}{' '}
+                                <span className="text-[10px] text-muted-foreground font-normal">
+                                  {row.schoolsCount === 1 ? 'escola' : 'escolas'}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-center text-xs font-mono font-bold text-foreground">
+                                {row.totalWeight.toLocaleString('pt-BR', {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </TableCell>
+                              <TableCell className="text-center text-xs text-muted-foreground">
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] bg-background font-normal"
+                                >
+                                  {row.validItemsCount} itens
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right text-xs font-mono text-muted-foreground">
+                                R${' '}
+                                {row.estimatedValue.toLocaleString('pt-BR', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge className="bg-emerald-600 text-[10px]">
+                                  Pronta para importar
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
 
               {/* Informação neutra e discreta sobre abas ignoradas (sem rota cadastrada correspondente) */}
               {parsedData.ignoredUnmatchedSheets &&

@@ -454,52 +454,58 @@ export default function ExcelImport() {
         routeMap.set(sheetName, rotaRec.id)
       }
 
-      // Criar cada pedido no banco PocketBase
-      for (const o of validOrders) {
-        try {
-          const rotaId = routeMap.get(o.routeRaw)
-          const orderNum = `IMP-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 900 + 100)}`
+      // Preparar payload de pedidos para criação atômica e em lote seguro
+      const pedidosPayload = validOrders.map((o) => {
+        const rotaId = routeMap.get(o.routeRaw)
+        const orderNum = `IMP-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 900 + 100)}`
 
-          // Herdar rota logística da escola caso a escola já tenha sido roteada (paradas_rota)
-          let rotaLogisticaHerdadaId: string | undefined
-          if (o.schoolId) {
-            const paradaExistente = paradasRota.find((p) => p.escola_id === o.schoolId)
-            if (paradaExistente) {
-              rotaLogisticaHerdadaId = paradaExistente.rota_logistica_id
-            }
+        // Herdar rota logística da escola caso a escola já tenha sido roteada (paradas_rota)
+        let rotaLogisticaHerdadaId: string | undefined
+        if (o.schoolId) {
+          const paradaExistente = paradasRota.find((p) => p.escola_id === o.schoolId)
+          if (paradaExistente) {
+            rotaLogisticaHerdadaId = paradaExistente.rota_logistica_id
           }
-
-          const validationDetails = [`${o.items.length} itens recebidos da secretaria`]
-
-          await pedidosService.create({
-            numero: orderNum,
-            escola_id: o.schoolId!,
-            ciclo_id: activeCiclo?.id,
-            origem: 'excel',
-            rota_id: rotaId,
-            rota_logistica_id: rotaLogisticaHerdadaId,
-            validacao: {
-              status: 'validado',
-              motivo: `Importado de planilha centralizada (${o.routeRaw})`,
-              detalhes: validationDetails,
-            },
-            data_prevista: now,
-            status: 'Pendente',
-            itens: o.items.map((it) => ({
-              produto_id: it.productId || '',
-              quantidade: it.quantity,
-              preco_unitario: it.price,
-            })),
-          })
-          okCount++
-        } catch (itemErr: any) {
-          console.error('Erro ao salvar pedido da escola:', o.schoolNameRaw, itemErr)
-          errorCount++
-          errorLog.push({
-            escola: o.schoolNameRaw,
-            erro: itemErr?.message || 'Falha ao salvar pedido',
-          })
         }
+
+        const validOrderItems = o.items
+          .filter((it) => it.productId && it.quantity > 0)
+          .map((it) => ({
+            produto_id: it.productId || '',
+            quantidade: it.quantity,
+            preco_unitario: it.price,
+          }))
+
+        const validationDetails = [`${validOrderItems.length} itens recebidos da secretaria`]
+
+        return {
+          numero: orderNum,
+          escola_id: o.schoolId!,
+          ciclo_id: activeCiclo?.id,
+          origem: 'excel' as const,
+          rota_id: rotaId,
+          rota_logistica_id: rotaLogisticaHerdadaId,
+          validacao: {
+            status: 'validado' as const,
+            motivo: `Importado de planilha centralizada (${o.routeRaw})`,
+            detalhes: validationDetails,
+          },
+          data_prevista: now,
+          status: 'Pendente' as const,
+          itens: validOrderItems,
+        }
+      })
+
+      // Executar a criação via serviço com lote atômico transacional
+      const batchResult = await pedidosService.createBatch(pedidosPayload)
+      okCount = batchResult.totalCreated
+      errorCount = validOrders.length - okCount
+
+      if (errorCount > 0) {
+        errorLog.push({
+          escola: 'Geral',
+          erro: `${errorCount} pedido(s) não puderam ser gravados.`,
+        })
       }
 
       // Registrar o histórico na collection 'importacoes'

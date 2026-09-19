@@ -51,6 +51,38 @@ export const pedidosService = {
       )
     }
 
+    // Tentar via endpoint backend atômico para garantir consistência e evitar rate limiting
+    try {
+      const res = await pb.send<{
+        success: boolean
+        totalCreated: number
+        pedidos: Array<{ id: string; numero: string; escola_id: string }>
+      }>('/backend/v1/pedidos/batch-create', {
+        method: 'POST',
+        body: {
+          pedidos: [
+            {
+              numero: data.numero,
+              escola_id: data.escola_id,
+              ciclo_id: data.ciclo_id || '',
+              origem: data.origem || 'manual',
+              rota_id: data.rota_id || '',
+              rota_logistica_id: data.rota_logistica_id || '',
+              validacao: data.validacao || { status: 'validado', motivo: 'Lançamento manual' },
+              data_prevista: data.data_prevista,
+              status: data.status,
+              itens: validItens,
+            },
+          ],
+        },
+      })
+      if (res?.pedidos?.[0]?.id) {
+        return await pb.collection('pedidos').getOne<PedidoRecord>(res.pedidos[0].id)
+      }
+    } catch (batchErr) {
+      console.warn('Fallback para criação direta via SDK PocketBase:', batchErr)
+    }
+
     const pedido = await pb.collection('pedidos').create<PedidoRecord>({
       numero: data.numero,
       escola_id: data.escola_id,
@@ -63,16 +95,103 @@ export const pedidosService = {
       status: data.status,
     })
 
-    for (const item of validItens) {
-      await pb.collection('pedido_itens').create({
-        pedido_id: pedido.id,
-        produto_id: item.produto_id,
-        quantidade: item.quantidade,
-        preco_unitario: item.preco_unitario,
-      })
+    try {
+      for (const item of validItens) {
+        await pb.collection('pedido_itens').create({
+          pedido_id: pedido.id,
+          produto_id: item.produto_id,
+          quantidade: item.quantidade,
+          preco_unitario: item.preco_unitario,
+        })
+      }
+    } catch (itensErr) {
+      // Se falhar ao gravar itens, remover pedido para não deixar pedido órfão sem itens
+      try {
+        await pb.collection('pedidos').delete(pedido.id)
+      } catch {
+        /* intentionally ignored */
+      }
+      throw itensErr
     }
 
     return pedido
+  },
+
+  async createBatch(
+    pedidosList: Array<{
+      numero: string
+      escola_id: string
+      ciclo_id?: string
+      origem?: 'excel' | 'whatsapp' | 'manual'
+      rota_id?: string
+      rota_logistica_id?: string
+      validacao?: PedidoValidacao
+      data_prevista: string
+      status: 'Pendente' | 'Em Rota' | 'Entregue' | 'Cancelado'
+      itens: Array<{
+        produto_id: string
+        quantidade: number
+        preco_unitario: number
+      }>
+    }>,
+  ): Promise<{
+    success: boolean
+    totalCreated: number
+    pedidos: Array<{ id: string; numero: string; escola_id: string; itens_count: number }>
+  }> {
+    const cleanList = pedidosList
+      .map((p) => ({
+        ...p,
+        itens: (p.itens || []).filter(
+          (it) =>
+            it.produto_id &&
+            typeof it.quantidade === 'number' &&
+            !isNaN(it.quantidade) &&
+            it.quantidade > 0,
+        ),
+      }))
+      .filter((p) => p.itens.length > 0)
+
+    if (cleanList.length === 0) {
+      return { success: true, totalCreated: 0, pedidos: [] }
+    }
+
+    // Chamar hook atômico no backend
+    try {
+      return await pb.send<{
+        success: boolean
+        totalCreated: number
+        pedidos: Array<{ id: string; numero: string; escola_id: string; itens_count: number }>
+      }>('/backend/v1/pedidos/batch-create', {
+        method: 'POST',
+        body: { pedidos: cleanList },
+      })
+    } catch (hookErr) {
+      console.warn(
+        'Falha no endpoint batch-create, executando em lotes controlados com fallback seguro:',
+        hookErr,
+      )
+      const created: Array<{ id: string; numero: string; escola_id: string; itens_count: number }> =
+        []
+
+      for (const p of cleanList) {
+        const ped = await pedidosService.create(p)
+        created.push({
+          id: ped.id,
+          numero: ped.numero,
+          escola_id: ped.escola_id,
+          itens_count: p.itens.length,
+        })
+        // Pequena pausa defensiva caso precise rodar individualmente para não estourar rate limit
+        await new Promise((resolve) => setTimeout(resolve, 80))
+      }
+
+      return {
+        success: true,
+        totalCreated: created.length,
+        pedidos: created,
+      }
+    }
   },
 
   async updateStatus(

@@ -80,6 +80,10 @@ import {
   ContractSchoolImportDialog,
   type ImportedSchoolLinkResult,
 } from '@/components/ContractSchoolImportDialog'
+import {
+  ContractRouteSchoolEditorDialog,
+  type ContractRouteInfo,
+} from '@/components/ContractRouteSchoolEditorDialog'
 
 interface ContractSchoolForm {
   escolaId: string
@@ -156,6 +160,11 @@ export default function Contracts() {
 
   // Diálogo de Importação CSV/Planilha de Escolas para o Contrato
   const [schoolImportDialogOpen, setSchoolImportDialogOpen] = useState(false)
+
+  // Diálogo de Edição de Rota (incluir/retirar escolas com regra de exclusividade)
+  const [routeEditorOpen, setRouteEditorOpen] = useState(false)
+  const [editingRouteInfo, setEditingRouteInfo] = useState<ContractRouteInfo | null>(null)
+  const [routeEditorContract, setRouteEditorContract] = useState<Contract | null>(null)
 
   // Rotas da Planilha / Secretaria (referência)
   const [contractRotas, setContractRotas] = useState<
@@ -305,6 +314,20 @@ export default function Contracts() {
       setDeletedRotaIds((prev) => [...prev, rotaAlvo.id!])
     }
     setContractRotas((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleOpenRouteEditor = (
+    rota: { id?: string; nome: string; ordem?: number },
+    targetContract?: Contract | null,
+  ) => {
+    const contractToUse = targetContract || editingContract || viewingContract
+    if (!contractToUse) {
+      toast.error('Nenhum contrato selecionado para editar rota.')
+      return
+    }
+    setRouteEditorContract(contractToUse)
+    setEditingRouteInfo(rota)
+    setRouteEditorOpen(true)
   }
 
   // Rotas Logísticas da Cooperativa (com validação estrita do número definido no contrato)
@@ -1386,23 +1409,43 @@ export default function Contracts() {
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5 max-h-[110px] overflow-y-auto">
-                      {contractRotas.map((r, idx) => (
-                        <Badge
-                          key={idx}
-                          variant="secondary"
-                          className="pl-2.5 pr-1 py-1 text-xs font-medium flex items-center gap-1.5 bg-background border"
-                        >
-                          <span>{r.nome}</span>
-                          <button
-                            type="button"
-                            className="rounded-full hover:bg-destructive/20 text-muted-foreground hover:text-destructive p-0.5 transition-colors"
-                            title="Remover rota da planilha"
-                            onClick={() => handleRemoveRota(idx)}
+                      {contractRotas.map((r, idx) => {
+                        const countInForm = contractSchoolsForm.filter((cs) => {
+                          const rotaPlan = (cs.rotaId || '').trim().toLowerCase()
+                          return rotaPlan === r.nome.trim().toLowerCase()
+                        }).length
+
+                        return (
+                          <Badge
+                            key={idx}
+                            variant="secondary"
+                            className="pl-2.5 pr-1 py-1 text-xs font-medium flex items-center gap-1.5 bg-background border hover:border-primary/50 transition-colors"
                           >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
+                            <span className="font-semibold">{r.nome}</span>
+                            <span className="text-[10px] text-muted-foreground px-1 py-0.2 rounded bg-muted/60">
+                              {countInForm} esc.
+                            </span>
+                            {editingContract && (
+                              <button
+                                type="button"
+                                className="rounded-full hover:bg-primary/20 text-primary p-0.5 transition-colors ml-0.5"
+                                title="Editar escolas desta rota"
+                                onClick={() => handleOpenRouteEditor(r, editingContract)}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="rounded-full hover:bg-destructive/20 text-muted-foreground hover:text-destructive p-0.5 transition-colors"
+                              title="Remover rota da planilha"
+                              onClick={() => handleRemoveRota(idx)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -1838,6 +1881,38 @@ export default function Contracts() {
         }}
       />
 
+      {/* DIALOG DE EDIÇÃO DE ROTAS DO CONTRATO (INCLUIR/RETIRAR ESCOLAS) */}
+      <ContractRouteSchoolEditorDialog
+        open={routeEditorOpen}
+        onOpenChange={setRouteEditorOpen}
+        contract={routeEditorContract}
+        route={editingRouteInfo}
+        allContracts={contracts}
+        masterSchools={schools}
+        onSuccess={async () => {
+          await refreshData()
+          // Atualiza também viewingContract se estiver aberto
+          if (viewingContract) {
+            const fresh = contracts.find((c) => c.id === viewingContract.id)
+            if (fresh) {
+              setViewingContract(fresh)
+            }
+          }
+          if (editingContract) {
+            const fresh = contracts.find((c) => c.id === editingContract.id)
+            if (fresh) {
+              setEditingContract(fresh)
+              setContractSchoolsForm(
+                fresh.escolas.map((e) => ({
+                  escolaId: e.escolaId,
+                  rotaId: e.rotaId || '',
+                })),
+              )
+            }
+          }
+        }}
+      />
+
       {/* DIALOG DE RELATÓRIO DE EXECUÇÃO DO CONTRATO */}
       <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
@@ -2076,9 +2151,36 @@ export default function Contracts() {
                           >
                             <div className="flex items-center justify-between text-xs font-semibold">
                               <span className="text-foreground">Rota (Planilha): {rotaNome}</span>
-                              <Badge variant="secondary" className="text-[10px]">
-                                {escolasNaRota.length} escola(s)
-                              </Badge>
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {escolasNaRota.length} escola(s)
+                                </Badge>
+                                {rotaNome !== 'Sem Rota' && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px] gap-1 text-primary border-primary/40 hover:bg-primary/10"
+                                    onClick={() => {
+                                      const rotaObj = rotas.find(
+                                        (r) =>
+                                          r.contrato_id === viewingContract.id &&
+                                          r.nome.toLowerCase() === rotaNome.toLowerCase(),
+                                      )
+                                      handleOpenRouteEditor(
+                                        {
+                                          id: rotaObj?.id,
+                                          nome: rotaNome,
+                                          ordem: rotaObj?.ordem || 1,
+                                        },
+                                        viewingContract,
+                                      )
+                                    }}
+                                  >
+                                    <Pencil className="h-3 w-3" /> Editar Rota
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                             <div className="flex flex-wrap gap-1">
                               {escolasNaRota.map((e) => (

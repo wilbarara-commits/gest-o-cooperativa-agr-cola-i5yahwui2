@@ -64,7 +64,7 @@ export const escolasService = {
         contato?: boolean
       }
     }>,
-    mode: 'merge' | 'overwrite', // 'merge' = atualiza apenas preenchidos, 'overwrite' = sobrescreve
+    mode: 'keep' | 'clear' | 'merge' | 'overwrite', // 'keep'/'merge' = mantém anterior quando em branco; 'clear'/'overwrite' = limpa campo no banco
     onProgress?: (processed: number, total: number) => void,
   ): Promise<{
     created: number
@@ -74,13 +74,43 @@ export const escolasService = {
     let created = 0
     let updated = 0
     const errors: Array<{ index: number; nome: string; error: string }> = []
+    const isClearMode = mode === 'clear' || mode === 'overwrite'
+
+    // Cache local dos registros existentes para garantir deduplicação estrita em tempo de execução
+    const existingList = await this.getAll()
+    const norm = (str: string) =>
+      str
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^\w\s]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const existingMap = new Map<string, EscolaRecord>()
+    for (const esc of existingList) {
+      const k = norm(esc.nome)
+      if (k && !existingMap.has(k)) {
+        existingMap.set(k, esc)
+      }
+    }
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
       try {
-        if (item.action === 'create') {
+        const itemNorm = norm(item.nome)
+        const alreadyInDb = existingMap.get(itemNorm)
+
+        // REGRA 4: NUNCA criar nome duplicado no cadastro mestre.
+        // Se a ação for 'create' mas já existir escola com o mesmo nome normalizado,
+        // converte para 'update' da escola existente.
+        const effectiveAction: 'create' | 'update' =
+          item.action === 'create' && !alreadyInDb ? 'create' : 'update'
+        const targetId = item.id || alreadyInDb?.id
+
+        if (effectiveAction === 'create') {
           const payload: any = {
-            nome: item.nome,
+            nome: item.nome.trim(),
             tipo: item.tipo || '',
             rota: item.rota || 'Sem Rota',
             endereco: item.endereco || '',
@@ -92,53 +122,89 @@ export const escolasService = {
           if (item.alunos !== undefined) {
             payload.alunos = item.alunos
           }
-          await pb.collection('escolas').create<EscolaRecord>(payload)
+          const createdRec = await pb.collection('escolas').create<EscolaRecord>(payload)
+          existingMap.set(itemNorm, createdRec)
           created++
-        } else if (item.action === 'update' && item.id) {
+        } else if (effectiveAction === 'update' && targetId) {
           const payload: any = {}
 
-          if (mode === 'overwrite') {
-            // Sobrescreve campos existentes com os valores do arquivo caso a coluna exista
-            if (item.presentColumns?.tipo) payload.tipo = item.tipo || ''
-            if (item.presentColumns?.rota) payload.rota = item.rota || 'Sem Rota'
-            if (item.presentColumns?.alunos)
-              payload.alunos = item.alunos !== undefined ? item.alunos : null
-            if (item.presentColumns?.endereco) payload.endereco = item.endereco || ''
-            if (item.presentColumns?.telefone) payload.telefone = item.telefone || ''
-            if (item.presentColumns?.email) payload.email = item.email || ''
-            if (item.presentColumns?.bairro) payload.bairro = item.bairro || ''
-            if (item.presentColumns?.contato) payload.contato = item.contato || ''
-          } else {
-            // 'merge': grava o campo apenas quando a coluna existir no CSV/colagem e tiver valor não vazio
-            if (item.presentColumns?.tipo && item.tipo) {
+          // REGRA 1 & 2: Colunas presentes no cabeçalho são importadas.
+          // Colunas AUSENTES no cabeçalho NÃO SÃO AFETADAS (não limpas, não alteradas).
+          // Para colunas PRESENTES no cabeçalho:
+          //  - Se preenchida: grava o novo valor
+          //  - Se em branco:
+          //      * 'clear': substitui por vazio/null
+          //      * 'keep': mantém o valor anterior (não inclui no payload)
+          if (item.presentColumns?.tipo) {
+            if (item.tipo) {
               payload.tipo = item.tipo
+            } else if (isClearMode) {
+              payload.tipo = ''
             }
-            if (item.presentColumns?.rota && item.rota && item.rota !== 'Sem Rota') {
+          }
+
+          if (item.presentColumns?.rota) {
+            if (item.rota && item.rota !== 'Sem Rota') {
               payload.rota = item.rota
+            } else if (isClearMode) {
+              payload.rota = 'Sem Rota'
             }
-            if (item.presentColumns?.alunos && item.alunos !== undefined) {
+          }
+
+          if (item.presentColumns?.alunos) {
+            if (item.alunos !== undefined && item.alunos !== null) {
               payload.alunos = item.alunos
+            } else if (isClearMode) {
+              payload.alunos = null
             }
-            if (item.presentColumns?.endereco && item.endereco && item.endereco.trim()) {
+          }
+
+          if (item.presentColumns?.endereco) {
+            if (item.endereco && item.endereco.trim()) {
               payload.endereco = item.endereco.trim()
+            } else if (isClearMode) {
+              payload.endereco = ''
             }
-            if (item.presentColumns?.telefone && item.telefone && item.telefone.trim()) {
+          }
+
+          if (item.presentColumns?.telefone) {
+            if (item.telefone && item.telefone.trim()) {
               payload.telefone = item.telefone.trim()
+            } else if (isClearMode) {
+              payload.telefone = ''
             }
-            if (item.presentColumns?.email && item.email && item.email.trim()) {
+          }
+
+          if (item.presentColumns?.email) {
+            if (item.email && item.email.trim()) {
               payload.email = item.email.trim()
+            } else if (isClearMode) {
+              payload.email = ''
             }
-            if (item.presentColumns?.bairro && item.bairro && item.bairro.trim()) {
+          }
+
+          if (item.presentColumns?.bairro) {
+            if (item.bairro && item.bairro.trim()) {
               payload.bairro = item.bairro.trim()
+            } else if (isClearMode) {
+              payload.bairro = ''
             }
-            if (item.presentColumns?.contato && item.contato && item.contato.trim()) {
+          }
+
+          if (item.presentColumns?.contato) {
+            if (item.contato && item.contato.trim()) {
               payload.contato = item.contato.trim()
+            } else if (isClearMode) {
+              payload.contato = ''
             }
           }
 
           // Se tiver pelo menos um campo para alterar, faz o update
           if (Object.keys(payload).length > 0) {
-            await pb.collection('escolas').update<EscolaRecord>(item.id, payload)
+            const updatedRec = await pb
+              .collection('escolas')
+              .update<EscolaRecord>(targetId, payload)
+            existingMap.set(itemNorm, updatedRec)
           }
           updated++
         }

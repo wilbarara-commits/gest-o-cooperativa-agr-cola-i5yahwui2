@@ -4,11 +4,14 @@ import { parsePtBrNumber } from '@/lib/numberParser'
 import { dePluralizeName } from '@/lib/productCsvImporter'
 import * as XLSX from 'xlsx'
 
+export type BlankFieldMode = 'clear' | 'keep'
+
 export interface SchoolFieldChange {
   field: 'tipo' | 'rota' | 'alunos' | 'endereco' | 'telefone' | 'email' | 'bairro' | 'contato'
   label: string
   oldValue: string
   newValue: string
+  isCleared?: boolean
 }
 
 export interface ParsedCsvSchoolRow {
@@ -47,6 +50,9 @@ export interface ParsedCsvSchoolRow {
     bairro: boolean
     contato: boolean
   }
+  // Contagem de células em branco em colunas reconhecidas presentes
+  blankPresentFieldsCount: number
+  blankPresentFieldsList: string[]
   // Validações
   status: 'valid' | 'update' | 'duplicate_master' | 'duplicate_file' | 'error'
   statusReason?: string
@@ -62,6 +68,36 @@ export interface CsvParseResult {
   duplicateFileCount: number
   errorCount: number
   allRows: ParsedCsvSchoolRow[]
+  // Informações de colunas e campos em branco
+  recognizedHeaders: {
+    firstColumn: string
+    isFirstColumnSchoolName: boolean
+    presentColumns: {
+      nome: boolean
+      tipo: boolean
+      rota: boolean
+      alunos: boolean
+      endereco: boolean
+      telefone: boolean
+      email: boolean
+      bairro: boolean
+      contato: boolean
+    }
+  }
+  blankStats: {
+    totalBlankCellsInPresentCols: number
+    updateRowsWithBlankInPresentCols: number
+    fieldsBlankCount: {
+      tipo: number
+      rota: number
+      alunos: number
+      endereco: number
+      telefone: number
+      email: number
+      bairro: number
+      contato: number
+    }
+  }
 }
 
 /**
@@ -394,6 +430,7 @@ export interface ParseSchoolsOptions {
   fileOrText: File | string
   fileName?: string
   existingMasterSchools: ExistingSchoolData[]
+  blankMode?: BlankFieldMode // 'keep' (padrão) ou 'clear'
 }
 
 /**
@@ -441,8 +478,14 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
     throw new Error('Nenhum dado encontrado para importar.')
   }
 
+  const { blankMode = 'keep' } = options
+
   // Detectar cabeçalho na primeira linha
-  const header = rawMatrix[0]
+  const header = rawMatrix[0] || []
+  if (header.length === 0) {
+    throw new Error('Linha de cabeçalho vazia ou não encontrada.')
+  }
+
   const {
     nomeIdx,
     tipoIdx,
@@ -454,6 +497,25 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
     bairroIdx,
     contatoIdx,
   } = findColumnIndexes(header)
+
+  // REGRA 1: "A primeira coluna é obrigatoriamente o nome da escola (se não for, rejeite com mensagem clara)"
+  const firstColText = (header[0] || '').trim()
+  const firstColNorm = normalizeName(firstColText)
+  const isFirstColSchoolName =
+    nomeIdx === 0 &&
+    (firstColNorm === 'nome da escola' ||
+      firstColNorm === 'nome escola' ||
+      firstColNorm === 'escola' ||
+      firstColNorm === 'nome' ||
+      firstColNorm.includes('escola') ||
+      firstColNorm.includes('instituic') ||
+      firstColNorm.includes('unidade escolar'))
+
+  if (!isFirstColSchoolName) {
+    throw new Error(
+      `A primeira coluna da planilha deve ser obrigatoriamente o nome da escola. A coluna encontrada foi "${firstColText || '[coluna vazia]'}". Por favor, organize a planilha para que a coluna 1 contenha o "Nome da Escola".`,
+    )
+  }
 
   const dataRows = rawMatrix.slice(1)
   if (dataRows.length === 0) {
@@ -503,7 +565,7 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
     // Ignorar linhas totalmente vazias
     if (row.every((c) => !c || c.trim() === '')) return
 
-    const rawNome = nomeIdx !== -1 && row[nomeIdx] !== undefined ? String(row[nomeIdx]).trim() : ''
+    const rawNome = row[0] !== undefined ? String(row[0]).trim() : ''
     const rawTipo = tipoIdx !== -1 && row[tipoIdx] !== undefined ? String(row[tipoIdx]).trim() : ''
     const rawRota = rotaIdx !== -1 && row[rotaIdx] !== undefined ? String(row[rotaIdx]).trim() : ''
     const rawAlunos =
@@ -543,6 +605,8 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
         tipo: '',
         rota: rawRota || 'Sem Rota',
         presentColumns,
+        blankPresentFieldsCount: 0,
+        blankPresentFieldsList: [],
         status,
         statusReason,
         warnings,
@@ -616,119 +680,202 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
         existingSchoolId = existing.id
         existingSchoolName = existing.nome
 
-        // REGRA DE ATUALIZAÇÃO SELETIVA:
-        // Se a coluna veio presente E NÃO EM BRANCO, compara com o valor existente e atualiza.
-        // Se a célula veio em branco, NÃO atualiza (preserva o valor existente).
+        // REGRA DE ATUALIZAÇÃO SELETIVA / CAMPO EM BRANCO (REGRA 2):
+        // Se a coluna estiver presente no cabeçalho:
+        //  - se tiver valor preenchido, atualiza se diferente do valor existente
+        //  - se estiver em branco:
+        //      * blankMode === 'clear' -> limpa campo no banco (se antes tinha valor)
+        //      * blankMode === 'keep'  -> mantém valor anterior (não altera)
 
         // Tipo:
-        if (presentColumns.tipo && rawTipo) {
+        if (presentColumns.tipo) {
           const oldT = existing.tipo || ''
-          const newT = mappedTipo || ''
-          if (oldT !== newT) {
+          if (rawTipo) {
+            const newT = mappedTipo || ''
+            if (oldT !== newT) {
+              fieldChanges.push({
+                field: 'tipo',
+                label: 'Tipo',
+                oldValue: oldT || '(vazio)',
+                newValue: newT || '(vazio)',
+              })
+            }
+          } else if (blankMode === 'clear' && oldT) {
             fieldChanges.push({
               field: 'tipo',
               label: 'Tipo',
-              oldValue: oldT || '(vazio)',
-              newValue: newT || '(vazio)',
+              oldValue: oldT,
+              newValue: '(limpar)',
+              isCleared: true,
             })
           }
         }
 
         // Rota:
-        if (presentColumns.rota && rawRota) {
+        if (presentColumns.rota) {
           const oldR = existing.rota || ''
-          const newR = mappedRota
-          if (oldR !== newR) {
+          if (rawRota) {
+            const newR = mappedRota
+            if (oldR !== newR) {
+              fieldChanges.push({
+                field: 'rota',
+                label: 'Rota',
+                oldValue: oldR || '(sem rota)',
+                newValue: newR,
+              })
+            }
+          } else if (blankMode === 'clear' && oldR && oldR !== 'Sem Rota') {
             fieldChanges.push({
               field: 'rota',
               label: 'Rota',
-              oldValue: oldR || '(sem rota)',
-              newValue: newR,
+              oldValue: oldR,
+              newValue: 'Sem Rota',
+              isCleared: true,
             })
           }
         }
 
         // Alunos:
-        if (presentColumns.alunos && rawAlunos && mappedAlunos !== undefined) {
+        if (presentColumns.alunos) {
           const oldA =
             existing.alunos !== undefined && existing.alunos !== null ? String(existing.alunos) : ''
-          const newA = String(mappedAlunos)
-          if (oldA !== newA) {
+          if (rawAlunos && mappedAlunos !== undefined) {
+            const newA = String(mappedAlunos)
+            if (oldA !== newA) {
+              fieldChanges.push({
+                field: 'alunos',
+                label: 'Alunos',
+                oldValue: oldA || '(vazio)',
+                newValue: newA,
+              })
+            }
+          } else if (blankMode === 'clear' && oldA) {
             fieldChanges.push({
               field: 'alunos',
               label: 'Alunos',
-              oldValue: oldA || '(vazio)',
-              newValue: newA,
+              oldValue: oldA,
+              newValue: '(limpar)',
+              isCleared: true,
             })
           }
         }
 
         // Endereço:
-        if (presentColumns.endereco && rawEndereco) {
+        if (presentColumns.endereco) {
           const oldEnd = existing.endereco || ''
-          const newEnd = rawEndereco
-          if (oldEnd !== newEnd) {
+          if (rawEndereco) {
+            const newEnd = rawEndereco
+            if (oldEnd !== newEnd) {
+              fieldChanges.push({
+                field: 'endereco',
+                label: 'Endereço',
+                oldValue: oldEnd || '(vazio)',
+                newValue: newEnd,
+              })
+            }
+          } else if (blankMode === 'clear' && oldEnd) {
             fieldChanges.push({
               field: 'endereco',
               label: 'Endereço',
-              oldValue: oldEnd || '(vazio)',
-              newValue: newEnd,
+              oldValue: oldEnd,
+              newValue: '(limpar)',
+              isCleared: true,
             })
           }
         }
 
         // Telefone:
-        if (presentColumns.telefone && rawTelefone) {
+        if (presentColumns.telefone) {
           const oldTel = existing.telefone || ''
-          const newTel = rawTelefone
-          if (oldTel !== newTel) {
+          if (rawTelefone) {
+            const newTel = rawTelefone
+            if (oldTel !== newTel) {
+              fieldChanges.push({
+                field: 'telefone',
+                label: 'Telefone',
+                oldValue: oldTel || '(vazio)',
+                newValue: newTel,
+              })
+            }
+          } else if (blankMode === 'clear' && oldTel) {
             fieldChanges.push({
               field: 'telefone',
               label: 'Telefone',
-              oldValue: oldTel || '(vazio)',
-              newValue: newTel,
+              oldValue: oldTel,
+              newValue: '(limpar)',
+              isCleared: true,
             })
           }
         }
 
         // E-mail:
-        if (presentColumns.email && rawEmail) {
+        if (presentColumns.email) {
           const oldMail = existing.email || ''
-          const newMail = rawEmail
-          if (oldMail !== newMail) {
+          if (rawEmail) {
+            const newMail = rawEmail
+            if (oldMail !== newMail) {
+              fieldChanges.push({
+                field: 'email',
+                label: 'E-mail',
+                oldValue: oldMail || '(vazio)',
+                newValue: newMail,
+              })
+            }
+          } else if (blankMode === 'clear' && oldMail) {
             fieldChanges.push({
               field: 'email',
               label: 'E-mail',
-              oldValue: oldMail || '(vazio)',
-              newValue: newMail,
+              oldValue: oldMail,
+              newValue: '(limpar)',
+              isCleared: true,
             })
           }
         }
 
         // Bairro:
-        if (presentColumns.bairro && rawBairro) {
+        if (presentColumns.bairro) {
           const oldBairro = existing.bairro || ''
-          const newBairro = rawBairro
-          if (oldBairro !== newBairro) {
+          if (rawBairro) {
+            const newBairro = rawBairro
+            if (oldBairro !== newBairro) {
+              fieldChanges.push({
+                field: 'bairro',
+                label: 'Bairro',
+                oldValue: oldBairro || '(vazio)',
+                newValue: newBairro,
+              })
+            }
+          } else if (blankMode === 'clear' && oldBairro) {
             fieldChanges.push({
               field: 'bairro',
               label: 'Bairro',
-              oldValue: oldBairro || '(vazio)',
-              newValue: newBairro,
+              oldValue: oldBairro,
+              newValue: '(limpar)',
+              isCleared: true,
             })
           }
         }
 
         // Contato:
-        if (presentColumns.contato && rawContato) {
+        if (presentColumns.contato) {
           const oldContato = existing.contato || ''
-          const newContato = rawContato
-          if (oldContato !== newContato) {
+          if (rawContato) {
+            const newContato = rawContato
+            if (oldContato !== newContato) {
+              fieldChanges.push({
+                field: 'contato',
+                label: 'Contato',
+                oldValue: oldContato || '(vazio)',
+                newValue: newContato,
+              })
+            }
+          } else if (blankMode === 'clear' && oldContato) {
             fieldChanges.push({
               field: 'contato',
               label: 'Contato',
-              oldValue: oldContato || '(vazio)',
-              newValue: newContato,
+              oldValue: oldContato,
+              newValue: '(limpar)',
+              isCleared: true,
             })
           }
         }
@@ -737,10 +884,24 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
           const changedNames = fieldChanges.map((f) => f.label).join(', ')
           statusReason = `Escola existente no cadastro ("${existing.nome}"); atualizará: ${changedNames}.`
         } else {
-          statusReason = `Escola existente no cadastro ("${existing.nome}"); dados idênticos ou colunas em branco preservam o valor gravado.`
+          statusReason =
+            blankMode === 'clear'
+              ? `Escola existente no cadastro ("${existing.nome}"); dados idênticos e sem campos a limpar.`
+              : `Escola existente no cadastro ("${existing.nome}"); dados idênticos ou colunas em branco mantendo o valor gravado.`
         }
       }
     }
+
+    // Identificar quais campos presentes nesta linha vieram em branco
+    const blankPresentFieldsList: string[] = []
+    if (presentColumns.tipo && !rawTipo) blankPresentFieldsList.push('Tipo')
+    if (presentColumns.rota && !rawRota) blankPresentFieldsList.push('Rota')
+    if (presentColumns.alunos && !rawAlunos) blankPresentFieldsList.push('Nº Alunos')
+    if (presentColumns.telefone && !rawTelefone) blankPresentFieldsList.push('Telefone')
+    if (presentColumns.bairro && !rawBairro) blankPresentFieldsList.push('Bairro')
+    if (presentColumns.endereco && !rawEndereco) blankPresentFieldsList.push('Endereço')
+    if (presentColumns.contato && !rawContato) blankPresentFieldsList.push('Contato')
+    if (presentColumns.email && !rawEmail) blankPresentFieldsList.push('E-mail')
 
     allRows.push({
       index: rowIdx + 2,
@@ -766,6 +927,8 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
       existingSchoolName,
       fieldChanges,
       presentColumns,
+      blankPresentFieldsCount: blankPresentFieldsList.length,
+      blankPresentFieldsList,
       status,
       statusReason,
       warnings,
@@ -774,6 +937,70 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
 
   const validRows = allRows.filter((r) => r.status === 'valid')
   const updateRows = allRows.filter((r) => r.status === 'update')
+
+  // Estatísticas de campos em branco em colunas reconhecidas e presentes
+  const fieldsBlankCount = {
+    tipo: 0,
+    rota: 0,
+    alunos: 0,
+    endereco: 0,
+    telefone: 0,
+    email: 0,
+    bairro: 0,
+    contato: 0,
+  }
+  let totalBlankCellsInPresentCols = 0
+  let updateRowsWithBlankInPresentCols = 0
+
+  allRows.forEach((r) => {
+    if (r.status === 'error' || r.status === 'duplicate_file') return
+    let rowHasBlank = false
+
+    if (presentColumns.tipo && !r.rawTipo) {
+      fieldsBlankCount.tipo++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+    if (presentColumns.rota && !r.rawRota) {
+      fieldsBlankCount.rota++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+    if (presentColumns.alunos && !r.rawAlunos) {
+      fieldsBlankCount.alunos++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+    if (presentColumns.endereco && !r.rawEndereco) {
+      fieldsBlankCount.endereco++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+    if (presentColumns.telefone && !r.rawTelefone) {
+      fieldsBlankCount.telefone++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+    if (presentColumns.email && !r.rawEmail) {
+      fieldsBlankCount.email++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+    if (presentColumns.bairro && !r.rawBairro) {
+      fieldsBlankCount.bairro++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+    if (presentColumns.contato && !r.rawContato) {
+      fieldsBlankCount.contato++
+      totalBlankCellsInPresentCols++
+      rowHasBlank = true
+    }
+
+    if (r.status === 'update' && rowHasBlank) {
+      updateRowsWithBlankInPresentCols++
+    }
+  })
 
   return {
     fileName: typeof fileOrText === 'string' ? fileName : fileOrText.name,
@@ -784,6 +1011,19 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
     duplicateFileCount,
     errorCount,
     allRows,
+    recognizedHeaders: {
+      firstColumn: firstColText,
+      isFirstColumnSchoolName: isFirstColSchoolName,
+      presentColumns: {
+        nome: true,
+        ...presentColumns,
+      },
+    },
+    blankStats: {
+      totalBlankCellsInPresentCols,
+      updateRowsWithBlankInPresentCols,
+      fieldsBlankCount,
+    },
   }
 }
 

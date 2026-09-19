@@ -36,6 +36,7 @@ import {
   type CsvParseResult,
   type ParsedCsvSchoolRow,
   type ExistingSchoolData,
+  type BlankFieldMode,
 } from '@/lib/schoolCsvImporter'
 import { escolasService } from '@/services/escolas'
 import type { School } from '@/lib/types'
@@ -64,7 +65,7 @@ export function SchoolImportDialog({
   const [filterTab, setFilterTab] = useState<
     'all' | 'valid' | 'update' | 'duplicate_file' | 'error'
   >('all')
-  const [conflictMode, setConflictMode] = useState<'merge' | 'overwrite'>('merge')
+  const [blankMode, setBlankMode] = useState<BlankFieldMode>('keep')
   const [importSummary, setImportSummary] = useState<{
     created: number
     updated: number
@@ -73,10 +74,16 @@ export function SchoolImportDialog({
   } | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const currentSourceRef = useRef<{ fileOrText: File | string; fileName?: string } | null>(null)
 
-  const runParse = async (fileOrText: File | string, fileName?: string) => {
+  const runParse = async (
+    fileOrText: File | string,
+    fileName?: string,
+    modeToUse: BlankFieldMode = blankMode,
+  ) => {
     setImportSummary(null)
     setIsParsing(true)
+    currentSourceRef.current = { fileOrText, fileName }
     try {
       const existing: ExistingSchoolData[] = schools.map((s) => ({
         id: s.id,
@@ -94,13 +101,14 @@ export function SchoolImportDialog({
         fileOrText,
         fileName,
         existingMasterSchools: existing,
+        blankMode: modeToUse,
       })
       setParseResult(result)
 
       const totalProcessable = result.validRows.length + result.updateRows.length
       if (totalProcessable > 0) {
         toast.info(
-          `${result.validRows.length} nova(s) e ${result.updateRows.length} existente(s) para atualizar.`,
+          `${result.validRows.length} nova(s) para criar e ${result.updateRows.length} para atualizar no cadastro mestre.`,
         )
       } else {
         toast.warning(
@@ -113,6 +121,13 @@ export function SchoolImportDialog({
       setParseResult(null)
     } finally {
       setIsParsing(false)
+    }
+  }
+
+  const handleBlankModeChange = (newMode: BlankFieldMode) => {
+    setBlankMode(newMode)
+    if (currentSourceRef.current) {
+      runParse(currentSourceRef.current.fileOrText, currentSourceRef.current.fileName, newMode)
     }
   }
 
@@ -139,10 +154,11 @@ export function SchoolImportDialog({
   const handleReset = () => {
     setFile(null)
     setPastedText('')
+    currentSourceRef.current = null
     setParseResult(null)
     setImportSummary(null)
     setSaveProgress(0)
-    setConflictMode('merge')
+    setBlankMode('keep')
     setFilterTab('all')
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
@@ -233,7 +249,7 @@ export function SchoolImportDialog({
 
       const { created, updated, errors } = await escolasService.importBatch(
         payload,
-        conflictMode,
+        blankMode,
         (processed, total) => {
           setSaveProgress(Math.round((processed / total) * 100))
         },
@@ -477,53 +493,112 @@ export function SchoolImportDialog({
         {/* PREVIEW DA IMPORTAÇÃO */}
         {parseResult && !importSummary && (
           <div className="flex-1 min-h-0 flex flex-col space-y-3">
-            {/* Opção de resolução de conflito para escolas existentes */}
-            {parseResult.updateRows.length > 0 && (
-              <div className="shrink-0 p-3 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 rounded-lg space-y-2">
-                <div className="flex items-center gap-2 text-xs font-semibold text-blue-900 dark:text-blue-300">
-                  <Settings2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                  <span>
-                    Regra de Atualização para {parseResult.updateRows.length} escola(s) já
-                    existente(s):
-                  </span>
+            {/* SELETOR VISÍVEL DE COMPORTAMENTO PARA CAMPO EM BRANCO (REGRA 2) */}
+            <div className="shrink-0 p-3.5 bg-card border-2 border-primary/20 dark:border-primary/30 rounded-xl space-y-2.5 shadow-xs">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                  <Settings2 className="h-4 w-4 text-primary shrink-0" />
+                  <span>Comportamento para campo em branco na planilha (opção global):</span>
                 </div>
-                <RadioGroup
-                  value={conflictMode}
-                  onValueChange={(val) => setConflictMode(val as 'merge' | 'overwrite')}
-                  className="space-y-1.5 text-xs"
-                >
-                  <div className="flex items-start gap-2 cursor-pointer">
-                    <RadioGroupItem value="merge" id="mode-merge" className="mt-0.5" />
-                    <Label
-                      htmlFor="mode-merge"
-                      className="font-normal cursor-pointer leading-tight"
-                    >
-                      <strong className="text-foreground font-medium">
-                        Atualizar campos preenchidos no arquivo
-                      </strong>{' '}
-                      <span className="text-muted-foreground">
-                        (recomendado: mantém os valores já salvos quando a coluna estiver vazia no
-                        arquivo)
-                      </span>
-                    </Label>
-                  </div>
-                  <div className="flex items-start gap-2 cursor-pointer">
-                    <RadioGroupItem value="overwrite" id="mode-overwrite" className="mt-0.5" />
-                    <Label
-                      htmlFor="mode-overwrite"
-                      className="font-normal cursor-pointer leading-tight"
-                    >
-                      <strong className="text-foreground font-medium">
-                        Sobrescrever todos os campos com os valores do arquivo
-                      </strong>{' '}
-                      <span className="text-muted-foreground">
-                        (limpa dados existentes se o campo vier vazio na coluna correspondente)
-                      </span>
-                    </Label>
-                  </div>
-                </RadioGroup>
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>
+                    Campos em branco na planilha:{' '}
+                    <strong className="text-foreground">
+                      {parseResult.blankStats.totalBlankCellsInPresentCols}
+                    </strong>{' '}
+                    célula(s)
+                  </span>
+                  {parseResult.blankStats.updateRowsWithBlankInPresentCols > 0 && (
+                    <Badge variant="outline" className="text-[10px] font-normal">
+                      {parseResult.blankStats.updateRowsWithBlankInPresentCols} existente(s) com
+                      campos em branco
+                    </Badge>
+                  )}
+                </div>
               </div>
-            )}
+
+              <RadioGroup
+                value={blankMode}
+                onValueChange={(val) => handleBlankModeChange(val as BlankFieldMode)}
+                className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs"
+              >
+                <div
+                  onClick={() => handleBlankModeChange('keep')}
+                  className={`p-2.5 rounded-lg border cursor-pointer transition-all ${
+                    blankMode === 'keep'
+                      ? 'border-primary bg-primary/5 shadow-xs'
+                      : 'border-border/70 hover:border-border hover:bg-muted/30'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <RadioGroupItem value="keep" id="mode-keep" className="mt-0.5" />
+                    <Label htmlFor="mode-keep" className="cursor-pointer space-y-0.5 leading-snug">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <span>Manter valor anterior</span>
+                        {blankMode === 'keep' && (
+                          <Badge variant="secondary" className="text-[10px] font-normal py-0">
+                            Ativo
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Campo em branco na planilha <strong>NÃO</strong> altera o valor já
+                        cadastrado. Preserva os dados do cadastro mestre.
+                      </p>
+                    </Label>
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => handleBlankModeChange('clear')}
+                  className={`p-2.5 rounded-lg border cursor-pointer transition-all ${
+                    blankMode === 'clear'
+                      ? 'border-destructive/60 bg-destructive/5 shadow-xs'
+                      : 'border-border/70 hover:border-border hover:bg-muted/30'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <RadioGroupItem value="clear" id="mode-clear" className="mt-0.5" />
+                    <Label htmlFor="mode-clear" className="cursor-pointer space-y-0.5 leading-snug">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <span>Limpar campo no banco</span>
+                        {blankMode === 'clear' && (
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px] font-normal py-0 bg-destructive/80"
+                          >
+                            Ativo (limpará)
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        O valor anterior é <strong>substituído por vazio</strong> nas colunas
+                        presentes que vierem em branco.
+                      </p>
+                    </Label>
+                  </div>
+                </div>
+              </RadioGroup>
+
+              {/* Informativo dinâmico da opção escolhida e contadores de criação vs atualização */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-muted-foreground border-t border-border/50">
+                <span>
+                  Modo ativo:{' '}
+                  {blankMode === 'keep' ? (
+                    <strong className="text-foreground">
+                      Manter valores existentes (nenhum campo apagado)
+                    </strong>
+                  ) : (
+                    <strong className="text-destructive">
+                      Limpar campos em branco no banco (para colunas presentes no cabeçalho)
+                    </strong>
+                  )}
+                </span>
+                <span className="text-muted-foreground">
+                  Colunas ausentes no cabeçalho não são afetadas.
+                </span>
+              </div>
+            </div>
 
             {/* Header com métricas e filtros */}
             <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg text-xs">
@@ -747,14 +822,24 @@ export function SchoolImportDialog({
                                   {row.fieldChanges.map((ch, cIdx) => (
                                     <span
                                       key={cIdx}
-                                      className="inline-flex items-center gap-1 bg-blue-100/70 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded text-[10px]"
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${
+                                        ch.isCleared
+                                          ? 'bg-destructive/10 text-destructive border border-destructive/20'
+                                          : 'bg-blue-100/70 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200'
+                                      }`}
                                     >
                                       <strong>{ch.label}:</strong>
                                       <span className="line-through text-muted-foreground">
                                         {ch.oldValue}
                                       </span>
                                       <ArrowRight className="h-2.5 w-2.5" />
-                                      <span className="font-semibold text-blue-700 dark:text-blue-300">
+                                      <span
+                                        className={
+                                          ch.isCleared
+                                            ? 'font-semibold text-destructive'
+                                            : 'font-semibold text-blue-700 dark:text-blue-300'
+                                        }
+                                      >
                                         {ch.newValue}
                                       </span>
                                     </span>

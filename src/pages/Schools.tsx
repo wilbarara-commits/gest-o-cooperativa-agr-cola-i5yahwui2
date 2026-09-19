@@ -654,26 +654,31 @@ export default function Schools() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="w-[260px] font-semibold text-foreground">
+                  <TableHead className="w-[240px] font-semibold text-foreground">
                     Escola / Instituição
                   </TableHead>
-                  <TableHead className="w-[110px] font-semibold text-foreground">Tipo</TableHead>
-                  <TableHead className="w-[150px] font-semibold text-foreground">
-                    Rota (Planilha)
-                  </TableHead>
-                  <TableHead className="w-[170px] font-semibold text-foreground">
-                    Rota Logística
-                  </TableHead>
-                  <TableHead className="w-[80px] text-right font-semibold text-foreground">
+                  <TableHead className="w-[95px] font-semibold text-foreground">Tipo</TableHead>
+                  <TableHead className="w-[70px] text-right font-semibold text-foreground">
                     Alunos
                   </TableHead>
-                  <TableHead className="w-[130px] font-semibold text-foreground">
+                  <TableHead className="w-[125px] font-semibold text-foreground">
                     Telefone
                   </TableHead>
-                  <TableHead className="min-w-[150px] font-semibold text-foreground">
-                    Contratos
+                  <TableHead className="w-[155px] font-semibold text-foreground">E-mail</TableHead>
+                  <TableHead className="w-[130px] font-semibold text-foreground">Contato</TableHead>
+                  <TableHead className="min-w-[190px] font-semibold text-foreground">
+                    Endereço & Bairro
                   </TableHead>
-                  <TableHead className="w-[120px] text-right font-semibold text-foreground">
+                  <TableHead className="min-w-[130px] font-semibold text-foreground">
+                    Vínculo Contrato
+                  </TableHead>
+                  <TableHead className="w-[135px] font-semibold text-foreground">
+                    Rota (Planilha)
+                  </TableHead>
+                  <TableHead className="w-[150px] font-semibold text-foreground">
+                    Rota Logística
+                  </TableHead>
+                  <TableHead className="w-[95px] text-right font-semibold text-foreground">
                     Ações
                   </TableHead>
                 </TableRow>
@@ -681,6 +686,21 @@ export default function Schools() {
               <TableBody>
                 {paginatedSchools.map((school) => {
                   const links = schoolContractLinksMap.get(school.id) || []
+                  const isLinkedToContract = links.length > 0
+
+                  // Montagem de endereço + bairro na mesma linha: "Rua X, 123 — Bairro Y"
+                  const fullAddressDisplay = (() => {
+                    const addr = (school.address || '').trim()
+                    const b = (school.bairro || '').trim()
+                    if (addr && b) {
+                      // Se o endereço já contiver o bairro escrito explicitamente, evita duplicar
+                      if (addr.toLowerCase().includes(b.toLowerCase())) return addr
+                      return `${addr} — Bairro ${b}`
+                    }
+                    if (addr) return addr
+                    if (b) return `Bairro ${b}`
+                    return ''
+                  })()
 
                   return (
                     <TableRow
@@ -688,34 +708,24 @@ export default function Schools() {
                       className="cursor-pointer hover:bg-muted/60 transition-colors"
                       onClick={() => handleOpenDetails(school)}
                     >
-                      {/* Nome e Endereço resumido */}
+                      {/* 1. Nome da Escola */}
                       <TableCell className="font-medium align-middle">
-                        <div className="flex items-start gap-2.5 py-0.5">
-                          <div className="p-2 bg-primary/10 text-primary rounded-md shrink-0 mt-0.5">
+                        <div className="flex items-start gap-2 py-0.5">
+                          <div className="p-1.5 bg-primary/10 text-primary rounded-md shrink-0 mt-0.5">
                             <Building2 className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
                             <span
-                              className="font-semibold text-foreground block truncate"
+                              className="font-semibold text-foreground block truncate max-w-[210px]"
                               title={school.name}
                             >
                               {school.name}
-                            </span>
-                            <span
-                              className="text-xs text-muted-foreground block truncate max-w-[240px]"
-                              title={school.address || 'Endereço não informado'}
-                            >
-                              {school.address || (
-                                <span className="italic text-muted-foreground/60">
-                                  Sem endereço
-                                </span>
-                              )}
                             </span>
                           </div>
                         </div>
                       </TableCell>
 
-                      {/* Tipo de Escola */}
+                      {/* 2. Tipo */}
                       <TableCell className="align-middle">
                         {school.tipo ? (
                           <Badge
@@ -725,142 +735,83 @@ export default function Schools() {
                             {school.tipo}
                           </Badge>
                         ) : (
-                          <span className="text-xs text-muted-foreground italic">-</span>
+                          <span className="text-xs text-muted-foreground/60 italic">—</span>
                         )}
                       </TableCell>
 
-                      {/* Coluna 1: Rota (Planilha) - Neutra */}
-                      <TableCell className="align-middle">
-                        <div className="flex flex-col gap-1">
-                          {(() => {
-                            const rotasPlanilhaSet = Array.from(
-                              new Set(
-                                links
-                                  .map((l) => l.rotaPlanilha)
-                                  .filter((r) => r && r !== 'Sem Rota'),
-                              ),
-                            )
-                            if (rotasPlanilhaSet.length > 0) {
-                              return (
-                                <div className="flex flex-wrap items-center gap-1">
-                                  {rotasPlanilhaSet.map((r, idx) => (
-                                    <Badge
-                                      key={idx}
-                                      variant="secondary"
-                                      className="text-[10px] font-normal gap-1 bg-muted text-foreground border-border/80"
-                                      title="Origem na planilha da secretaria"
-                                    >
-                                      <FileSpreadsheet className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                                      {r}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              )
-                            }
-                            if (school.route && school.route !== 'Sem Rota') {
-                              return (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-[10px] font-normal gap-1 bg-muted/60 text-muted-foreground border-border/60"
-                                >
-                                  {school.route}
-                                </Badge>
-                              )
-                            }
-                            return (
-                              <span className="text-xs text-muted-foreground/60 italic">
-                                Sem rota
-                              </span>
-                            )
-                          })()}
-                        </div>
-                      </TableCell>
-
-                      {/* Coluna 2: Rota Logística - Caminhão ou Pendente */}
-                      <TableCell className="align-middle">
-                        {(() => {
-                          const parada = paradasRota.find((p) => p.escola_id === school.id)
-                          const linkWithLog = links.find(
-                            (l) => l.rotaLogisticaNome || l.rotaLogisticaId,
-                          )
-                          const rotaLogObj = rotasLogisticas.find(
-                            (r) =>
-                              r.id === (parada?.rota_logistica_id || linkWithLog?.rotaLogisticaId),
-                          )
-                          const nomeLogistica = rotaLogObj?.nome || linkWithLog?.rotaLogisticaNome
-
-                          if (nomeLogistica) {
-                            return (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] font-medium gap-1 bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700"
-                              >
-                                <Truck className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
-                                Rota {nomeLogistica}
-                                {parada?.ordem && (
-                                  <span className="text-[9px] opacity-75">({parada.ordem}ª)</span>
-                                )}
-                              </Badge>
-                            )
-                          }
-                          return (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] font-normal text-muted-foreground border-dashed bg-muted/20"
-                            >
-                              Pendente de roteamento
-                            </Badge>
-                          )
-                        })()}
-                      </TableCell>
-
-                      {/* Nº de Alunos */}
+                      {/* 3. Nº de Alunos */}
                       <TableCell className="text-right align-middle">
                         {school.alunos !== undefined && school.alunos !== null ? (
                           <span className="font-mono text-xs text-foreground/90 font-medium">
                             {school.alunos}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground/50">-</span>
+                          <span className="text-xs text-muted-foreground/50">—</span>
                         )}
                       </TableCell>
 
-                      {/* Telefone e Contato / Bairro */}
-                      <TableCell className="align-middle text-xs text-muted-foreground">
-                        <div className="space-y-0.5">
-                          {school.contact ? (
-                            <span className="flex items-center gap-1.5 text-foreground/80 whitespace-nowrap">
-                              <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
-                              {school.contact}
-                            </span>
-                          ) : (
-                            <span className="italic text-muted-foreground/50 block">
-                              Sem telefone
-                            </span>
-                          )}
-                          {school.contatoResponsavel && (
-                            <span
-                              className="text-[11px] text-foreground/90 block truncate max-w-[180px]"
-                              title={school.contatoResponsavel}
-                            >
-                              Contato: {school.contatoResponsavel}
-                            </span>
-                          )}
-                          {school.bairro && (
-                            <span
-                              className="text-[10px] text-muted-foreground block truncate max-w-[180px]"
-                              title={school.bairro}
-                            >
-                              Bairro: {school.bairro}
-                            </span>
-                          )}
-                        </div>
+                      {/* 4. Telefone */}
+                      <TableCell className="align-middle text-xs">
+                        {school.contact ? (
+                          <span className="flex items-center gap-1 text-foreground/90 whitespace-nowrap font-mono text-[11px]">
+                            <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
+                            {school.contact}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50 italic">—</span>
+                        )}
                       </TableCell>
 
-                      {/* Contratos Vinculados (Badges) */}
+                      {/* 5. E-mail (Regra 3: incluído explicitamente na tela) */}
+                      <TableCell className="align-middle text-xs">
+                        {school.email ? (
+                          <span
+                            className="flex items-center gap-1 text-foreground/90 truncate max-w-[145px]"
+                            title={school.email}
+                          >
+                            <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
+                            <span className="truncate">{school.email}</span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50 italic">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* 6. Contato / Responsável (Regra 3: incluído explicitamente na tela) */}
+                      <TableCell className="align-middle text-xs">
+                        {school.contatoResponsavel ? (
+                          <span
+                            className="text-foreground/90 block truncate max-w-[125px]"
+                            title={school.contatoResponsavel}
+                          >
+                            {school.contatoResponsavel}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50 italic">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* 7. Endereço + Bairro (Regra 3: Bairro junto do Endereço ex: "Rua X, 123 — Bairro Y") */}
+                      <TableCell className="align-middle text-xs">
+                        {fullAddressDisplay ? (
+                          <div
+                            className="flex items-start gap-1 text-muted-foreground truncate max-w-[240px]"
+                            title={fullAddressDisplay}
+                          >
+                            <MapPin className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+                            <span className="truncate text-foreground/90">
+                              {fullAddressDisplay}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground/50 italic">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* 8. Vínculo de Contrato */}
                       <TableCell className="align-middle">
-                        {links.length > 0 ? (
-                          <div className="flex flex-wrap items-center gap-1 max-w-[260px]">
+                        {isLinkedToContract ? (
+                          <div className="flex flex-wrap items-center gap-1 max-w-[200px]">
                             {links.map((link, idx) => (
                               <Badge
                                 key={idx}
@@ -874,13 +825,93 @@ export default function Schools() {
                             ))}
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground/60 italic">
-                            Nenhum contrato
-                          </span>
+                          <span className="text-xs text-muted-foreground/60 italic">—</span>
                         )}
                       </TableCell>
 
-                      {/* Ações */}
+                      {/* 9. Rota da Prefeitura / Planilha (Regra 3: à DIREITA após o vínculo de contrato; mostra "—" se sem vínculo) */}
+                      <TableCell className="align-middle">
+                        {isLinkedToContract ? (
+                          <div className="flex flex-col gap-1">
+                            {(() => {
+                              const rotasPlanilhaSet = Array.from(
+                                new Set(
+                                  links
+                                    .map((l) => l.rotaPlanilha)
+                                    .filter((r) => r && r !== 'Sem Rota'),
+                                ),
+                              )
+                              if (rotasPlanilhaSet.length > 0) {
+                                return (
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {rotasPlanilhaSet.map((r, idx) => (
+                                      <Badge
+                                        key={idx}
+                                        variant="secondary"
+                                        className="text-[10px] font-normal gap-1 bg-muted text-foreground border-border/80"
+                                        title="Origem na planilha da secretaria"
+                                      >
+                                        <FileSpreadsheet className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                                        {r}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )
+                              }
+                              return (
+                                <span className="text-xs text-muted-foreground/60 italic">—</span>
+                              )
+                            })()}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60 italic">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* 10. Rota Logística (Regra 3: à DIREITA após o vínculo de contrato; mostra "—" se sem vínculo) */}
+                      <TableCell className="align-middle">
+                        {isLinkedToContract ? (
+                          (() => {
+                            const parada = paradasRota.find((p) => p.escola_id === school.id)
+                            const linkWithLog = links.find(
+                              (l) => l.rotaLogisticaNome || l.rotaLogisticaId,
+                            )
+                            const rotaLogObj = rotasLogisticas.find(
+                              (r) =>
+                                r.id ===
+                                (parada?.rota_logistica_id || linkWithLog?.rotaLogisticaId),
+                            )
+                            const nomeLogistica = rotaLogObj?.nome || linkWithLog?.rotaLogisticaNome
+
+                            if (nomeLogistica) {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] font-medium gap-1 bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700"
+                                >
+                                  <Truck className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                                  Rota {nomeLogistica}
+                                  {parada?.ordem && (
+                                    <span className="text-[9px] opacity-75">({parada.ordem}ª)</span>
+                                  )}
+                                </Badge>
+                              )
+                            }
+                            return (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-normal text-muted-foreground border-dashed bg-muted/20"
+                              >
+                                Pendente
+                              </Badge>
+                            )
+                          })()
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60 italic">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* 11. Ações */}
                       <TableCell
                         className="text-right align-middle"
                         onClick={(e) => e.stopPropagation()}
@@ -926,7 +957,7 @@ export default function Schools() {
 
                 {filteredSchools.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                    <TableCell colSpan={11} className="py-12 text-center text-muted-foreground">
                       <div className="space-y-2">
                         <p className="text-sm">
                           {hasActiveFilters

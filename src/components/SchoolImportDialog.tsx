@@ -150,6 +150,9 @@ export function SchoolImportDialog({
   }
 
   const handleDownloadModel = () => {
+    // Ordem esperada pelo usuário:
+    // Nome da Escola | Tipo | Rota | Nº Alunos | Telefone | Bairro | Endereço | Contato | E-mail
+    // com Bairro adjacente a Endereço e Contato adjacente a E-mail.
     const wsData = [
       [
         'Nome da Escola',
@@ -157,9 +160,9 @@ export function SchoolImportDialog({
         'Rota',
         'Nº Alunos',
         'Telefone',
-        'Contato',
         'Bairro',
         'Endereço',
+        'Contato',
         'E-mail',
       ],
       [
@@ -168,9 +171,9 @@ export function SchoolImportDialog({
         'Rota 01',
         '125',
         '(21) 98765-4321',
-        'Diretora Ana',
         'Centro',
         'Rua das Palmeiras, 120',
+        'Diretora Ana',
         'cmei.maria@educacao.gov.br',
       ],
       [
@@ -179,9 +182,9 @@ export function SchoolImportDialog({
         'Rota 02',
         '47',
         '(21) 99887-1122',
-        'Coordenadora Maria',
         'Bairro Novo',
         'Av. Brasil, 450',
+        'Coordenadora Maria',
         'creche.miguel@educacao.gov.br',
       ],
       [
@@ -190,9 +193,9 @@ export function SchoolImportDialog({
         'Rota 01',
         '171',
         '(21) 97766-3344',
-        'Marcos Silva',
         'São Pedro',
         'Rua São Pedro, 80',
+        'Marcos Silva',
         'em.alice@educacao.gov.br',
       ],
     ]
@@ -295,7 +298,7 @@ export function SchoolImportDialog({
           </DialogTitle>
           <DialogDescription>
             Importe ou cole listas de escolas. O cabeçalho na 1ª linha mapeia as colunas (Nome da
-            Escola, Tipo, Rota, Alunos, Bairro, Contato, Telefone, Endereço, E-mail). O nome da
+            Escola, Tipo, Rota, Nº Alunos, Telefone, Bairro, Endereço, Contato, E-mail). O nome da
             escola é obrigatório; para escolas já existentes, colunas em branco mantêm os dados já
             gravados.
           </DialogDescription>
@@ -365,9 +368,9 @@ export function SchoolImportDialog({
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Colunas aceitas: <strong>Nome da Escola</strong> (obrigatória),{' '}
-                    <strong>Tipo</strong>, <strong>Rota</strong>, <strong>Alunos</strong>,{' '}
-                    <strong>Bairro</strong>, <strong>Contato</strong>, <strong>Telefone</strong>,{' '}
-                    <strong>Endereço</strong>, <strong>E-mail</strong>
+                    <strong>Tipo</strong>, <strong>Rota</strong>, <strong>Nº Alunos</strong>,{' '}
+                    <strong>Telefone</strong>, <strong>Bairro</strong>, <strong>Endereço</strong>,{' '}
+                    <strong>Contato</strong>, <strong>E-mail</strong>
                   </p>
                 </div>
 
@@ -399,7 +402,7 @@ export function SchoolImportDialog({
             ) : (
               <div className="space-y-2 flex-1 flex flex-col">
                 <Textarea
-                  placeholder={`Cole as linhas do Excel ou CSV aqui (com cabeçalho na 1ª linha)...\nExemplo:\nNome da Escola\tTipo\tBairro\tContato\tTelefone\tAlunos\nEM ALICE SALDANHA\tFUNDAMENTAL\tSão Pedro\tMarcos Silva\t(21) 97766-3344\t171\nCMEI MARIA TEREZA\tCMEI\tCentro\tDiretora Ana\t(21) 98765-4321\t125`}
+                  placeholder={`Cole as linhas do Excel ou CSV aqui (com cabeçalho na 1ª linha)...\nExemplo:\nNome da Escola\tTipo\tRota\tNº Alunos\tTelefone\tBairro\tEndereço\tContato\tE-mail\nEM ALICE SALDANHA\tFUNDAMENTAL\tRota 01\t171\t(21) 97766-3344\tSão Pedro\tRua São Pedro, 80\tMarcos Silva\tem.alice@educacao.gov.br\nCMEI MARIA TEREZA\tCMEI\tRota 01\t125\t(21) 98765-4321\tCentro\tRua das Palmeiras, 120\tDiretora Ana\tcmei.maria@educacao.gov.br`}
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
                   className="flex-1 min-h-[200px] text-xs font-mono resize-none"
@@ -609,15 +612,19 @@ export function SchoolImportDialog({
 
             {/* Tabela de Preview com scroll nativo e sticky header */}
             <div className="flex-1 min-h-[260px] max-h-[50vh] overflow-y-auto overflow-x-auto border rounded-lg bg-card shadow-inner overscroll-contain">
-              <table className="w-full text-xs text-left border-collapse">
+              <table className="w-full text-xs text-left border-collapse min-w-[850px]">
                 <thead className="bg-muted text-muted-foreground uppercase sticky top-0 z-20 border-b shadow-xs">
                   <tr>
-                    <th className="py-2.5 px-3 w-12 bg-muted font-semibold">#</th>
+                    <th className="py-2.5 px-3 w-10 bg-muted font-semibold">#</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Escola</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Tipo</th>
-                    <th className="py-2.5 px-3 bg-muted font-semibold">Bairro / Contato</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">Rota</th>
-                    <th className="py-2.5 px-3 bg-muted font-semibold">Alunos</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Nº Alunos</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Telefone</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Bairro</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Endereço</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">Contato</th>
+                    <th className="py-2.5 px-3 bg-muted font-semibold">E-mail</th>
                     <th className="py-2.5 px-3 bg-muted font-semibold">
                       Ação / Alterações Previstas
                     </th>
@@ -644,7 +651,7 @@ export function SchoolImportDialog({
                         }
                       >
                         <td className="py-2 px-3 text-muted-foreground font-mono">{row.index}</td>
-                        <td className="py-2 px-3 font-medium">
+                        <td className="py-2 px-3 font-medium min-w-[160px]">
                           {row.nome || (
                             <span className="text-destructive italic">
                               [Nome Vazio] (bruto: "{row.rawNome}")
@@ -658,7 +665,7 @@ export function SchoolImportDialog({
                               </span>
                             )}
                         </td>
-                        <td className="py-2 px-3">
+                        <td className="py-2 px-3 whitespace-nowrap">
                           {row.tipo ? (
                             <Badge variant="outline" className="text-[10px] font-normal">
                               {row.tipo}
@@ -672,22 +679,8 @@ export function SchoolImportDialog({
                             </span>
                           )}
                         </td>
-                        <td className="py-2 px-3">
-                          <div className="space-y-0.5">
-                            <span className="block text-foreground">
-                              {row.bairro || (
-                                <span className="text-muted-foreground italic">-</span>
-                              )}
-                            </span>
-                            {row.contato && (
-                              <span className="text-[10px] text-muted-foreground block">
-                                Contato: {row.contato}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2 px-3">{row.rota}</td>
-                        <td className="py-2 px-3 font-mono">
+                        <td className="py-2 px-3 whitespace-nowrap">{row.rota}</td>
+                        <td className="py-2 px-3 font-mono text-center">
                           {row.alunos !== undefined ? (
                             row.alunos
                           ) : row.rawAlunos ? (
@@ -696,14 +689,53 @@ export function SchoolImportDialog({
                             <span className="text-muted-foreground italic">-</span>
                           )}
                         </td>
-                        <td className="py-2 px-3">
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          {row.telefone ? (
+                            <span className="text-foreground font-mono text-[11px]">
+                              {row.telefone}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground italic text-[11px]">-</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 min-w-[110px]">
+                          {row.bairro ? (
+                            <span className="text-foreground">{row.bairro}</span>
+                          ) : (
+                            <span className="text-muted-foreground italic text-[11px]">-</span>
+                          )}
+                        </td>
+                        <td
+                          className="py-2 px-3 min-w-[150px] max-w-[220px] truncate"
+                          title={row.endereco}
+                        >
+                          {row.endereco || (
+                            <span className="text-muted-foreground italic text-[11px]">-</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 min-w-[100px]">
+                          {row.contato ? (
+                            <span className="text-foreground">{row.contato}</span>
+                          ) : (
+                            <span className="text-muted-foreground italic text-[11px]">-</span>
+                          )}
+                        </td>
+                        <td
+                          className="py-2 px-3 min-w-[140px] max-w-[180px] truncate"
+                          title={row.email}
+                        >
+                          {row.email || (
+                            <span className="text-muted-foreground italic text-[11px]">-</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 min-w-[180px]">
+                          {' '}
                           {isValid && (
                             <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               Nova (Criar)
                             </span>
                           )}
-
                           {isUpdate && (
                             <div className="space-y-1">
                               <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
@@ -735,7 +767,6 @@ export function SchoolImportDialog({
                               )}
                             </div>
                           )}
-
                           {isDuplicateFile && (
                             <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -744,24 +775,36 @@ export function SchoolImportDialog({
                               </span>
                             </span>
                           )}
-
                           {isError && (
                             <span className="inline-flex items-center gap-1 text-destructive font-medium">
                               <XCircle className="h-3.5 w-3.5 shrink-0" />
                               <span>{row.statusReason || 'Linha inválida'}</span>
                             </span>
                           )}
-                        </td>
+                          {row.warnings && row.warnings.length > 0 && (
+                            <div className="space-y-0.5 pt-1">
+                              {row.warnings.map((warn, wIdx) => (
+                                <span
+                                  key={wIdx}
+                                  className="inline-flex items-start gap-1 text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 p-1 rounded border border-amber-200 dark:border-amber-800"
+                                >
+                                  <AlertCircle className="h-3 w-3 text-amber-600 shrink-0 mt-0.5" />
+                                  <span>{warn}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>{' '}
                       </tr>
                     )
                   })}
                   {displayRows.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-muted-foreground text-xs">
+                      <td colSpan={11} className="py-8 text-center text-muted-foreground text-xs">
                         Nenhuma linha encontrada neste filtro.
                       </td>
                     </tr>
-                  )}
+                  )}{' '}
                 </tbody>
               </table>
             </div>

@@ -169,7 +169,44 @@ export function parseCsvTextToMatrix(text: string): string[][] {
  * Mapeia cabeçalhos para os campos esperados:
  * 'nome', 'tipo', 'rota', 'alunos', 'endereco', 'telefone', 'email'
  */
-function findColumnIndexes(headerRow: string[]): {
+/**
+ * Detecta se uma string se parece fortemente com número de telefone
+ * Ex.: "(21) 2043-3612", "21 98765-4321", "2043-3612", "+55 21 9999-9999", "(21)20433612"
+ */
+export function looksLikePhoneNumber(val: string): boolean {
+  if (!val) return false
+  const trimmed = val.trim()
+  if (!trimmed) return false
+
+  // Se tiver letras de texto comum (ex.: "Bairro Novo", "Centro", "Rua das Flores"), não é apenas telefone
+  if (/[a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]/.test(trimmed)) {
+    return false
+  }
+
+  const digits = trimmed.replace(/\D/g, '')
+  // Telefones no Brasil têm tipicamente entre 8 e 13 dígitos
+  if (digits.length >= 8 && digits.length <= 13) {
+    if (
+      /\(\d{2}\)/.test(trimmed) ||
+      /\d{4,5}[-\s]\d{4}/.test(trimmed) ||
+      /^\+?\d{8,13}$/.test(digits)
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Mapeia cabeçalhos para os campos esperados EXCLUSIVAMENTE pelo texto do cabeçalho.
+ * Tolerante a acentos e maiúsculas/minúsculas.
+ * NUNCA usa ordem fixa ou posicional.
+ *
+ * Campos esperados pelo usuário:
+ * Nome da Escola | Tipo | Rota | Nº Alunos | Telefone | Bairro | Endereço | Contato | E-mail
+ */
+export function findColumnIndexes(headerRow: string[]): {
   nomeIdx: number
   tipoIdx: number
   rotaIdx: number
@@ -192,7 +229,41 @@ function findColumnIndexes(headerRow: string[]): {
 
   headerRow.forEach((col, idx) => {
     const norm = normalizeName(col)
+    if (!norm) return
 
+    // 1. Telefone: checado com prioridade sobre contato genérico
+    if (
+      telefoneIdx === -1 &&
+      (norm === 'telefone' ||
+        norm === 'tel' ||
+        norm === 'fone' ||
+        norm === 'celular' ||
+        norm === 'whatsapp' ||
+        norm === 'telefone whatsapp' ||
+        norm.includes('telefone') ||
+        norm.includes('celular') ||
+        norm.includes('whatsapp') ||
+        norm.includes('fone') ||
+        norm === 'tel contato' ||
+        norm === 'contato telefonico')
+    ) {
+      telefoneIdx = idx
+      return
+    }
+
+    // 2. E-mail
+    if (
+      emailIdx === -1 &&
+      (norm === 'email' ||
+        norm === 'e mail' ||
+        norm.includes('email') ||
+        norm.includes('correio eletr'))
+    ) {
+      emailIdx = idx
+      return
+    }
+
+    // 3. Bairro
     if (
       bairroIdx === -1 &&
       (norm === 'bairro' ||
@@ -201,52 +272,11 @@ function findColumnIndexes(headerRow: string[]): {
         norm.includes('comunidade'))
     ) {
       bairroIdx = idx
-    } else if (
-      contatoIdx === -1 &&
-      (norm === 'contato' ||
-        norm.includes('responsavel') ||
-        norm.includes('diretor') ||
-        norm.includes('gestor') ||
-        norm.includes('pessoa de contato') ||
-        norm === 'nome contato')
-    ) {
-      contatoIdx = idx
-    } else if (
-      nomeIdx === -1 &&
-      (norm === 'nome' ||
-        norm === 'escola' ||
-        norm === 'nome da escola' ||
-        norm === 'nome escola' ||
-        norm.includes('escola') ||
-        norm.includes('instituic') ||
-        norm.includes('unidade'))
-    ) {
-      nomeIdx = idx
-    } else if (
-      tipoIdx === -1 &&
-      (norm === 'tipo' ||
-        norm.includes('categoria') ||
-        norm.includes('etapa') ||
-        norm.includes('modalidade'))
-    ) {
-      tipoIdx = idx
-    } else if (
-      rotaIdx === -1 &&
-      (norm === 'rota' || norm.includes('roteiro') || norm.includes('linha'))
-    ) {
-      rotaIdx = idx
-    } else if (
-      alunosIdx === -1 &&
-      (norm === 'alunos' ||
-        norm === 'n alunos' ||
-        norm === 'no alunos' ||
-        norm.includes('aluno') ||
-        norm.includes('estudant') ||
-        norm.includes('matricul') ||
-        norm.includes('qtd'))
-    ) {
-      alunosIdx = idx
-    } else if (
+      return
+    }
+
+    // 4. Endereço
+    if (
       enderecoIdx === -1 &&
       (norm === 'endereco' ||
         norm.includes('logradouro') ||
@@ -254,38 +284,86 @@ function findColumnIndexes(headerRow: string[]): {
         norm.includes('localizac'))
     ) {
       enderecoIdx = idx
-    } else if (
-      telefoneIdx === -1 &&
-      (norm === 'telefone' ||
-        norm === 'tel' ||
-        norm === 'fone' ||
-        norm.includes('celular') ||
-        norm.includes('whatsapp') ||
-        norm.includes('fone'))
+      return
+    }
+
+    // 5. Contato (responsável/gestor/diretor)
+    if (
+      contatoIdx === -1 &&
+      (norm === 'contato' ||
+        norm.includes('responsavel') ||
+        norm.includes('diretor') ||
+        norm.includes('gestor') ||
+        norm.includes('pessoa de contato') ||
+        norm === 'nome contato' ||
+        norm === 'contato responsavel' ||
+        norm === 'nome do contato')
     ) {
-      telefoneIdx = idx
-    } else if (emailIdx === -1 && (norm === 'email' || norm.includes('correio'))) {
-      emailIdx = idx
+      contatoIdx = idx
+      return
+    }
+
+    // 6. Nome da Escola
+    if (
+      nomeIdx === -1 &&
+      (norm === 'nome da escola' ||
+        norm === 'nome escola' ||
+        norm === 'escola' ||
+        norm === 'nome' ||
+        norm.includes('escola') ||
+        norm.includes('instituic') ||
+        norm.includes('unidade escolar'))
+    ) {
+      nomeIdx = idx
+      return
+    }
+
+    // 7. Tipo
+    if (
+      tipoIdx === -1 &&
+      (norm === 'tipo' ||
+        norm === 'tipo escola' ||
+        norm.includes('categoria') ||
+        norm.includes('etapa') ||
+        norm.includes('modalidade'))
+    ) {
+      tipoIdx = idx
+      return
+    }
+
+    // 8. Rota
+    if (
+      rotaIdx === -1 &&
+      (norm === 'rota' ||
+        norm === 'rota planilha' ||
+        norm.includes('roteiro') ||
+        norm.includes('linha'))
+    ) {
+      rotaIdx = idx
+      return
+    }
+
+    // 9. Nº de Alunos
+    if (
+      alunosIdx === -1 &&
+      (norm === 'alunos' ||
+        norm === 'n alunos' ||
+        norm === 'no alunos' ||
+        norm === 'num alunos' ||
+        norm === 'numero alunos' ||
+        norm === 'numero de alunos' ||
+        norm.includes('aluno') ||
+        norm.includes('estudant') ||
+        norm.includes('matricul') ||
+        norm.includes('qtd'))
+    ) {
+      alunosIdx = idx
+      return
     }
   })
 
-  // Se 'contato' foi capturado por 'telefone' quando não havia outra coluna de telefone:
-  // Se header tinha 'contato' mas não tinha telefone nem contatoIdx explícito:
-  if (contatoIdx === -1) {
-    headerRow.forEach((col, idx) => {
-      const norm = normalizeName(col)
-      if (norm.includes('contato') && idx !== telefoneIdx && idx !== nomeIdx) {
-        contatoIdx = idx
-      }
-    })
-  }
-
-  // Se não achou por nome flexível, tentar posicionais caso tenha colunas padrão (pelo menos nome na 0)
-  if (nomeIdx === -1 && headerRow.length >= 1) nomeIdx = 0
-  if (tipoIdx === -1 && headerRow.length >= 2) tipoIdx = 1
-  if (rotaIdx === -1 && headerRow.length >= 3) rotaIdx = 2
-  if (alunosIdx === -1 && headerRow.length >= 4) alunosIdx = 3
-
+  // Regra estrita: resolução EXCLUSIVAMENTE pelo texto do cabeçalho.
+  // Sem fallbacks posicionais que possam deslocar colunas.
   return {
     nomeIdx,
     tipoIdx,
@@ -511,6 +589,13 @@ export async function parseSchoolsInput(options: ParseSchoolsOptions): Promise<C
     const mappedEmail = rawEmail || undefined
     const mappedBairro = rawBairro || undefined
     const mappedContato = rawContato || undefined
+
+    // 6.1 Detecção defensiva: se Bairro contiver valor com formato claro de telefone e Telefone estiver vazio
+    if (rawBairro && looksLikePhoneNumber(rawBairro) && !rawTelefone) {
+      warnings.push(
+        `A coluna Bairro contém o valor "${rawBairro}", que se parece com um telefone, enquanto a coluna Telefone veio em branco. Verifique se as colunas da planilha estão invertidas.`,
+      )
+    }
 
     // 7. Verificação contra o banco mestre: se já existe, vira 'update' (upsert com preservação de branco)
     let existingSchoolId: string | undefined

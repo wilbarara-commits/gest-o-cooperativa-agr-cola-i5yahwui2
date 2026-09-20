@@ -1213,7 +1213,7 @@ export function parseSecretaryExcel(
       for (const po of matchingOrders) {
         po.isDuplicateInOtherSheets = true
         po.issues.push(
-          `Atenção: Esta escola apareceu em mais de uma rota da planilha (${distinctSheets.join(', ')}).`,
+          `Atenção: Esta escola apareceu em mais de uma aba da planilha (${distinctSheets.join(', ')}).`,
         )
       }
     }

@@ -620,9 +620,9 @@ export function analyzeRouteSchoolsBatch(options: {
           // Já está alocada exatamente nesta rota de destino
           // Não bloqueia com erro impeditivo, mas trata como link já existente
         } else {
-          // Bloqueio de exclusividade estrito: alocada a OUTRA rota
+          // Bloqueio de exclusividade estrito: alocada a OUTRA rota/aba
           isBlocked = true
-          const prefixoTipo = targetRouteType === 'logistica' ? 'rota logística' : 'rota'
+          const prefixoTipo = targetRouteType === 'logistica' ? 'rota logística' : 'aba'
           if (alloc.isCurrentContract) {
             blockReason = `Já alocada na ${prefixoTipo} "${alloc.rotaNome}" deste contrato.`
           } else if (alloc.contratoNumero) {
@@ -738,7 +738,11 @@ export async function executeRouteSchoolsBatchImport(options: {
   analysis.blockedItems.forEach((b) => {
     blockedList.push({
       nome: b.nome,
-      motivo: b.blockReason || 'Bloqueada por já estar alocada em outra rota.',
+      motivo:
+        b.blockReason ||
+        (targetRouteType === 'planilha'
+          ? 'Bloqueada por já estar alocada em outra aba.'
+          : 'Bloqueada por já estar alocada em outra rota.'),
     })
   })
 

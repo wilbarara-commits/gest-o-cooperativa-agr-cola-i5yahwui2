@@ -416,7 +416,7 @@ export default function Consolidation() {
         dataRows.push(footer)
       } else {
         // Aba Por Escola
-        const headers = ['Escola', 'Rota']
+        const headers = ['Escola', 'Aba']
         if (!somenteColunaTotal) {
           headers.push(...produtosExibidos.map((p) => `${p.name} (${p.unit})`))
         }
@@ -519,7 +519,7 @@ export default function Consolidation() {
         footer.push(getCellExportText(totalGeral.qtd, totalGeral.valor, undefined, true))
         rows.push(footer)
       } else {
-        const headers = ['Escola', 'Rota']
+        const headers = ['Escola', 'Aba']
         if (!somenteColunaTotal) {
           headers.push(...produtosExibidos.map((p) => `${p.name} (${p.unit})`))
         }
@@ -706,7 +706,7 @@ export default function Consolidation() {
         footerRow.push(getCellExportText(totalGeral.qtd, totalGeral.valor, undefined, true))
         foot = [footerRow]
       } else {
-        const headerRow = ['Escola', 'Rota']
+        const headerRow = ['Escola', 'Aba']
         if (!somenteColunaTotal) {
           headerRow.push(...produtosExibidos.map((p) => `${p.name} (${p.unit})`))
         }
@@ -1018,7 +1018,7 @@ export default function Consolidation() {
                     Escola
                   </TableHead>
                   <TableHead className="w-28 text-center font-semibold text-foreground border-r">
-                    Rota
+                    Aba
                   </TableHead>
                   {!somenteColunaTotal &&
                     produtosExibidos.map((prod) => (

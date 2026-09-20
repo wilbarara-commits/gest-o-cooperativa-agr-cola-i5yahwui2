@@ -153,20 +153,20 @@ export function ContractRouteSchoolEditorDialog({
         allocation.isCurrentContract &&
         allocation.rotaNome.toLowerCase() === currentRouteName.toLowerCase()
       ) {
-        toast.info(`A escola "${school.name}" já está incluída nesta rota.`)
+        toast.info(`A escola "${school.name}" já está incluída nesta aba.`)
         return
       }
 
       if (allocation.isCurrentContract) {
         toast.error(
-          `Bloqueio de Exclusividade: A escola "${school.name}" já está alocada na rota "${allocation.rotaNome}" deste contrato. Retire-a da outra rota antes de incluir aqui.`,
+          `Bloqueio de Exclusividade: A escola "${school.name}" já está alocada na aba "${allocation.rotaNome}" deste contrato. Retire-a da outra aba antes de incluir aqui.`,
         )
         return
       }
 
       // Se está em outro contrato ativo
       toast.error(
-        `Bloqueio de Exclusividade: A escola "${school.name}" já está alocada na rota "${allocation.rotaNome}" do Contrato ${allocation.contratoNumero}. Desvincule-a primeiro para incluir nesta rota.`,
+        `Bloqueio de Exclusividade: A escola "${school.name}" já está alocada na aba "${allocation.rotaNome}" do Contrato ${allocation.contratoNumero}. Desvincule-a primeiro para incluir nesta aba.`,
       )
       return
     }
@@ -181,12 +181,12 @@ export function ContractRouteSchoolEditorDialog({
         rota: currentRouteName,
       })
 
-      toast.success(`Escola "${school.name}" incluída na rota "${currentRouteName}" com sucesso!`)
+      toast.success(`Escola "${school.name}" incluída na aba "${currentRouteName}" com sucesso!`)
       setSearchQuery('')
       await onSuccess()
     } catch (err: any) {
-      console.error('Erro ao incluir escola na rota:', err)
-      toast.error(err?.message || 'Falha ao incluir escola na rota do contrato.')
+      console.error('Erro ao incluir escola na aba:', err)
+      toast.error(err?.message || 'Falha ao incluir escola na aba do contrato.')
     } finally {
       setIsProcessing(false)
     }
@@ -212,7 +212,7 @@ export function ContractRouteSchoolEditorDialog({
         const allocation = schoolAllocationMap.get(targetSchool.id)
         if (allocation) {
           toast.error(
-            `A escola "${targetSchool.name}" já existe no cadastro mestre e está alocada na rota "${allocation.rotaNome}" (${allocation.isCurrentContract ? 'deste contrato' : `Contrato ${allocation.contratoNumero}`}).`,
+            `A escola "${targetSchool.name}" já existe no cadastro mestre e está alocada na aba "${allocation.rotaNome}" (${allocation.isCurrentContract ? 'deste contrato' : `Contrato ${allocation.contratoNumero}`}).`,
           )
           setIsProcessing(false)
           return
@@ -240,7 +240,7 @@ export function ContractRouteSchoolEditorDialog({
         toast.success(`Escola "${trimmed}" cadastrada no cadastro mestre global!`)
       }
 
-      // Vincular ao contrato na rota atual
+      // Vincular ao contrato na aba atual
       await contratosService.linkEscola({
         contrato_id: contract.id,
         escola_id: targetSchool.id,
@@ -248,7 +248,7 @@ export function ContractRouteSchoolEditorDialog({
         rota: currentRouteName,
       })
 
-      toast.success(`Escola "${targetSchool.name}" incluída na rota "${currentRouteName}"!`)
+      toast.success(`Escola "${targetSchool.name}" incluída na aba "${currentRouteName}"!`)
       setNewSchoolName('')
       setNewSchoolAddress('')
       setShowQuickCreate(false)
@@ -301,12 +301,12 @@ export function ContractRouteSchoolEditorDialog({
 
       // 4. toast de sucesso com nome da escola e da rota, e await onSuccess() para refreshData() atualizar
       toast.success(
-        `Escola "${escolaNome}" retirada da rota "${currentRouteName}". O cadastro mestre agora reflete o desvínculo.`,
+        `Escola "${escolaNome}" retirada da aba "${currentRouteName}". O cadastro mestre agora reflete o desvínculo.`,
       )
       await onSuccess()
     } catch (err: any) {
-      console.error('Erro ao retirar escola da rota:', err)
-      toast.error('Falha ao desvincular escola da rota.')
+      console.error('Erro ao retirar escola da aba:', err)
+      toast.error('Falha ao desvincular escola da aba.')
     } finally {
       setIsProcessing(false)
     }
@@ -321,25 +321,25 @@ export function ContractRouteSchoolEditorDialog({
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2 text-lg">
               <FileSpreadsheet className="h-5 w-5 text-primary" />
-              Editar Rota: <span className="text-primary">{currentRouteName}</span>
+              Editar Aba: <span className="text-primary">{currentRouteName}</span>
             </DialogTitle>
             <Badge variant="outline" className="text-xs">
               Contrato {contract.numero}
             </Badge>
           </div>
           <DialogDescription className="text-xs">
-            Gerencie as escolas alocadas nesta rota da planilha. As alterações são sincronizadas no
-            cadastro mestre global e no contrato. Uma escola só pode pertencer a uma rota por vez.
+            Gerencie as escolas alocadas nesta aba da planilha. As alterações são sincronizadas no
+            cadastro mestre global e no contrato. Uma escola só pode pertencer a uma aba por vez.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto pr-1 py-1">
-          {/* Seção 1: Escolas Atualmente na Rota */}
+          {/* Seção 1: Escolas Atualmente na Aba */}
           <div className="space-y-2 p-3 rounded-lg border bg-muted/20">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <Building2 className="h-4 w-4 text-primary" />
-                Escolas Alocadas nesta Rota ({schoolsInCurrentRoute.length})
+                Escolas Alocadas nesta Aba ({schoolsInCurrentRoute.length})
               </Label>
               <Badge variant="secondary" className="text-[10px]">
                 {schoolsInCurrentRoute.length === 1
@@ -350,7 +350,7 @@ export function ContractRouteSchoolEditorDialog({
 
             {schoolsInCurrentRoute.length === 0 ? (
               <div className="py-6 text-center text-xs text-muted-foreground border border-dashed rounded-md bg-background/50">
-                Nenhuma escola alocada nesta rota ainda. Busque ou adicione abaixo para incluir.
+                Nenhuma escola alocada nesta aba ainda. Busque ou adicione abaixo para incluir.
               </div>
             ) : (
               <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
@@ -387,7 +387,7 @@ export function ContractRouteSchoolEditorDialog({
                         disabled={isProcessing}
                         onClick={() => handleRemoveSchool(esc.escolaId, esc.escolaNome)}
                         className="h-7 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0 gap-1"
-                        title="Retirar escola desta rota"
+                        title="Retirar escola desta aba"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Retirar
@@ -399,11 +399,11 @@ export function ContractRouteSchoolEditorDialog({
             )}
           </div>
 
-          {/* Seção 2: Incluir Escola na Rota */}
+          {/* Seção 2: Incluir Escola na Aba */}
           <div className="space-y-3 p-3 rounded-lg border bg-card">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
-                <Plus className="h-3.5 w-3.5" /> Incluir Escola nesta Rota
+                <Plus className="h-3.5 w-3.5" /> Incluir Escola nesta Aba
               </Label>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -492,7 +492,7 @@ export function ContractRouteSchoolEditorDialog({
                               {alloc && (
                                 <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 mt-0.5">
                                   <AlertTriangle className="h-3 w-3 shrink-0" />
-                                  Alocada na rota "{alloc.rotaNome}" (
+                                  Alocada na aba "{alloc.rotaNome}" (
                                   {alloc.isCurrentContract
                                     ? 'deste contrato'
                                     : `Contrato ${alloc.contratoNumero}`}
@@ -532,7 +532,7 @@ export function ContractRouteSchoolEditorDialog({
                     <Sparkles className="h-3.5 w-3.5" /> Nova Escola no Cadastro Mestre
                   </span>
                   <span className="text-[10px] text-muted-foreground">
-                    Será salva no mestre e alocada nesta rota
+                    Será salva no mestre e alocada nesta aba
                   </span>
                 </div>
 
@@ -589,7 +589,7 @@ export function ContractRouteSchoolEditorDialog({
                       </>
                     ) : (
                       <>
-                        <CheckCircle2 className="h-3 w-3" /> Criar & Incluir na Rota
+                        <CheckCircle2 className="h-3 w-3" /> Criar & Incluir na Aba
                       </>
                     )}
                   </Button>

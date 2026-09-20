@@ -691,17 +691,17 @@ export default function Orders() {
               </Select>
             </div>
 
-            {/* Filtro Rota (Planilha da Secretaria) */}
+            {/* Filtro Aba da Planilha */}
             <div>
               <Label className="text-xs flex items-center gap-1">
-                <FileSpreadsheet className="h-3 w-3 text-muted-foreground" /> Rota (Planilha)
+                <FileSpreadsheet className="h-3 w-3 text-muted-foreground" /> Aba da Planilha
               </Label>
               <Select value={filterRotaPlanilha} onValueChange={setFilterRotaPlanilha}>
                 <SelectTrigger className="h-9 mt-1 text-xs">
-                  <SelectValue placeholder="Todas da Planilha" />
+                  <SelectValue placeholder="Todas as Abas" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todas">Todas da Planilha</SelectItem>
+                  <SelectItem value="todas">Todas as Abas</SelectItem>
                   {availableRotasPlanilha.map((r) => (
                     <SelectItem key={r} value={r}>
                       {r}
@@ -779,7 +779,7 @@ export default function Orders() {
                   <TableHead>Nº Pedido</TableHead>
                   <TableHead>Origem</TableHead>
                   <TableHead>Instituição Escolar</TableHead>
-                  <TableHead>Rota (Planilha)</TableHead>
+                  <TableHead>Aba</TableHead>
                   <TableHead>Rota Logística</TableHead>
                   <TableHead>Data Prevista</TableHead>
                   <TableHead>Validação</TableHead>
@@ -822,7 +822,7 @@ export default function Orders() {
                       </TableCell>
                       <TableCell>{getOrigemBadge(order.origem)}</TableCell>
                       <TableCell className="font-medium text-xs">{order.schoolName}</TableCell>
-                      {/* Coluna 1: Rota (Planilha) */}
+                      {/* Coluna 1: Aba da Planilha */}
                       <TableCell>
                         {order.rotaNome ? (
                           <Badge
@@ -831,7 +831,7 @@ export default function Orders() {
                             title="Aba de origem na planilha centralizada da secretaria"
                           >
                             <FileSpreadsheet className="h-2.5 w-2.5 text-muted-foreground" />
-                            Rota (Planilha): {order.rotaNome}
+                            Aba: {order.rotaNome}
                           </Badge>
                         ) : (
                           <span className="text-[11px] text-muted-foreground/60 italic">
@@ -1013,7 +1013,7 @@ export default function Orders() {
                   <span>{getStatusBadge(viewingOrder.status)}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Rota (Planilha da Secretaria):</span>
+                  <span className="text-muted-foreground">Aba da Planilha:</span>
                   <span className="font-medium text-foreground">
                     {viewingOrder.rotaNome || 'Sem referência de planilha'}
                   </span>

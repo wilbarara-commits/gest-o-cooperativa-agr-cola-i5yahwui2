@@ -748,7 +748,7 @@ export default function ExcelImport() {
                 Faça o upload da planilha da Secretaria (.xlsx)
               </h3>
               <p className="text-xs text-muted-foreground max-w-md mx-auto mt-1">
-                O motor irá processar as abas de Rota (ROTA A, ROTA B, ROTA C...), transpor as
+                O motor irá processar as abas da planilha (ROTA A, ROTA B, ROTA C...), transpor as
                 colunas de escola e casar os nomes com tolerância inteligente.
               </p>
             </div>
@@ -791,9 +791,9 @@ export default function ExcelImport() {
                     <FileCheck className="h-5 w-5 text-primary" /> Prévia da Importação
                   </CardTitle>
                   <CardDescription>
-                    Revise as rotas, escolas, quantidades e solucione eventuais pendências antes de
+                    Revise as abas, escolas, quantidades e solucione eventuais pendências antes de
                     gravar.
-                  </CardDescription>
+                  </CardDescription>{' '}
                 </div>
                 <Button
                   onClick={handleConfirmImport}
@@ -817,7 +817,7 @@ export default function ExcelImport() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Card className="bg-muted/30">
                   <CardContent className="p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Abas de Rota</p>
+                    <p className="text-xs text-muted-foreground">Abas da Planilha</p>
                     <p className="text-xl font-bold text-primary">
                       {parsedData.routesFound.length}
                     </p>
@@ -862,14 +862,14 @@ export default function ExcelImport() {
                 </Card>
               </div>
 
-              {/* Seção de Subtotais por Aba de Rota */}
+              {/* Seção de Subtotais por Aba da Planilha */}
               {routeSubtotals.length > 0 && (
                 <div className="rounded-lg border bg-card p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Route className="h-4 w-4 text-primary" />
                       <h4 className="text-sm font-semibold text-foreground">
-                        Subtotais por Aba de Rota
+                        Subtotais por Aba da Planilha
                       </h4>
                     </div>
                     <span className="text-xs text-muted-foreground">
@@ -881,7 +881,7 @@ export default function ExcelImport() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/40">
-                          <TableHead className="font-semibold text-xs">Aba / Rota</TableHead>
+                          <TableHead className="font-semibold text-xs">Aba</TableHead>
                           <TableHead className="font-semibold text-xs text-center">
                             Escolas com Pedido
                           </TableHead>
@@ -935,7 +935,7 @@ export default function ExcelImport() {
                                     variant="secondary"
                                     className="text-[10px] text-muted-foreground font-normal"
                                   >
-                                    Sem rota no contrato
+                                    Sem aba no contrato
                                   </Badge>
                                 </TableCell>
                               </TableRow>
@@ -950,7 +950,7 @@ export default function ExcelImport() {
                                   {row.contractRotaMatched &&
                                     row.contractRotaMatched !== row.sheetName && (
                                       <span className="text-[10px] text-muted-foreground font-normal">
-                                        Rota no contrato: {row.contractRotaMatched}
+                                        Aba no contrato: {row.contractRotaMatched}
                                       </span>
                                     )}
                                 </div>
@@ -1007,14 +1007,14 @@ export default function ExcelImport() {
                         {parsedData.ignoredUnmatchedSheets.length === 1
                           ? 'aba ignorada'
                           : 'abas ignoradas'}{' '}
-                        (sem rota cadastrada correspondente neste contrato):{' '}
+                        (sem aba cadastrada correspondente neste contrato):{' '}
                         <span className="font-mono text-foreground">
                           {parsedData.ignoredUnmatchedSheets.join(', ')}
                         </span>
                       </p>
                       <p className="text-[11px]">
                         Estas abas foram puladas automaticamente, não foram lidas e não geram
-                        pedidos nem erros. Caso deseje importar alguma delas, cadastre a rota
+                        pedidos nem erros. Caso deseje importar alguma delas, cadastre a aba
                         correspondente nas configurações do contrato.
                       </p>
                     </div>
@@ -1040,7 +1040,7 @@ export default function ExcelImport() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Aba / Rota</TableHead>
+                      <TableHead>Aba</TableHead>
                       <TableHead>Escola na Planilha</TableHead>
                       <TableHead>Vínculo no Contrato</TableHead>
                       <TableHead>Itens / Demanda</TableHead>
@@ -1065,11 +1065,11 @@ export default function ExcelImport() {
                               <span>{po.routeRaw}</span>
                               {po.sheetMatchedContractRota && (
                                 <span className="text-[10px] text-emerald-600 font-normal">
-                                  ✓ Rota: {po.sheetMatchedContractRota}
+                                  ✓ Aba: {po.sheetMatchedContractRota}
                                 </span>
                               )}
                             </div>
-                          </TableCell>
+                          </TableCell>{' '}
                           <TableCell className="font-medium text-xs">
                             <div className="flex flex-col gap-1">
                               <span>{po.schoolNameRaw}</span>
@@ -1305,14 +1305,14 @@ export default function ExcelImport() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Aba / Rota da Planilha:</span>
+                  <span className="text-muted-foreground">Aba da Planilha:</span>
                   <span className="font-mono text-foreground">{pendingLinkOrder.routeRaw}</span>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="link-rota" className="text-xs">
-                  Rota (Planilha) neste Contrato <span className="text-destructive">*</span>
+                  Aba correspondente neste Contrato <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="link-rota"

@@ -440,30 +440,30 @@ export function ContractSchoolImportDialog({
             Importar Escolas para o Contrato (CSV / Planilha)
           </DialogTitle>
           <DialogDescription>
-            Importe a lista de escolas participantes já atribuindo a elas a Rota da Planilha deste
+            Importe a lista de escolas participantes já atribuindo a elas a Aba da Planilha deste
             contrato. Escolas novas serão cadastradas no mestre global e as já existentes terão seus
             dados atualizados.
           </DialogDescription>
         </DialogHeader>
 
-        {/* SELETOR OBRIGATÓRIO DE ROTA DA PLANILHA */}
+        {/* SELETOR OBRIGATÓRIO DE ABA DA PLANILHA */}
         <div className="shrink-0 p-3 bg-muted/40 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5">
             <Label className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
               <Link2 className="h-4 w-4 text-primary" />
-              1. Rota da Planilha (padrão / fallback)
+              1. Aba da Planilha (padrão / fallback)
             </Label>
             <p className="text-[11px] text-muted-foreground">
-              Se a planilha tiver a coluna <strong>Rota</strong>, a rota individual de cada escola
-              prevalece. Caso a planilha não tenha coluna Rota, esta rota selecionada será aplicada.
+              Se a planilha tiver a coluna <strong>Aba</strong> ou <strong>Rota</strong>, a aba
+              individual de cada escola prevalece. Caso a planilha não tenha essa coluna, esta aba
+              selecionada será aplicada.
             </p>
           </div>
 
           <div className="w-full sm:w-64 shrink-0">
             {contractRotas.length === 0 ? (
               <div className="p-2 border border-destructive/40 bg-destructive/10 rounded text-[11px] text-destructive">
-                Nenhuma rota cadastrada neste contrato. Cadastre rotas no contrato antes de
-                importar.
+                Nenhuma aba cadastrada neste contrato. Cadastre abas no contrato antes de importar.
               </div>
             ) : (
               <Select
@@ -472,14 +472,14 @@ export function ContractSchoolImportDialog({
                   setSelectedRota(val)
                   if (parseResult) {
                     toast.info(
-                      `Rota padrão alterada para "${val}". Processe novamente se desejar atualizar.`,
+                      `Aba padrão alterada para "${val}". Processe novamente se desejar atualizar.`,
                     )
                   }
                 }}
                 disabled={isSaving}
               >
                 <SelectTrigger className="h-8 text-xs bg-background font-medium">
-                  <SelectValue placeholder="Selecione a Rota padrão..." />
+                  <SelectValue placeholder="Selecione a Aba padrão..." />
                 </SelectTrigger>
                 <SelectContent>
                   {contractRotas.map((cr, idx) => (
@@ -588,8 +588,8 @@ export function ContractSchoolImportDialog({
                 </Button>
                 {!selectedRota && (
                   <p className="text-[11px] text-muted-foreground">
-                    * Dica: Se o arquivo não tiver a coluna Rota, selecione uma Rota da Planilha
-                    acima como padrão.
+                    * Dica: Se o arquivo não tiver a coluna Aba ou Rota, selecione uma Aba da
+                    Planilha acima como padrão.
                   </p>
                 )}
               </div>
@@ -642,8 +642,8 @@ export function ContractSchoolImportDialog({
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     {importSummary.isDirectPersistence
-                      ? `As escolas foram integradas e gravadas diretamente no contrato com a Rota da Planilha "${selectedRota}".`
-                      : `As escolas foram preparadas no formulário com a Rota da Planilha "${selectedRota}". Atenção: os vínculos só serão persistidos ao clicar em "Cadastrar Contrato".`}
+                      ? `As escolas foram integradas e gravadas diretamente no contrato com a Aba da Planilha "${selectedRota}".`
+                      : `As escolas foram preparadas no formulário com a Aba da Planilha "${selectedRota}". Atenção: os vínculos só serão persistidos ao clicar em "Cadastrar Contrato".`}
                   </p>
                 </div>
               </div>

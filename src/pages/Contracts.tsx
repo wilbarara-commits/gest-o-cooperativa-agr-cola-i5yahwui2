@@ -301,7 +301,7 @@ export default function Contracts() {
     const trimmed = newRotaNome.trim()
     if (!trimmed) return
     if (contractRotas.some((r) => r.nome.toLowerCase() === trimmed.toLowerCase())) {
-      toast.warning('Esta rota da planilha já foi adicionada.')
+      toast.warning('Esta aba da planilha já foi adicionada.')
       return
     }
     setContractRotas((prev) => [...prev, { nome: trimmed, ordem: prev.length + 1 }])
@@ -322,7 +322,7 @@ export default function Contracts() {
   ) => {
     const contractToUse = targetContract || editingContract || viewingContract
     if (!contractToUse) {
-      toast.error('Nenhum contrato selecionado para editar rota.')
+      toast.error('Nenhum contrato selecionado para editar aba.')
       return
     }
     setRouteEditorContract(contractToUse)
@@ -1363,25 +1363,25 @@ export default function Contracts() {
                 </div>
               </TabsContent>
 
-              {/* Aba 3: Escolas Participantes (Cadastro Mestre Global + Vínculo com Rota da Planilha) */}
+              {/* Aba 3: Escolas Participantes (Cadastro Mestre Global + Vínculo com Aba da Planilha) */}
               <TabsContent value="escolas" className="space-y-4 pt-3">
-                {/* Gestão das Rotas da Planilha deste Contrato */}
+                {/* Gestão das Abas da Planilha deste Contrato */}
                 <div className="space-y-3 p-3.5 rounded-lg border bg-muted/20">
                   <div>
                     <Label className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
-                      <FileSpreadsheet className="h-3.5 w-3.5" /> Rotas da Planilha a Importar
-                      (Nomes Livres deste Contrato)
+                      <FileSpreadsheet className="h-3.5 w-3.5" /> Abas da Planilha a Importar (Nomes
+                      Livres deste Contrato)
                     </Label>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Cadastre os nomes das rotas/abas da planilha deste contrato (ex.: ROTA A, ROTA
-                      B, ZONA SUL, CIRCUITO 1...). Esses nomes serão casados na importação Excel e
+                      Cadastre os nomes das abas da planilha deste contrato (ex.: ROTA A, ROTA B,
+                      ZONA SUL, CIRCUITO 1...). Esses nomes serão casados na importação Excel e
                       atribuídos às escolas participantes abaixo.
                     </p>
                   </div>
 
                   <div className="flex gap-2">
                     <Input
-                      placeholder="Nome livre da rota/aba da planilha (ex.: ROTA A, ZONA NORTE...)"
+                      placeholder="Nome livre da aba da planilha (ex.: ROTA A, ZONA NORTE...)"
                       value={newRotaNome}
                       onChange={(e) => setNewRotaNome(e.target.value)}
                       onKeyDown={(e) => {
@@ -1398,13 +1398,13 @@ export default function Contracts() {
                       onClick={handleAddRota}
                       className="h-8 gap-1 text-xs shrink-0"
                     >
-                      <Plus className="h-3.5 w-3.5 text-primary" /> Adicionar Rota
+                      <Plus className="h-3.5 w-3.5 text-primary" /> Adicionar Aba
                     </Button>
                   </div>
 
                   {contractRotas.length === 0 ? (
                     <p className="text-[11px] text-muted-foreground italic">
-                      Nenhuma rota de planilha cadastrada ainda para este contrato. Cadastre acima
+                      Nenhuma aba da planilha cadastrada ainda para este contrato. Cadastre acima
                       para selecionar nas escolas.
                     </p>
                   ) : (
@@ -1432,7 +1432,7 @@ export default function Contracts() {
                               <button
                                 type="button"
                                 className="rounded-full hover:bg-primary/20 text-primary p-0.5 transition-colors ml-0.5"
-                                title="Editar escolas desta rota"
+                                title="Editar escolas desta aba"
                                 onClick={() => handleOpenRouteEditor(r, editingContract)}
                               >
                                 <Pencil className="h-3 w-3" />
@@ -1441,7 +1441,7 @@ export default function Contracts() {
                             <button
                               type="button"
                               className="rounded-full hover:bg-destructive/20 text-muted-foreground hover:text-destructive p-0.5 transition-colors"
-                              title="Remover rota da planilha"
+                              title="Remover aba da planilha"
                               onClick={() => handleRemoveRota(idx)}
                             >
                               <Trash2 className="h-3 w-3" />
@@ -1460,7 +1460,7 @@ export default function Contracts() {
                       Global)
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Busque no cadastro mestre global para vincular ao contrato com a Rota da
+                      Busque no cadastro mestre global para vincular ao contrato com a Aba da
                       Planilha correspondente, ou cadastre uma nova escola sem duplicar.
                     </p>
                   </div>
@@ -1539,19 +1539,19 @@ export default function Contracts() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <Label htmlFor="qk-rota" className="text-[11px]">
-                          Rota (Planilha) no Vínculo do Contrato
+                          Aba da Planilha no Vínculo do Contrato
                         </Label>
                         <Select
                           value={quickSchoolRotaPlanilha || ''}
                           onValueChange={setQuickSchoolRotaPlanilha}
                         >
                           <SelectTrigger id="qk-rota" className="h-8 text-xs">
-                            <SelectValue placeholder="Selecione rota da planilha (opcional)" />
+                            <SelectValue placeholder="Selecione aba da planilha (opcional)" />
                           </SelectTrigger>
                           <SelectContent>
                             {contractRotas.length === 0 ? (
                               <SelectItem value="none" disabled>
-                                Nenhuma rota cadastrada no contrato
+                                Nenhuma aba cadastrada no contrato
                               </SelectItem>
                             ) : (
                               contractRotas.map((cr, i) => (
@@ -1728,7 +1728,7 @@ export default function Contracts() {
                             <div className="flex items-center gap-2 shrink-0 pt-1 sm:pt-0">
                               <div className="w-48">
                                 <Label className="text-[9px] text-muted-foreground block mb-0.5">
-                                  Rota (Planilha da Secretaria)
+                                  Aba da Planilha
                                 </Label>
                                 <Select
                                   value={assignedLink?.rotaId || ''}
@@ -1737,11 +1737,11 @@ export default function Contracts() {
                                   }
                                 >
                                   <SelectTrigger className="h-7 text-xs">
-                                    <SelectValue placeholder="Selecione a rota da planilha..." />
+                                    <SelectValue placeholder="Selecione a aba da planilha..." />
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="none">
-                                      <em>Sem rota atribuída</em>
+                                      <em>Sem aba atribuída</em>
                                     </SelectItem>
                                     {contractRotas.map((cr, i) => (
                                       <SelectItem key={i} value={cr.nome}>
@@ -2116,18 +2116,18 @@ export default function Contracts() {
                 </div>
               </div>
 
-              {/* Seção 1: Escolas por Rota (Planilha da Secretaria) */}
+              {/* Seção 1: Escolas por Aba da Planilha */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <h4 className="font-semibold text-sm flex items-center gap-1.5 text-foreground">
-                    <FileSpreadsheet className="h-4 w-4 text-primary" /> Escolas por Rota (Planilha)
+                    <FileSpreadsheet className="h-4 w-4 text-primary" /> Escolas por Aba da Planilha
                   </h4>
                   <Badge variant="outline" className="text-[10px]">
                     Referência da Secretaria ({viewingContract.escolas.length} escolas)
                   </Badge>
                 </div>
                 {(() => {
-                  // Agrupar escolas por rota da planilha
+                  // Agrupar escolas por aba da planilha
                   const agrupadoPorPlanilha = new Map<string, typeof viewingContract.escolas>()
                   for (const esc of viewingContract.escolas) {
                     const rNome = esc.rotaPlanilha || esc.rotaNome || 'Sem Rota'
@@ -2153,7 +2153,7 @@ export default function Contracts() {
                             className="p-2.5 rounded bg-muted/20 border space-y-1.5"
                           >
                             <div className="flex items-center justify-between text-xs font-semibold">
-                              <span className="text-foreground">Rota (Planilha): {rotaNome}</span>
+                              <span className="text-foreground">Aba: {rotaNome}</span>
                               <div className="flex items-center gap-1.5">
                                 <Badge variant="secondary" className="text-[10px]">
                                   {escolasNaRota.length} escola(s)
@@ -2180,7 +2180,7 @@ export default function Contracts() {
                                       )
                                     }}
                                   >
-                                    <Pencil className="h-3 w-3" /> Editar Rota
+                                    <Pencil className="h-3 w-3" /> Editar Aba
                                   </Button>
                                 )}
                               </div>

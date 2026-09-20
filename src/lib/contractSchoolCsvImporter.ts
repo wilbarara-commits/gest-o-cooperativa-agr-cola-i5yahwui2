@@ -415,7 +415,7 @@ export async function parseContractSchoolsMatrix(
       if (!effectiveRota) {
         isInvalidRota = true
         statusReason =
-          'Planilha sem coluna Rota e nenhuma Rota da Planilha foi selecionada no seletor.'
+          'Planilha sem coluna Rota e nenhuma Aba da Planilha foi selecionada no seletor.'
       }
     }
 
@@ -568,7 +568,7 @@ export async function parseContractSchoolsMatrix(
       if (isLinkedToCurrent) {
         linkedToCurrentContract = true
         status = 'update_current_link'
-        statusReason = `Já vinculada a este contrato. Os dados cadastrais da escola e a rota da planilha no vínculo serão atualizados para "${effectiveRota}".`
+        statusReason = `Já vinculada a este contrato. Os dados cadastrais da escola e a aba da planilha no vínculo serão atualizados para "${effectiveRota}".`
       } else {
         // B) Checar se está vinculada a OUTRO contrato
         const otherLink = schoolContractMap.get(existingMaster.id)

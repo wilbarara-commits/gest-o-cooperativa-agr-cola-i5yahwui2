@@ -128,7 +128,11 @@ export function RouteSchoolBatchImportModal({
 
     const eligibleCount = analysis.totalFound - analysis.blockedCount
     if (eligibleCount <= 0) {
-      toast.error('Todas as escolas do arquivo estão bloqueadas por já pertencerem a outra rota.')
+      toast.error(
+        targetRouteType === 'planilha'
+          ? 'Todas as escolas do arquivo estão bloqueadas por já pertencerem a outra aba.'
+          : 'Todas as escolas do arquivo estão bloqueadas por já pertencerem a outra rota.',
+      )
       return
     }
 
@@ -146,7 +150,9 @@ export function RouteSchoolBatchImportModal({
 
       setResult(res)
       toast.success(
-        `Importação concluída: ${res.linkedCount} escola(s) vinculada(s) à rota "${targetRouteName}".`,
+        targetRouteType === 'planilha'
+          ? `Importação concluída: ${res.linkedCount} escola(s) vinculada(s) à aba "${targetRouteName}".`
+          : `Importação concluída: ${res.linkedCount} escola(s) vinculada(s) à rota "${targetRouteName}".`,
       )
 
       await onSuccess()
@@ -165,7 +171,9 @@ export function RouteSchoolBatchImportModal({
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2 text-lg">
               <Upload className="h-5 w-5 text-primary" />
-              Importar Escolas da Rota via Arquivo
+              {targetRouteType === 'planilha'
+                ? 'Importar Escolas da Aba via Arquivo'
+                : 'Importar Escolas da Rota via Arquivo'}
             </DialogTitle>
             <Badge variant="outline" className="text-xs">
               {targetRouteName}
@@ -173,8 +181,8 @@ export function RouteSchoolBatchImportModal({
           </div>
           <DialogDescription className="text-xs">
             Selecione uma planilha (Excel), documento Word, CSV ou arquivo de texto para adicionar
-            escolas em lote na rota <strong>"{targetRouteName}"</strong> do Contrato{' '}
-            <strong>{contract.numero}</strong>.
+            escolas em lote na {targetRouteType === 'planilha' ? 'aba' : 'rota'}{' '}
+            <strong>"{targetRouteName}"</strong> do Contrato <strong>{contract.numero}</strong>.
           </DialogDescription>
         </DialogHeader>
 
@@ -352,11 +360,13 @@ export function RouteSchoolBatchImportModal({
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-foreground flex items-center gap-1.5">
                     <Building2 className="h-3.5 w-3.5 text-primary" />
-                    Escolas aptas para inclusão na rota (
+                    Escolas aptas para inclusão{' '}
+                    {targetRouteType === 'planilha' ? 'na aba' : 'na rota'} (
                     {analysis.totalFound - analysis.blockedCount})
                   </span>
                   <span className="text-[10px] text-muted-foreground">
-                    Rota de destino: <strong>{targetRouteName}</strong>
+                    {targetRouteType === 'planilha' ? 'Aba de destino: ' : 'Rota de destino: '}
+                    <strong>{targetRouteName}</strong>
                   </span>
                 </div>
 
@@ -434,7 +444,8 @@ export function RouteSchoolBatchImportModal({
                   Importação Concluída com Sucesso!
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  As escolas foram processadas e vinculadas à rota{' '}
+                  As escolas foram processadas e vinculadas{' '}
+                  {targetRouteType === 'planilha' ? 'à aba ' : 'à rota '}
                   <strong>"{targetRouteName}"</strong>. Os contadores e listas foram atualizados.
                 </p>
 

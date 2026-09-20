@@ -537,9 +537,9 @@ export default function Schools() {
               </Select>
             </div>
 
-            {/* 4. Filtro por Rota (Planilha) */}
+            {/* 4. Filtro por Aba da Planilha */}
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Rota (Planilha)</Label>
+              <Label className="text-xs text-muted-foreground">Aba da Planilha</Label>
               <Select
                 value={filterRotaPlanilha}
                 onValueChange={(val) => {
@@ -548,10 +548,10 @@ export default function Schools() {
                 }}
               >
                 <SelectTrigger className="h-9 bg-background text-xs">
-                  <SelectValue placeholder="Todas da Planilha" />
+                  <SelectValue placeholder="Todas as Abas" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todas">Todas da Planilha</SelectItem>
+                  <SelectItem value="todas">Todas as Abas</SelectItem>
                   {availableRotasPlanilha.map((r) => (
                     <SelectItem key={r} value={r}>
                       {r}
@@ -668,9 +668,7 @@ export default function Schools() {
                   <TableHead className="min-w-[130px] font-semibold text-foreground">
                     Vínculo Contrato
                   </TableHead>
-                  <TableHead className="w-[135px] font-semibold text-foreground">
-                    Rota (Planilha)
-                  </TableHead>
+                  <TableHead className="w-[135px] font-semibold text-foreground">Aba</TableHead>
                   <TableHead className="w-[150px] font-semibold text-foreground">
                     Rota Logística
                   </TableHead>
@@ -813,7 +811,7 @@ export default function Schools() {
                                 key={idx}
                                 variant="outline"
                                 className="text-[10px] font-medium border-primary/30 text-primary bg-primary/5 gap-1"
-                                title={`Contrato: ${link.contratoNumero} • Rota (Planilha): ${link.rotaPlanilha}`}
+                                title={`Contrato: ${link.contratoNumero} • Aba: ${link.rotaPlanilha}`}
                               >
                                 <FileCheck className="h-2.5 w-2.5" />
                                 {link.contratoNumero}
@@ -1158,11 +1156,11 @@ export default function Schools() {
                   })()}
                 </div>
 
-                {/* Bloco de Contratos Vinculados e Rota da Planilha */}
+                {/* Bloco de Contratos Vinculados & Aba da Planilha */}
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <Briefcase className="h-3.5 w-3.5 text-primary" /> Contratos Vinculados & Rota
+                      <Briefcase className="h-3.5 w-3.5 text-primary" /> Contratos Vinculados & Aba
                       da Planilha
                     </h4>
                     <span className="text-xs text-muted-foreground">
@@ -1216,7 +1214,7 @@ export default function Schools() {
                                 className="text-xs font-normal gap-1 bg-muted text-foreground border border-border"
                               >
                                 <FileSpreadsheet className="h-3 w-3 text-muted-foreground" />
-                                Rota (Planilha): <strong>{link.rotaPlanilha}</strong>
+                                Aba: <strong>{link.rotaPlanilha}</strong>
                               </Badge>
                             </div>
                           </div>

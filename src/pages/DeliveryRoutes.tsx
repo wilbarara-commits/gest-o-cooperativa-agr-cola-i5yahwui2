@@ -1439,7 +1439,7 @@ Ou apenas o nome da escola copiado do Excel/Word`}
                               variant="outline"
                               className="text-[9px] bg-muted/50 text-muted-foreground"
                             >
-                              Rota (Planilha): {esc.rotaPlanilha || esc.rotaNome}
+                              Aba: {esc.rotaPlanilha || esc.rotaNome}
                             </Badge>
                           )}
                         </div>

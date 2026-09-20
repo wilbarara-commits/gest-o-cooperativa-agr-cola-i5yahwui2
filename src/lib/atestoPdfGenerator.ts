@@ -285,16 +285,7 @@ export async function renderAtestoPageToDoc(
   doc.text(splitTitle, pageWidth / 2, startY, { align: 'center' })
   startY += splitTitle.length * (isDense ? 4.2 : 5) + (isDense ? 1.5 : 2.5)
 
-  // Número / Identificação do Atesto em destaque no cabeçalho
-  if (data.numeroAtesto) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(isDense ? 8.5 : 9.5)
-    doc.setTextColor(51, 65, 85)
-    doc.text(`ATESTO Nº ${data.numeroAtesto}`, pageWidth / 2, startY, { align: 'center' })
-    startY += isDense ? 3.5 : 4.5
-  }
-
-  // Linha sutil separadora do cabeçalho
+  // Linha sutil separadora do cabeçalho (número do atesto não é exibido no documento impresso)
   doc.setDrawColor(203, 213, 225)
   doc.setLineWidth(0.3)
   doc.line(marginX, startY, pageWidth - marginX, startY)
@@ -382,9 +373,19 @@ export async function renderAtestoPageToDoc(
       fillColor: [255, 255, 255],
       textColor: [15, 23, 42],
       fontStyle: 'bold',
-      halign: 'left',
+      halign: 'center',
       lineWidth: 0.3,
       lineColor: [15, 23, 42],
+    },
+    didParseCell: (hookData: any) => {
+      // Garantir que a coluna 0 do rodapé fique alinhada à esquerda e a coluna 1 centralizada
+      if (hookData.section === 'foot') {
+        if (hookData.column.index === 0) {
+          hookData.cell.styles.halign = 'left'
+        } else if (hookData.column.index === 1) {
+          hookData.cell.styles.halign = 'center'
+        }
+      }
     },
     margin: { left: tableMarginLeft, right: tableMarginLeft },
   })

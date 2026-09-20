@@ -1494,11 +1494,6 @@ function DocumentoOficialView({
           TERMO DE RECEBIMENTO DE AQUISIÇÃO DE GÊNEROS ALIMENTÍCIOS REFERENTE À CHAMADA PÚBLICA - N°{' '}
           {numeroChamada || 'Nº'}
         </h1>
-        {numeroAtesto && (
-          <p className="text-xs font-bold text-slate-700 tracking-wide pt-0.5">
-            ATESTO Nº {numeroAtesto}
-          </p>
-        )}
       </div>
 
       {/* 2. Parágrafo de Atesto */}

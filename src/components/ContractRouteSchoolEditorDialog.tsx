@@ -22,6 +22,7 @@ import {
   Building2,
   MapPin,
   Sparkles,
+  Upload,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeName } from '@/lib/excelImporter'
@@ -29,6 +30,7 @@ import pb from '@/lib/pocketbase/client'
 import { escolasService } from '@/services/escolas'
 import { contratosService } from '@/services/contratos'
 import type { School, Contract } from '@/lib/types'
+import { RouteSchoolBatchImportModal } from '@/components/RouteSchoolBatchImportModal'
 
 export interface ContractRouteInfo {
   id?: string
@@ -60,6 +62,7 @@ export function ContractRouteSchoolEditorDialog({
   const [newSchoolAddress, setNewSchoolAddress] = useState('')
   const [showQuickCreate, setShowQuickCreate] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [batchImportOpen, setBatchImportOpen] = useState(false)
 
   // Identificação do nome da rota selecionada
   const currentRouteName = route?.nome || ''
@@ -402,15 +405,28 @@ export function ContractRouteSchoolEditorDialog({
               <Label className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> Incluir Escola nesta Rota
               </Label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 text-[11px] text-primary p-1"
-                onClick={() => setShowQuickCreate(!showQuickCreate)}
-              >
-                {showQuickCreate ? 'Buscar Existente' : '+ Cadastrar Nova no Mestre'}
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-[11px] gap-1 px-2 border-primary/40 text-primary hover:bg-primary/5"
+                  onClick={() => setBatchImportOpen(true)}
+                  title="Importar planilha Excel, Word, CSV ou texto simples em lote"
+                >
+                  <Upload className="h-3 w-3" />
+                  Selecionar Arquivo (Excel/Word/CSV/TXT)
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[11px] text-primary p-1"
+                  onClick={() => setShowQuickCreate(!showQuickCreate)}
+                >
+                  {showQuickCreate ? 'Buscar Existente' : '+ Cadastrar Nova'}
+                </Button>
+              </div>
             </div>
 
             {/* Painel de busca no cadastro mestre */}
@@ -589,6 +605,20 @@ export function ContractRouteSchoolEditorDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Modal para seleção e importação de arquivo (Excel, Word, CSV, TXT) */}
+      <RouteSchoolBatchImportModal
+        open={batchImportOpen}
+        onOpenChange={setBatchImportOpen}
+        targetRouteName={currentRouteName}
+        targetRouteId={route?.id}
+        contract={contract}
+        allContracts={allContracts}
+        masterSchools={masterSchools}
+        onSuccess={async () => {
+          await onSuccess()
+        }}
+      />
     </Dialog>
   )
 }

@@ -53,11 +53,13 @@ import {
   ClipboardPaste,
   HelpCircle,
   Check,
+  Upload,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { matchPastedSchoolLine } from '@/lib/excelImporter'
+import { RouteSchoolBatchImportModal } from '@/components/RouteSchoolBatchImportModal'
 import {
   MOTIVOS_LOGISTICOS_CANCELAMENTO,
   type MotivoLogisticoCancelamento,
@@ -115,6 +117,7 @@ export default function DeliveryRoutes() {
   const [pastedSchoolsText, setPastedSchoolsText] = useState('')
   const [unmatchedPastedLines, setUnmatchedPastedLines] = useState<string[]>([])
   const [pastedMatchFeedback, setPastedMatchFeedback] = useState<string | null>(null)
+  const [batchImportFileModalOpen, setBatchImportFileModalOpen] = useState(false)
 
   // Estado para confirmação de despacho da rota inteira
   const [dispatchConfirmOpen, setDispatchConfirmOpen] = useState(false)
@@ -766,6 +769,19 @@ export default function DeliveryRoutes() {
                       <Button
                         variant="outline"
                         size="sm"
+                        className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary/5"
+                        onClick={() => {
+                          setSelectedRotaForRouting(item.rota)
+                          setBatchImportFileModalOpen(true)
+                        }}
+                        title="Importar escolas em lote via arquivo Excel, Word, CSV ou texto simples"
+                      >
+                        <Upload className="h-3.5 w-3.5 text-primary" />
+                        Importar Arquivo
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
                         className="h-7 text-xs gap-1"
                         onClick={() => handleOpenRouting(item.rota)}
                         title="Atribuir escolas a esta rota logística"
@@ -1201,18 +1217,34 @@ export default function DeliveryRoutes() {
           </DialogHeader>
 
           <div className="space-y-4 py-2 text-xs">
-            {/* Seção de Colagem em Massa */}
+            {/* Seção de Importação por Arquivo e Colagem em Massa */}
             <div className="rounded-lg border border-primary/25 bg-primary/[0.03] p-3 space-y-2.5">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <Label
                   htmlFor="paste-schools-textarea"
                   className="font-semibold text-foreground flex items-center gap-1.5 text-xs"
                 >
-                  <ClipboardPaste className="h-4 w-4 text-primary" /> Colar lista de escolas com
-                  endereço
+                  <ClipboardPaste className="h-4 w-4 text-primary" /> Adicionar Escolas em Lote
                 </Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary/10 w-fit"
+                  onClick={() => setBatchImportFileModalOpen(true)}
+                  title="Selecionar arquivo Excel, Word, CSV ou texto simples"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Selecionar Arquivo (Excel/Word/CSV/TXT)
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] font-medium text-foreground flex items-center gap-1">
+                  Ou cole o texto diretamente abaixo:
+                </span>
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                  <HelpCircle className="h-3 w-3" /> Excel, Word, CSV ou texto simples
+                  <HelpCircle className="h-3 w-3" /> Uma escola por linha
                 </span>
               </div>
 
@@ -1598,6 +1630,34 @@ Ou apenas o nome da escola copiado do Excel/Word`}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Importação em Lote via Arquivo (Excel, Word, CSV, TXT) */}
+      {currentContrato && selectedRotaForRouting && (
+        <RouteSchoolBatchImportModal
+          open={batchImportFileModalOpen}
+          onOpenChange={setBatchImportFileModalOpen}
+          targetRouteName={selectedRotaForRouting.nome}
+          targetRouteId={selectedRotaForRouting.id}
+          contract={currentContrato}
+          allContracts={contracts}
+          masterSchools={schools}
+          onSuccess={async () => {
+            // Sincronizar escolas recém-adicionadas deste contrato na rota selecionada
+            // e atualizar o estado local de escolas selecionadas no modal
+            const updatedContract = contracts.find((c) => c.id === currentContrato.id)
+            if (updatedContract) {
+              const currentRouteNorm = selectedRotaForRouting.nome.trim().toLowerCase()
+              const matchedIds = updatedContract.escolas
+                .filter(
+                  (e) =>
+                    (e.rotaPlanilha || e.rotaNome || '').trim().toLowerCase() === currentRouteNorm,
+                )
+                .map((e) => e.escolaId)
+              setSelectedSchoolsToAssign(matchedIds)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -347,62 +347,12 @@ export default function Atestos() {
     }
   }
 
-  // 3. Download do PDF de um Atesto já emitido (fluxo resiliente com captura abrangente de erros)
+  // 3. Download e geração do PDF de um Atesto já emitido (SEMPRE gera com o template oficial mais recente)
   const handleDownloadExisting = async (atesto: Atesto) => {
     setDownloadingId(atesto.id)
     try {
-      // 1. Tentar baixar arquivo PDF já gravado no backend (se houver nome de arquivo gravado)
-      if (atesto.arquivo) {
-        const fileUrl = atestosService.getFileUrl(
-          {
-            id: atesto.id,
-            collectionName: 'atestos',
-            arquivo: atesto.arquivo,
-          },
-          atesto.arquivo,
-        )
-
-        if (fileUrl) {
-          let fileDownloadOk = false
-          try {
-            const resp = await fetch(fileUrl)
-            if (resp.ok) {
-              const dlBlob = await resp.blob()
-              if (dlBlob && dlBlob.size > 0) {
-                const objectUrl = window.URL.createObjectURL(dlBlob)
-                const safeName = (
-                  atesto.arquivo.endsWith('.pdf') ? atesto.arquivo : `${atesto.arquivo}.pdf`
-                ).replace(/[/\\?%*:|"<>]/g, '_')
-                const a = document.createElement('a')
-                a.href = objectUrl
-                a.download = safeName
-                document.body.appendChild(a)
-                a.click()
-                document.body.removeChild(a)
-                setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000)
-                toast.success('Download do PDF armazenado iniciado com sucesso!')
-                fileDownloadOk = true
-                return
-              }
-            } else {
-              console.warn(`Fetch do arquivo gravado retornou status HTTP ${resp.status}`)
-            }
-          } catch (fetchErr) {
-            console.warn(
-              'Fetch do arquivo armazenado falhou (CORS ou rede), prosseguindo para síntese retroativa:',
-              fetchErr,
-            )
-          }
-
-          if (!fileDownloadOk) {
-            toast.error(
-              'Não foi possível baixar o arquivo gravado. Iniciando regeneração do documento...',
-            )
-          }
-        }
-      }
-
-      // 2. Síntese retroativa ou regeneração do PDF oficial
+      // Sempre regerar o PDF a partir dos dados do pedido e do template atual,
+      // garantindo que qualquer atesto já existente receba o layout novo imediatamente.
       // Procura o pedido vinculado na lista em memória ou busca no backend
       let relatedOrder = orders.find((o) => o.id === atesto.orderId)
 
@@ -580,6 +530,104 @@ export default function Atestos() {
   const handlePrint = () => {
     // Garantir que a impressão dispare após renderização do DOM
     window.print()
+  }
+
+  // Impressão direta do documento oficial em PDF com layout perfeito
+  const handlePrintAtestoPdf = async (atesto: Atesto) => {
+    setDownloadingId(atesto.id)
+    try {
+      let relatedOrder = orders.find((o) => o.id === atesto.orderId)
+      if (!relatedOrder && atesto.orderId) {
+        try {
+          const pedRec = await pb.collection('pedidos').getOne<any>(atesto.orderId, {
+            expand: 'escola_id,ciclo_id,rota_id',
+          })
+          const pedItens = await pb.collection('pedido_itens').getFullList<any>({
+            filter: `pedido_id = "${atesto.orderId}"`,
+            expand: 'produto_id',
+          })
+          let fallbackContractItems: any[] = []
+          try {
+            fallbackContractItems = await pb.collection('contrato_itens').getFullList<any>()
+          } catch {
+            /* intentionally ignored */
+          }
+          if (pedRec) {
+            relatedOrder = {
+              id: pedRec.id,
+              numero: pedRec.numero,
+              schoolId: pedRec.escola_id,
+              schoolName: pedRec.expand?.escola_id?.nome || atesto.schoolName || 'Unidade Escolar',
+              cicloId: pedRec.ciclo_id,
+              origem: pedRec.origem || 'manual',
+              rotaId: pedRec.rota_id,
+              validacao: pedRec.validacao,
+              date: pedRec.data_prevista || atesto.date,
+              status: pedRec.status,
+              entregue_em: pedRec.entregue_em,
+              total: 0,
+              items: pedItens.map((it: any) => {
+                const ciMatch = fallbackContractItems.find(
+                  (c) => c.produto_id === it.produto_id && c.nome_contrato?.trim(),
+                )
+                const nomeContrato =
+                  ciMatch?.nome_contrato?.trim() ||
+                  it.expand?.produto_id?.nome ||
+                  'Gêneros Alimentícios'
+                return {
+                  id: it.id,
+                  productId: it.produto_id,
+                  name: nomeContrato,
+                  quantity: Number(it.quantidade) || 0,
+                  price: Number(it.preco_unitario) || 0,
+                }
+              }),
+            }
+          }
+        } catch (fetchErr) {
+          console.warn('Erro ao carregar pedido para impressão PDF:', fetchErr)
+        }
+      }
+
+      const targetOrder: Order = relatedOrder || {
+        id: atesto.orderId,
+        numero: atesto.orderNumber || atesto.numero,
+        schoolId: '',
+        schoolName: atesto.schoolName || 'Unidade Escolar',
+        origem: 'manual',
+        validacao: { status: 'validado', motivo: 'Registro de Atesto' },
+        date: atesto.date || new Date().toISOString(),
+        status: 'Entregue',
+        total: 0,
+        items: [
+          {
+            id: 'fallback-item',
+            productId: 'fallback',
+            name: 'Gêneros alimentícios da agricultura familiar conforme registro de entrega',
+            quantity: 1,
+            price: 0,
+          },
+        ],
+      }
+
+      const docData: AtestoDocumentData = prepareDocumentData(
+        targetOrder,
+        atesto.numero,
+        atesto.date,
+      )
+      let doc: any
+      try {
+        doc = await createOfficialAtestoPdf(docData)
+      } catch {
+        doc = await createOfficialAtestoPdf({ ...docData, logoUrl: undefined })
+      }
+      openPdfForPrint(doc)
+    } catch (printErr: any) {
+      console.error('Falha ao abrir PDF para impressão:', printErr)
+      window.print()
+    } finally {
+      setDownloadingId(null)
+    }
   }
 
   // 5. Emitir e Imprimir todos os atestos de uma ROTA ENTREGUE em um único PDF em ordem de entrega
@@ -965,6 +1013,22 @@ export default function Atestos() {
                               </Button>
                             )}
 
+                            {/* Botão Imprimir Direto */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs gap-1 border-muted-foreground/30 hover:bg-muted"
+                              onClick={() => handlePrintAtestoPdf(atesto)}
+                              disabled={downloadingId === atesto.id}
+                              title="Imprimir Termo de Recebimento Oficial"
+                            >
+                              {downloadingId === atesto.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              ) : (
+                                <Printer className="h-3 w-3 mr-1" />
+                              )}
+                              Imprimir
+                            </Button>
                             {/* Botão Baixar PDF */}
                             <Button
                               variant="outline"
@@ -1055,7 +1119,13 @@ export default function Atestos() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handlePrint}
+                    onClick={() => {
+                      const nextNum = `AT-${String(atestos.length + 1).padStart(3, '0')}`
+                      const docData = prepareDocumentData(orderForEmission, nextNum)
+                      createOfficialAtestoPdf(docData)
+                        .then((doc) => openPdfForPrint(doc))
+                        .catch(() => window.print())
+                    }}
                     disabled={isEmitting}
                     className="gap-1.5"
                   >
@@ -1153,8 +1223,19 @@ export default function Atestos() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5">
-                    <Printer className="h-4 w-4" /> Imprimir
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePrintAtestoPdf(atestoForView)}
+                    disabled={downloadingId === atestoForView.id}
+                    className="gap-1.5"
+                  >
+                    {downloadingId === atestoForView.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Printer className="h-4 w-4" />
+                    )}
+                    Imprimir
                   </Button>
                   <Button
                     size="sm"

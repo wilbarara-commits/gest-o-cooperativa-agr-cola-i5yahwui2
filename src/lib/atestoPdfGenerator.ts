@@ -378,7 +378,17 @@ export async function renderAtestoPageToDoc(
       lineColor: [15, 23, 42],
     },
     didParseCell: (hookData: any) => {
-      // Garantir que a coluna 0 do rodapé fique alinhada à esquerda e a coluna 1 centralizada
+      // Garantir que a coluna 0 do rodapé fique alinhada à esquerda e a coluna 1 rigorosamente centralizada
+      if (hookData.section === 'foot') {
+        if (hookData.column.index === 0) {
+          hookData.cell.styles.halign = 'left'
+        } else if (hookData.column.index === 1) {
+          hookData.cell.styles.halign = 'center'
+        }
+      }
+    },
+    willDrawCell: (hookData: any) => {
+      // Reforço explícito antes da renderização da célula no PDF
       if (hookData.section === 'foot') {
         if (hookData.column.index === 0) {
           hookData.cell.styles.halign = 'left'

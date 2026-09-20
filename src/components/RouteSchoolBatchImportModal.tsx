@@ -28,16 +28,20 @@ import {
   RouteSchoolBatchAnalysis,
   RouteSchoolImportResult,
 } from '@/lib/routeSchoolBatchImporter'
-import { Contract, School } from '@/lib/types'
+import { Contract, School, ParadaRotaRecord, RotaLogisticaRecord } from '@/lib/types'
+import { RouteType } from '@/lib/routeSchoolBatchImporter'
 
 export interface RouteSchoolBatchImportModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   targetRouteName: string
   targetRouteId?: string
+  targetRouteType?: RouteType
   contract: Contract
   allContracts: Contract[]
   masterSchools: School[]
+  paradasRota?: ParadaRotaRecord[]
+  rotasLogisticas?: RotaLogisticaRecord[]
   onSuccess: () => Promise<void> | void
 }
 
@@ -46,9 +50,12 @@ export function RouteSchoolBatchImportModal({
   onOpenChange,
   targetRouteName,
   targetRouteId,
+  targetRouteType = 'planilha',
   contract,
   allContracts,
   masterSchools,
+  paradasRota = [],
+  rotasLogisticas = [],
   onSuccess,
 }: RouteSchoolBatchImportModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -96,9 +103,12 @@ export function RouteSchoolBatchImportModal({
         parsedRows,
         targetRouteName,
         targetRouteId,
+        targetRouteType,
         targetContract: contract,
         allContracts,
         masterSchools,
+        paradasRota,
+        rotasLogisticas,
       })
 
       setAnalysis(analyzed)
@@ -128,7 +138,9 @@ export function RouteSchoolBatchImportModal({
         analysis,
         targetRouteName,
         targetRouteId,
+        targetRouteType,
         targetContractId: contract.id,
+        currentParadasRota: paradasRota,
         onProgress: (current, total) => setProgress({ current, total }),
       })
 

@@ -612,6 +612,7 @@ export function ContractRouteSchoolEditorDialog({
         onOpenChange={setBatchImportOpen}
         targetRouteName={currentRouteName}
         targetRouteId={route?.id}
+        targetRouteType="planilha"
         contract={contract}
         allContracts={allContracts}
         masterSchools={masterSchools}

@@ -85,6 +85,7 @@ export default function DeliveryRoutes() {
     atribuirPedidosARotaLogistica,
     salvarSequenciamentoParadas,
     updateOrderStatus,
+    refreshData,
   } = useApp()
   const { user } = useAuth()
 
@@ -1638,23 +1639,20 @@ Ou apenas o nome da escola copiado do Excel/Word`}
           onOpenChange={setBatchImportFileModalOpen}
           targetRouteName={selectedRotaForRouting.nome}
           targetRouteId={selectedRotaForRouting.id}
+          targetRouteType="logistica"
           contract={currentContrato}
           allContracts={contracts}
           masterSchools={schools}
+          paradasRota={paradasRota}
+          rotasLogisticas={rotasLogisticas}
           onSuccess={async () => {
-            // Sincronizar escolas recém-adicionadas deste contrato na rota selecionada
-            // e atualizar o estado local de escolas selecionadas no modal
-            const updatedContract = contracts.find((c) => c.id === currentContrato.id)
-            if (updatedContract) {
-              const currentRouteNorm = selectedRotaForRouting.nome.trim().toLowerCase()
-              const matchedIds = updatedContract.escolas
-                .filter(
-                  (e) =>
-                    (e.rotaPlanilha || e.rotaNome || '').trim().toLowerCase() === currentRouteNorm,
-                )
-                .map((e) => e.escolaId)
-              setSelectedSchoolsToAssign(matchedIds)
-            }
+            // Recarrega todos os dados de rotas, contratos e paradas
+            await refreshData()
+            // Atualizar o estado local de escolas selecionadas se o modal de roteamento estiver aberto
+            const paradasDaRota = paradasRota
+              .filter((p) => p.rota_logistica_id === selectedRotaForRouting.id)
+              .map((p) => p.escola_id)
+            setSelectedSchoolsToAssign(paradasDaRota)
           }}
         />
       )}
